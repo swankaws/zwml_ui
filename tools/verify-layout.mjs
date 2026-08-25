@@ -34,6 +34,24 @@ const CASES = [
   { size: '1280x1024', query: '?demoOrder=1', label: '5:4 mid-draft' },
   { size: '390x844', query: '?demoOrder=1', label: 'phone portrait' },
   { size: '1440x900', query: '?demoOrder=1', label: 'laptop' },
+  /*
+   * The escape hatches from displaySettings.ts. These are in the matrix because
+   * they only earn their keep if they work on the night, unrehearsed, on the first
+   * try -- and the projector is not available until the day before the draft, so
+   * there is no second chance to find out they clip.
+   *
+   * `scale=1.15` in particular is a *claim*: it is the documented ceiling in 7.1,
+   * measured, and 1.20 clips. Gating it means a later change to the header height
+   * or row chrome cannot quietly invalidate the number the doc tells the operator
+   * to trust.
+   */
+  { size: '1920x1080', query: '?scale=1.15&demoOrder=1', label: '1080p at the scale ceiling' },
+  {
+    size: '1920x1080',
+    query: '?rail=off&columns=manager,left,needs,maxbid&demoOrder=1',
+    label: '1080p rail off, forced cols',
+  },
+  { size: '1024x768', query: '?scale=1.1&rail=off&demoOrder=1', label: '4:3 scaled, rail off' },
 ]
 
 function measure(size, query) {
@@ -73,7 +91,13 @@ for (const testCase of CASES) {
   }
   if (m.docOverflow.x > 0) problems.push(`${m.docOverflow.x}px horizontal overflow`)
   if (m.docOverflow.y > 0) problems.push(`${m.docOverflow.y}px vertical overflow`)
-  if (m.headerTruncated) problems.push(`header truncated: ${m.headerText}`)
+  if (m.h1Truncated) {
+    problems.push(
+      `title truncated: "${m.h1Truncated.text}" in ${m.h1Truncated.w}px, needs ${m.h1Truncated.need}px`,
+    )
+  } else if (m.headerTruncated) {
+    problems.push(`header truncated: ${m.headerText}`)
+  }
   if (m.railOverlapsTable) problems.push(`rail overlaps the table by ${JSON.stringify(m.railOverlapsTable)}`)
   for (const cell of m.truncatedCells) {
     problems.push(`truncated cell ${cell.cls}: "${cell.text}" in ${cell.w}px, needs ${cell.need}px`)

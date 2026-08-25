@@ -94,6 +94,18 @@ export interface SelectOptions {
   enabled?: ColumnKey[]
   /** Override the readability floor directly, in px per unit. For tests. */
   minUnitPx?: number
+  /**
+   * An exact column set from the SETTINGS tab or the query string, which bypasses
+   * the fit test entirely.
+   *
+   * Deliberate: the fit test is a heuristic about what *should* be readable, and a
+   * person standing in the room looking at the wall out-ranks it. This is the
+   * escape hatch for the case the heuristic gets wrong on unfamiliar hardware --
+   * the projector is not available until the day before the draft (7.1), so an
+   * override that needs no rebuild is the difference between a two-minute fix and
+   * a deploy plus CDN propagation on the night.
+   */
+  forced?: readonly ColumnKey[] | null
 }
 
 /**
@@ -116,7 +128,16 @@ export function selectColumns(options: SelectOptions): Column[] {
     enabled = [],
     typePx = REFERENCE_TYPE_PX,
     minUnitPx = MIN_UNIT_RATIO * typePx,
+    forced = null,
   } = options
+
+  // An explicit set skips the fit test but still goes out in display order, so the
+  // row reads the same way however the columns were chosen.
+  if (forced && forced.length > 0) {
+    return DISPLAY_ORDER.filter((key) => forced.includes(key)).map(
+      (key) => COLUMNS.find((c) => c.key === key) as Column,
+    )
+  }
 
   const candidates = COLUMNS.filter((c) => !c.optIn || enabled.includes(c.key))
   const byPriority = [...candidates].sort((a, b) => b.priority - a.priority)

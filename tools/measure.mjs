@@ -61,6 +61,19 @@ const PROBE = `(() => {
     /* The bottom row must end inside the viewport, or the projector shows 11 of 12. */
     lastRowBottom: rows.length ? Math.round(rows[rows.length - 1].getBoundingClientRect().bottom) : null,
     rowsClipped: clipped(document.querySelector('.rows')),
+    /*
+     * How many px the rows want beyond what they have. Negative is slack.
+     *
+     * The boolean above answers "does it clip", which is all the gate needs, but it
+     * cannot answer "how close to clipping is it" -- and that is the question behind
+     * every documented scale ceiling in 7.1. Measuring against the viewport does not
+     * work: .rows is overflow:hidden with minmax(0, 1fr) tracks, so it always fills
+     * its box exactly and the overflow is entirely internal.
+     */
+    rowsOverflowPx: (() => {
+      const el = document.querySelector('.rows')
+      return el ? el.scrollHeight - el.clientHeight : null
+    })(),
     boardWiderThanArea: (() => {
       const area = document.querySelector('.table-area')
       const row = rows[0]
@@ -89,9 +102,22 @@ const PROBE = `(() => {
         })
         .map((el) => ({ cls: el.className, text: el.textContent.trim() }))
     })(),
-    /* Header items that overflow are silently lost -- flex-nowrap does not warn. */
+    /*
+     * Header items that overflow are silently lost -- flex-nowrap does not warn.
+     *
+     * The h1 needs its own check: it carries text-overflow: ellipsis, so it
+     * absorbs an overflow into "ZWML 202..." without ever making .header itself
+     * overflow. Every other probe here reported that layout as clean.
+     * (No backticks in this comment -- PROBE is a template literal.)
+     */
     headerTruncated: truncated(document.querySelector('.header')) ||
+      truncated(document.querySelector('.header h1')) ||
       [...document.querySelectorAll('.totals > *')].some((s) => s.getBoundingClientRect().right > window.innerWidth),
+    h1Truncated: (() => {
+      const h1 = document.querySelector('.header h1')
+      if (!h1) return null
+      return truncated(h1) ? { text: h1.textContent.trim(), w: Math.round(h1.clientWidth), need: h1.scrollWidth } : false
+    })(),
     headerText: (document.querySelector('.header')?.textContent ?? '').replace(/\\s+/g, ' ').trim(),
     /* Rail overlapping the table is the 4:3 failure mode. */
     railOverlapsTable: (() => {

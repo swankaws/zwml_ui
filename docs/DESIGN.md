@@ -747,15 +747,78 @@ Mechanics:
 - ~2% safe-area padding for projector overscan and keystone cropping.
 - **12 rows always fit; the grid never scrolls.** Row height, type size, and column set step down
   together until they do.
-- `+` / `−` keys nudge the root scale live, and `?scale=1.15` persists it — because the real room,
-  the real throw distance, and the real bulb decide what is actually readable, and that can only be
-  discovered on site. **Budget time for this in the phase 7 rehearsal**; the table above is
-  arithmetic, not a measurement.
+- `+` / `−` keys nudge the root scale live, `?scale=1.15` pins it, and the `SETTINGS` tab sets it
+  durably (§9.2) — because the real room, the real throw distance, and the real bulb decide what is
+  actually readable, and that can only be discovered on site. **Budget time for this in the phase 7
+  rehearsal**; the table above is arithmetic, not a measurement.
 - Projectors are dimmer and lower-contrast than the laptop the design is built on: use bold weights
   over thin ones, avoid mid-grey text, and keep meaningful color differences large rather than
   subtle. Verify on the real bulb, not the editor.
 - The layout must still hold up at 1280 × 720, 1024 × 768, and a laptop window, since the projector
   can change on the day.
+
+#### The scale ceiling — measured, and smaller than it looks
+
+The projector is not available until the day before the draft (revised Q7), so `scale` had to be
+built before it could be validated on the wall. That makes its **limit** the important thing to
+document, because an operator reaching for it at 7pm needs to know what it can and cannot buy.
+
+**It buys about 15%, and it is bound by row height — not by width, and not by this multiplier.**
+Twelve rows in a fixed 1080 px is the whole constraint. Measured with `tools/measure.mjs`, mid-draft
+fixture, 1920 × 1080:
+
+| `scale` | Columns | Row height | `MAX BID` | Rows want | Verdict |
+|---|---|---|---|---|---|
+| 1.00 | 6 | 78 px | 65.8 px | fits exactly | baseline |
+| 1.05 | 6 | 78 px | 69.1 px | fits exactly | ok |
+| 1.10 | 5 | 77 px | 72.3 px | fits exactly | ok — **drops `SPENT`** |
+| **1.15** | **5** | **77 px** | **75.6 px** | **fits exactly** | **the ceiling: +15% type** |
+| 1.20 | 5 | 77 px | 78.9 px | **+1 px** | already over; passes only on the harness's 1 px tolerance |
+| 1.25 | 4 | 77 px | 82.2 px | **+3 px** | clips — the 12th row loses glyph tops |
+
+Three things follow, and all three are worth saying out loud:
+
+1. **The honest ceiling is 1.15**, not 1.20. 1.20 measures "clean" only because the gate tolerates a
+   single pixel. Documenting it as safe would be handing over a number that is already in overflow.
+2. **The type gets bigger by dropping a column.** At 1.10 the priority system gives up `SPENT` to keep
+   `MAX BID` un-truncated. That is the system working, but the operator should know the trade exists
+   rather than discover a column vanishing as they press `+`.
+3. **`columns` and `rail` cannot buy type size at 1080p.** They free up *width*, and width is not the
+   scarce axis here — `?rail=off` with four forced columns still measures `MAX BID` at 65.8 px, i.e.
+   identical to the default. They matter at other aspect ratios (see below) and they are what keeps a
+   raised `scale` from looking cramped.
+
+**So the largest available lever is not in this codebase.** Every figure in the table above scales
+linearly with the projected image, so moving the projector back — or throwing a 10 ft image instead
+of 7 ft — is worth more than the entire `scale` range. Check the image size before touching a setting.
+
+At **4:3 the trade is different**, because there the rail is a *bottom band* rather than a side rail,
+so turning it off genuinely returns vertical space: at 1024 × 768, `?rail=off` takes row height from
+50 → 56 px and `MAX BID` from 40.1 → 44.1 px (+10%). Worth knowing if the projector turns out not to
+be the expected 1080p.
+
+#### The header is the one element sized from width, and it failed silently for three phases
+
+Everything else in `theme.css` derives from viewport *height*, because the table's binding constraint
+is vertical. The header is a single `nowrap` flex strip, so its constraint is horizontal, and sizing
+it from height was simply wrong.
+
+It never surfaced because `.header h1` carries `text-overflow: ellipsis`: when the strip ran out of
+room, the **title silently absorbed the entire overflow** while `.header` itself never overflowed, so
+every probe in the harness reported those layouts as clean. Once the harness was taught to check the
+h1 specifically, the title turned out to have **9 px of the 513 px it needed at 1280 × 1024**, 67 of
+386 at 1024 × 768, and 307 of 451 on a 1440 × 900 laptop. On the wall that reads as a broken app.
+
+The fix is `clamp(14px, 2.3vw, 1em)` — the single width-derived size in the file. Two useful
+properties fall out of it: it lands within a pixel of the `0.72em` value the 4:3 block had been
+hand-tuned to (24.0 px vs 23.6 px at 1024 × 768), so it *replaced* that patch rather than adding to
+it; and being in `vw` it is immune to `--scale`, which is correct twice over — raising the scale
+should grow the *table*, not the chrome, and a taller header steals from the twelve rows the nudge is
+trying to buy. That last point is what moved the ceiling above from 1.10 to 1.15.
+
+The general lesson, recorded because it will recur: **a graceful degradation is an invisible one.**
+`text-overflow: ellipsis` is the correct behaviour and also a perfect place for a layout bug to hide.
+Anything with an ellipsis needs its own assertion.
 
 ### 7.2 Main board
 
@@ -1107,6 +1170,10 @@ historical artifact naming `Rob`, who drafted on Jason's behalf in a past year. 
 | Cells **in the auction tab** | **Avoid.** That grid's geometry is verified cell-by-cell (§5.3); adding to it risks the thing the parser depends on |
 | **A separate `SETTINGS` tab** | **Chosen.** Editable from a phone, zero redeploy *after the first one*, and structurally isolated from the auction grid |
 
+The tab now carries more than the order — the display knobs live there too, for the same
+redeploy-avoidance reason. Its full format, key list, A1 anchor requirement and precedence rules are
+specified in **§9.2**; this section covers only the `order` key.
+
 > **One honest caveat on "zero redeploy," from review.** Reading a tab requires its `gid`, and a gid
 > only exists once the tab does — so `settingsTabGid` has to be committed *after* the `SETTINGS` tab is
 > created, which is itself a redeploy. Today it is `null` (§9), meaning the fallback path is the only
@@ -1285,9 +1352,11 @@ export const league = {
 }
 ```
 
-Display preferences live separately in `config/display.ts` — column priority order, the aspect-ratio
-breakpoints, ticker length, and the default root scale — so layout tuning on draft night never risks
-touching league rules.
+Display preferences live separately from league rules, so layout tuning on draft night never risks
+touching them: column priorities and measured widths in `ui/columns.ts`, aspect-ratio breakpoints in
+`ui/theme.css`, and the runtime-settable knobs — scale, forced columns, rail, `$/SLOT`, order — in
+`config/displaySettings.ts` (§9.2). Only the last group is editable without a deploy, which is the
+whole point of it.
 
 The template constants are **exact coordinates**, and the parser verifies every one of them against
 its expected label on each poll (§5.4). If the maintainer ever restructures the tab, the repair is
@@ -1364,6 +1433,62 @@ weighed against the fact that this data is read aloud to the room as it is enter
 **One-time setup on the repo:** add `SHEET_ID_B64` under Settings → Secrets and variables → Actions.
 If it is missing the build still succeeds and the board shows its setup card — deliberately, so a
 missing secret surfaces as a visible, fixable message rather than a red CI run hours before a draft.
+
+### 9.2 The `SETTINGS` tab — display tuning without a deploy
+
+**Why this exists.** The projector is not available until the day before the draft (revised Q7), so
+§7.1's arithmetic cannot be confirmed while layout rework is still cheap. Every knob the on-site
+check might want to turn therefore has to be reachable *without a rebuild* — because a rebuild that
+late costs a Pages deploy plus up to 10 minutes of CDN propagation (§10), on the night, in front of
+everyone. The same tab also carries the nomination order (§7.5), so it earns its keep either way.
+
+**Layout: two columns, `key | value`, and position-independent.** Blank rows, reordered rows and
+extra columns are all fine. Nothing in the parser depends on a row index, which is also what makes it
+safe to read over `gviz` if `/export` is ever unavailable — `gviz` collapses empty rows (§5.0) and
+would shift every index.
+
+| `A` | `B` | Notes |
+|---|---|---|
+| `ZWML SETTINGS` | | **Required in A1.** See the anchor note below |
+| `scale` | `1.15` | Root type multiplier. Clamped to 0.6–2.0, snapped to 0.05. **Read the ceiling in §7.1 first — it buys ~15%** |
+| `columns` | `manager, left, needs, maxbid` | Forces an exact set, bypassing the priority system. Names are case-insensitive |
+| `rail` | `on` / `off` | The nomination + sales rail. `off` returns *width* at 16:9, *height* at 4:3 |
+| `perslot` | `off` | The opt-in `$/SLOT` column (§7.2). Also spelled `$/slot` |
+| `order` | `Jeff > Toby > …` | Nomination order (§7.5). Comma-, newline- or `>`-separated |
+
+**A1 must read `ZWML SETTINGS`, and that is a guard rather than decoration.** §5.2 verified that
+`gviz`'s `&sheet=<name>` selector answers `status:"ok"` **with the wrong tab's data** when the name
+does not match. Without an anchor, a renamed or misspelled tab would hand this parser the auction grid
+and let it apply whatever happened to look like a key. With it, the wrong tab yields zero settings and
+one loud warning, and the built-in defaults stand.
+
+**Precedence — later wins:**
+
+```
+  defaults  <  SETTINGS tab  <  ?query=  <  the + / − keys
+```
+
+Each step up is a step closer to someone who can actually see the wall. The sheet beats the defaults
+because it is durable, shared and editable from a phone. **The URL beats the sheet** because it needs
+no sheet, no network, no gid and no deploy — if the tab is fumbled or unreachable at 7pm, a URL typed
+into the address bar still fixes the display. The keys beat everything for `scale`, because they are
+the operator standing in the room; `0` clears that nudge and hands control back to the sheet.
+
+Two implementation notes that are easy to get wrong and were:
+
+- **`localStorage` is written only on an actual keypress.** An earlier version persisted the scale on
+  every render, so storage always held a value and permanently shadowed the `SETTINGS` tab — which
+  would have presented as "editing the sheet does nothing", at 7pm, on the one night it matters.
+- **Tolerant of junk, strict about ambiguity.** An unknown key warns and is ignored, because someone
+  will leave a note in this tab and a comment must not take the board down. But an unknown *column
+  name* rejects the whole `columns` setting, and an unknown or duplicated manager rejects the whole
+  `order` — a partial rotation is a wrong rotation, and silently skipping a manager on the wall is
+  worse than falling back to the committed copy. `MANAGER` and `MAX BID` are re-added if a forced set
+  omits them; "the operator asked for it" is not sufficient reason to put a board on the wall that
+  cannot answer who can bid what.
+
+`src/config/displaySettings.ts` is deliberately pure — no fetch, no DOM, no React — so the entire
+precedence chain is unit-tested with no network. Phase 4 supplies the grid; nothing above changes.
 
 ---
 
@@ -1472,8 +1597,29 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   `Emulation.setDeviceMetricsOverride`, and reads the real DOM back: row count, whether the last row
   ends inside the viewport, ellipsised cells, rail clipping, header overflow, rail/table overlap,
   document overflow, console errors, and the computed type size of the columns that matter.
-  `tools/verify-layout.mjs` runs it across **eight cases** — 1080p mid-draft / draft-complete /
-  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900 — and exits non-zero on any failure.
+  `tools/verify-layout.mjs` runs it across **eleven cases** — 1080p mid-draft / draft-complete /
+  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900, plus the three §9.2 escape hatches
+  — and exits non-zero on any failure.
+
+  **The escape-hatch cases are in the matrix on purpose.** `?scale=1.15`, `?rail=off` with a forced
+  column set, and a scaled 4:3 only earn their keep if they work on the night, unrehearsed, on the
+  first try — and the projector is not available until the day before, so there is no second chance to
+  discover that they clip. The `scale=1.15` case in particular gates a *claim*: it is the documented
+  ceiling in §7.1, and pinning it means a later change to header height or row chrome cannot quietly
+  invalidate the number the doc tells the operator to trust. It has already earned that: shrinking the
+  header moved the real ceiling from 1.10 to 1.15.
+
+  Two probes worth calling out, because both exist to see through a *successful* degradation:
+
+  - **`h1Truncated`.** Checking `.header` for overflow is not enough — the h1's own
+    `text-overflow: ellipsis` absorbs the overflow, so the strip never reports as overflowing. This
+    single check found title truncation at four of the eight resolutions, latent since phase 1 (§7.1).
+  - **`rowsOverflowPx`.** `rowsClipped` answers "does it clip", which is what the gate needs, but not
+    "how close is it" — which is the question behind every documented ceiling. Measuring against the
+    viewport does not work: `.rows` is `overflow: hidden` with `minmax(0, 1fr)` tracks, so it always
+    fills its box exactly and the overflow is entirely internal. Note the same property means
+    **`docOverflow.y` cannot see a vertical clip at all** (`body` is `overflow: hidden`);
+    `lastRowBottom` and these two are the only guards there.
 
   This paid for itself immediately and repeatedly. Screenshots showed the 4:3 layout was broken but
   not why; the harness reported `.app` measuring **1303 px inside a 1024 px viewport**, because a
@@ -1482,8 +1628,16 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   catch: `grid-auto-rows: 1fr` flooring at min-content and cropping the twelfth manager; a
   `font-size` override that did nothing because it sat above the rule it meant to override (media
   queries carry no extra specificity, so only source order decides); `LEFT` rendering `$2…`; the rail
-  cropping a player name mid-word; and the 1440 × 900 column shortfall above. **Every one of those is
-  invisible to a unit test and easy to miss on a screenshot.**
+  cropping a player name mid-word; the 1440 × 900 column shortfall above; and the header truncating its
+  own title at four resolutions. **Every one of those is invisible to a unit test and easy to miss on a
+  screenshot** — the title one was invisible on a screenshot too, because an ellipsis looks deliberate.
+
+  It has also caught the *same* specificity mistake twice, in opposite directions. The second time was
+  self-inflicted while fixing the title: adding a base `.header { font-size }` rule *below* the 4:3
+  media block silently killed that block's `0.72em` override, so the phone header rendered at full size
+  and row height fell 44 → 36 px with the rows overflowing. The gate caught it in the same run that
+  confirmed the title fix. **Adding a base rule can break a media query** — the arrow points both ways,
+  and neither direction is visible in the diff.
 
 - **Dress rehearsal is mandatory:** real projector, real laptop, real network, before draft night —
   including pulling the network cable to watch the staleness indicator do its job. Prevent OS
@@ -1502,7 +1656,7 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 | Q2 | Roster template for 2026 | **Confirmed:** 15 auction slots + 1 free defense. |
 | Q3 | Manager identity | **Jason** is the manager; **Rob** was drafting on his behalf that year. `A1`'s order string is a historical artifact — parser ignores it. `Jeffrey` → `Jeff` alias stands. |
 | Q4 | Over-$200 spends | Legal in **2025 only**; `$200` is a hard cap for 2026 and the sheet is fixed. Overspend is now a genuine error state → flag it. |
-| Q7 | Projector | **1920 × 1080 (16:9)** (corrected in rev 5 from 1024 × 768), with multi-resolution support required. Primary design target; note 16:9 is *shorter*, which drove the side-rail layout (§7.1). |
+| Q7 | Projector | **1920 × 1080 (16:9)** (corrected in rev 5 from 1024 × 768), with multi-resolution support required. Primary design target; note 16:9 is *shorter*, which drove the side-rail layout (§7.1). **Not available for testing until ~2026-08-28, the day before the draft** — which is why every legibility knob is settable from the `SETTINGS` tab rather than the source (§9.2), and why the measured `scale` ceiling is documented rather than left to be discovered (§7.1). |
 | — | Where does the spreadsheet id live? | **Not in the repo.** Runtime resolution with a CI-secret default; base64 is obfuscation only (D14, §9.1). |
 | Q5 | Show Defensive / Divisional Draft? | **No — ignore both.** They happen before the auction and are not touched during it (§7.4). |
 | Q6 | Use a player ranking for "best available"? | **Yes, of interest.** Maintainer can export from Yahoo; the existing `Top 300` tab is ~3 seasons stale and unusable as-is (§7.6). Last in the build order. |
@@ -1560,6 +1714,21 @@ Each phase ends with something demonstrable.
    *physical glyph size at a viewing distance*, and no harness can check that. This is the calendar
    dependency in the plan — it needs the room, not the desk.
 
+   **Revised Q7: the projector is not available until roughly the day before the draft** (2026-08-28),
+   which removes the whole point of moving this spike forward. The mitigation is to make the outcome
+   *not require code*: `scale`, `columns`, `rail`, `perslot` and `order` are all now settable from the
+   `SETTINGS` tab or the query string (§9.2), and the three highest-value combinations are gated by
+   `verify:layout` so they are known to work unrehearsed. 233 tests and eleven layout cases green.
+
+   That converts a structural risk into a tuning risk, but does not erase it, and the honest limit is
+   worth stating plainly: **`scale` buys about 15% and no more** (measured table in §7.1), because
+   twelve rows in 1080 px is the binding constraint. If the type turns out to be too small by more than
+   that, the remaining levers are physical — a larger image or a shorter viewing distance — or
+   structural, i.e. the rework this phase was moved forward to avoid. Two things can be done from the
+   desk before the 28th to shrink that possibility: compute the required image width from §7.1's
+   linear relation once the room's longest viewing distance is known, and rehearse on a laptop at a
+   proportionally scaled distance (equal angular size), which needs no projector at all.
+
    Deferred out of this phase deliberately: deriving the nomination **cursor** from the sheet. Two
    plausible derivations are both wrong — `saleCount % order.length` diverges from the real position
    the moment anyone's roster fills, and replaying the order against *current* fullness over-advances,
@@ -1579,7 +1748,11 @@ Each phase ends with something demonstrable.
    > network, no live sheet, and no secret. It either confirms §7.1 or it changes the layout while
    > changing the layout is still cheap. Phase 7 then verifies rather than discovers.
 4. **Live polling.** `sheetClient` on top of `sheetLocation` (§9.1) — including the setup card, since
-   until the CI secret exists that card is the only way to point the app at a sheet. Change
+   until the CI secret exists that card is the only way to point the app at a sheet. **This is where
+   the `SETTINGS` tab gets its fetch**: `displaySettings.ts` and the full precedence chain are built
+   and tested (§9.2), and `main.tsx` already wires the query-string layer, so all that remains is
+   reading the tab and passing its grid to `parseSettingsGrid`. It needs `settingsTabGid`, which needs
+   the tab to exist (§7.5's caveat). Also drop `src/dev/fixtureState.ts` from the entry point. Change
    detection, status bar, error resilience, **the error boundary and the `window`-registered watchdog
    together** (§8.1 — the boundary without the out-of-tree watchdog leaves the blank-projector case
    half-covered). Then **leave it running overnight against the live sheet**: §2 claims "runs

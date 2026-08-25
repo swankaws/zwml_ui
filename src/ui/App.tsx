@@ -13,6 +13,7 @@ import { Rail, type Sale } from './Rail'
 import { REFERENCE_TYPE_PX, selectColumns, type ColumnKey } from './columns'
 import { useDisplayScale } from './useDisplayScale'
 import { sortByMaxBid, type LeagueState } from '../model/derive'
+import { DEFAULT_SETTINGS, type DisplaySettings } from '../config/displaySettings'
 
 export interface AppProps {
   year: number
@@ -23,6 +24,12 @@ export interface AppProps {
   enabledColumns?: ColumnKey[]
   feed?: FeedState
   feedLabel?: string
+  /**
+   * Resolved display settings (`config/displaySettings.ts`): SETTINGS tab under
+   * query string under defaults. Everything the projector evening might need to
+   * change without a rebuild arrives through here.
+   */
+  settings?: DisplaySettings
 }
 
 /**
@@ -78,8 +85,9 @@ export function App({
   enabledColumns = [],
   feed,
   feedLabel,
+  settings = DEFAULT_SETTINGS,
 }: AppProps) {
-  const { scale, nudged } = useDisplayScale()
+  const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
 
   // Before the first measurement, assume the projector rather than assume nothing:
@@ -87,17 +95,28 @@ export function App({
   const columns = selectColumns({
     width: metrics.width || 1300,
     typePx: metrics.typePx || REFERENCE_TYPE_PX,
-    enabled: enabledColumns,
+    enabled: settings.perSlot ? [...enabledColumns, 'perSlot'] : enabledColumns,
+    forced: settings.columns,
   })
+
+  // The sheet's order wins over the committed fallback copy (7.5).
+  const nominationOrder = settings.order ?? order
 
   return (
     <div className="app">
       <Header year={year} league={state} feed={feed} feedLabel={feedLabel} />
-      <div className="stage">
+      <div className="stage" data-rail={settings.rail ? 'on' : 'off'}>
         <div className="table-area" ref={tableRef}>
           <Board managers={sortByMaxBid(state.managers)} columns={columns} />
         </div>
-        <Rail managers={state.managers} order={order} cursor={cursor} sales={sales} />
+        {/*
+         * Not merely hidden: dropping it entirely gives the table the rail's width
+         * back. This is the structural escape hatch for a projector that turns out
+         * to be dimmer or further away than 7.1 assumed.
+         */}
+        {settings.rail && (
+          <Rail managers={state.managers} order={nominationOrder} cursor={cursor} sales={sales} />
+        )}
       </div>
       {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}
       {nudged && <div className="scale-badge">SCALE {scale.toFixed(2)}</div>}

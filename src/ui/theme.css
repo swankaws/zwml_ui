@@ -100,21 +100,31 @@ body {
   min-height: 0;
 }
 
+/*
+ * Rail off (SETTINGS `rail: off`, or `?rail=off`) hands its width back to the
+ * table. The attribute selector out-specifies both `.stage` and the media-query
+ * override below, so this holds at every aspect ratio without duplication.
+ */
+.stage[data-rail='off'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
 @media (aspect-ratio < 16 / 10) {
   .stage {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
   }
-
-  /*
-   * The totals strip is sized for a 1920px-wide header. At 1024 the same text wants
-   * 1303px, and since it must not be the flex item that shrinks, it is the type that
-   * gives -- losing "$/SLOT" off the right-hand edge is not an option.
-   */
-  .header {
-    font-size: 0.72em;
-  }
 }
+
+/*
+ * The 0.72em header override that used to live in the block above is gone. It was
+ * an aspect-ratio patch for a width problem: 4:3 needed it only because 1024 px is
+ * narrow, and it did nothing for 1440x900 -- which is wider but has an even longer
+ * header to fit, and was the worst-truncated case of the three. Sizing the header
+ * from vw covers all of them, and lands within a pixel of the value that block was
+ * hand-tuned to (0.72 x 33.4 = 24.0 px at 1024x768; 2.3vw = 23.6 px).
+ */
 
 /* -------------------------------------------------------------------- header */
 
@@ -126,6 +136,24 @@ body {
   padding-bottom: 0.1rem;
   border-bottom: 2px solid var(--rule);
   min-width: 0;
+  /*
+   * The one place in this file that sizes from viewport WIDTH, and for the reason
+   * given at the top: type derives from height because the *table's* binding
+   * constraint is vertical. The header is a single nowrap strip, so its binding
+   * constraint is horizontal, and sizing it from height was simply wrong.
+   *
+   * It failed silently, which is why it survived this long. `.header h1` carries
+   * `text-overflow: ellipsis`, so when the strip ran out of room the title absorbed
+   * the whole overflow into "ZWML 202..." while `.header` itself never overflowed
+   * and every probe reported the layout clean. Measured once the harness learned to
+   * look: the title had **9 px of the 513 px it needed** at 1280 x 1024, and 67 of
+   * 386 at 1024 x 768. On the wall that reads as a bug in the app.
+   *
+   * Being in vw also makes the header immune to `--scale`, which is right twice
+   * over: raising the scale should make the *table* bigger, not the chrome, and a
+   * taller header steals from the twelve rows that the nudge is trying to buy.
+   */
+  font-size: clamp(14px, 2.3vw, 1em);
 }
 
 .header h1 {
