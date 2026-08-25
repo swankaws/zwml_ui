@@ -89,7 +89,21 @@ function resolveOrder(
   const fromSheet = parseOrder(hint, roster)
   if (fromSheet.order) return { order: fromSheet.order, warnings: fromSheet.warnings }
 
-  return { order: league.nominationOrder, warnings: fromSheet.warnings }
+  /*
+   * The committed order is validated too, against this board.
+   *
+   * Skipping that looks harmless -- it is our own list -- and is not. It names the
+   * CURRENT season's managers, so on a past tab it names someone with no row. The
+   * rail then treats a manager it cannot find as "not full", i.e. able to nominate,
+   * and 2025 rendered `Kris` ON THE CLOCK on a draft that finished a year ago, while
+   * the same state reported `draftComplete`. A rotation naming someone who is not on
+   * the board is not a usable rotation; showing none is honest.
+   */
+  const fromConfig = parseOrder(league.nominationOrder.join(' > '), roster)
+  return {
+    order: fromConfig.order ?? [],
+    warnings: [...fromSheet.warnings, ...fromConfig.warnings],
+  }
 }
 
 /**

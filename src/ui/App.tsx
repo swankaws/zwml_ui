@@ -30,6 +30,15 @@ export interface AppProps {
    * change without a rebuild arrives through here.
    */
   settings?: DisplaySettings
+  /**
+   * Which layer supplied `settings.columns`, since `resolveSettings` merges them and
+   * loses that. Only `'query'` overrules the fit test -- see `SelectOptions.forcedFrom`.
+   *
+   * Defaults to the cautious answer on purpose. Forgetting to thread this through then
+   * costs a forced set its bypass, which is visible and recoverable (`?columns=` still
+   * works); the other default would silently truncate every phone in the league.
+   */
+  columnsFrom?: 'query' | 'sheet'
 }
 
 /**
@@ -86,6 +95,7 @@ export function App({
   feed,
   feedLabel,
   settings = DEFAULT_SETTINGS,
+  columnsFrom = 'sheet',
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
@@ -97,6 +107,9 @@ export function App({
     typePx: metrics.typePx || REFERENCE_TYPE_PX,
     enabled: settings.perSlot ? [...enabledColumns, 'perSlot'] : enabledColumns,
     forced: settings.columns,
+    // A URL is typed by someone looking at this screen; the sheet is not. Only the
+    // former gets to overrule the fit test.
+    forcedFrom: columnsFrom,
   })
 
   // The sheet's order wins over the committed fallback copy (7.5).

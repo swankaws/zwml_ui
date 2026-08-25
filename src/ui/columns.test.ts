@@ -137,6 +137,87 @@ describe('selectColumns', () => {
   })
 })
 
+describe('a forced column set, and where it came from', () => {
+  /*
+   * The maintainer's live SETTINGS tab as of 2026-08-25, verbatim. It is also the
+   * example row printed in DESIGN.md 9.2, which is very likely where it came from.
+   */
+  const LIVE = ['manager', 'left', 'needs', 'maxBid'] as const
+
+  it('is honoured exactly on the projector, whichever layer set it', () => {
+    for (const forcedFrom of ['query', 'sheet'] as const) {
+      expect(keys({ ...REAL.projector, forced: LIVE, forcedFrom })).toEqual([
+        'manager',
+        'left',
+        'needs',
+        'maxBid',
+      ])
+    }
+  })
+
+  it('returns a forced set in display order, not the order it was written in', () => {
+    // The row must read the same way however the columns were chosen.
+    expect(keys({ ...REAL.projector, forced: ['maxBid', 'manager', 'spent'] })).toEqual([
+      'manager',
+      'spent',
+      'maxBid',
+    ])
+  })
+
+  it('lets a typed URL overrule the fit test, because someone is looking at the wall', () => {
+    /*
+     * The escape hatch of 7.2, and the reason `forcedFrom` exists rather than the fit
+     * test simply applying to everything: the projector is not available until the day
+     * before the draft, so if the heuristic turns out to be wrong on that hardware, a
+     * URL has to be able to say "no, show these" and be obeyed.
+     */
+    expect(keys({ ...REAL.phone, forced: LIVE, forcedFrom: 'query' })).toEqual([...LIVE])
+  })
+
+  it('fit-tests the same set when the SHEET is what asked for it', () => {
+    /*
+     * A phone is where these differ, and this is not hypothetical: forced from the
+     * sheet, this set truncated 41 cells on a 390x844 phone -- the NEEDS header had
+     * 47px of the 73px it needed. The sheet is broadcast to everyone following along,
+     * and nobody holding a phone can edit a spreadsheet to fix what they are seeing.
+     */
+    expect(keys({ ...REAL.phone, forced: LIVE, forcedFrom: 'sheet' })).toEqual([
+      'manager',
+      'maxBid',
+    ])
+  })
+
+  it('defaults to fit-testing, so forgetting the provenance fails safe', () => {
+    expect(keys({ ...REAL.phone, forced: LIVE })).toEqual(['manager', 'maxBid'])
+  })
+
+  it('trims a sheet-forced set by priority, keeping what does fit', () => {
+    /*
+     * Not all-or-nothing: NEEDS (priority 3) goes before LEFT (2). A narrow window
+     * should still get the operator's choice minus the cheapest part of it.
+     *
+     * 550px is the middle of the band where exactly one has to go -- all four fit from
+     * ~597px up, and three fit from ~505px. Picking the middle rather than the edge
+     * means a small change to a column width retunes this test instead of flipping it.
+     */
+    expect(keys({ width: 550, typePx: 39.15, forced: LIVE, forcedFrom: 'sheet' })).toEqual([
+      'manager',
+      'left',
+      'maxBid',
+    ])
+  })
+
+  it('never adds a column the forced set left out, however much room there is', () => {
+    // Trimming is the only adjustment. A forced set is still a ceiling.
+    expect(keys({ width: 4000, typePx: 47, forced: LIVE, forcedFrom: 'sheet' })).toEqual([...LIVE])
+  })
+
+  it('ignores an empty forced set rather than rendering an empty row', () => {
+    expect(keys({ ...REAL.projector, forced: [] })).toHaveLength(6)
+    expect(keys({ ...REAL.projector, forced: null })).toHaveLength(6)
+  })
+})
+
 describe('COLUMNS', () => {
   it('protects exactly the two columns the room cannot lose', () => {
     const protectedKeys = COLUMNS.filter((c) => c.priority === 1).map((c) => c.key)

@@ -87,23 +87,30 @@ export function readPosition(raw: string): Position | 'DEF' | null {
 }
 
 /**
- * Resolves a manager name against the configured roster, applying aliases and
- * ignoring case and surrounding whitespace. Returns `null` for a name the
+ * Resolves a manager name against every name the league knows, applying aliases
+ * and ignoring case and surrounding whitespace. Returns `null` for a name the
  * league does not know, which the caller surfaces rather than guessing at.
+ *
+ * Recognition spans seasons on purpose: `managers` is the *current* twelve, but a
+ * past tab legitimately contains whoever played that year, so `pastManagers` is
+ * consulted too. Resolving a name is not the same as putting someone in this
+ * season's league -- only `managers` decides order, roster length and totals.
  */
+const KNOWN_MANAGERS: readonly string[] = [...league.managers, ...league.pastManagers]
+
 export function readManagerName(raw: string): string | null {
   const text = raw.trim()
   if (!text) return null
 
   const aliased = league.aliases[text] ?? text
-  const match = league.managers.find((m) => m.toLowerCase() === aliased.toLowerCase())
+  const match = KNOWN_MANAGERS.find((m) => m.toLowerCase() === aliased.toLowerCase())
   if (match) return match
 
   // Aliases are configured canonically, but tolerate a differently-cased key.
   const aliasKey = Object.keys(league.aliases).find((k) => k.toLowerCase() === text.toLowerCase())
   const target = aliasKey ? league.aliases[aliasKey] : undefined
   if (target) {
-    return league.managers.find((m) => m.toLowerCase() === target.toLowerCase()) ?? null
+    return KNOWN_MANAGERS.find((m) => m.toLowerCase() === target.toLowerCase()) ?? null
   }
 
   return null

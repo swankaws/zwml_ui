@@ -44,6 +44,15 @@ export interface LeagueState {
   managers: ManagerState[]
   /** Blocks whose name cell matched no configured manager (surfaced, not dropped). */
   unmatched: string[]
+  /**
+   * Names appearing in more than one block. Each duplicate costs a row and shrinks
+   * `totalSlots`, so it must not pass silently.
+   *
+   * NOTE: like `unmatched`, this currently has no on-screen consumer -- both reach
+   * the console only. DESIGN.md 5.5 and 6 promise a visible row for these; that
+   * promise is not kept yet and is tracked as a phase-4 item.
+   */
+  duplicated: string[]
   leagueSpent: number
   /** Dollars that can still chase players -- active managers only. See below. */
   leagueRemaining: number
@@ -126,10 +135,20 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
    * how many names it *recognized* (gridParser: zero recognized is fatal). A genuinely
    * wrong tab does not contain eleven correct league names and one surprise.
    */
+  /*
+   * Keyed by name, which means two cells holding the same name would silently
+   * overwrite each other: one manager vanishes from the wall AND the SLOTS
+   * denominator quietly shrinks, so the board looks internally consistent while
+   * being wrong. That is the same class of failure as the dropped-manager bug above,
+   * so it is reported rather than tolerated -- a duplicated name cell is a typo in
+   * the sheet, and the person who can fix it is in the room.
+   */
+  const duplicated: string[] = []
   const byName = new Map<string, ManagerState>()
   for (const block of blocks) {
     const name = block.name ?? block.rawName.trim()
     if (name === '') continue
+    if (byName.has(name)) duplicated.push(name)
     byName.set(name, deriveManager({ ...block, name }))
   }
 
@@ -165,6 +184,7 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
   return {
     managers,
     unmatched,
+    duplicated,
     leagueSpent,
     leagueRemaining,
     leagueNeeds,

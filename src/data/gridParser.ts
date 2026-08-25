@@ -112,15 +112,20 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
 
   // Gate rendering on the two conditions that mean "this is not our tab":
   // no block found a Total label, or too few manager names resolved.
+  /*
+   * Compared against the number of BLOCKS in the grid, not against the length of
+   * the committed roster. Those happen to both be 12 today, but they answer
+   * different questions: "did this tab's own name cells resolve" is a property of
+   * the tab, while the roster is a property of the season. Using the roster length
+   * meant a year with eleven managers, or a config carrying a name this tab does not
+   * have, produced a false alarm on every 3-second poll.
+   */
+  const blockCount = league.grid.bandRows.length * league.grid.blockStartCols.length
   const named = blocks.filter((b) => b.name !== null).length
   if (named === 0) {
     fatal(0, 0, 'No manager names recognized anywhere in the grid -- wrong tab?')
-  } else if (named < league.managers.length) {
-    warn(
-      0,
-      0,
-      `Only ${named} of ${league.managers.length} manager names recognized`,
-    )
+  } else if (named < blockCount) {
+    warn(0, 0, `Only ${named} of ${blockCount} manager names recognized`)
   }
 
   return {

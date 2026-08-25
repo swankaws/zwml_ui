@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { league, totalAuctionSlots } from '../config/league'
 import { readInt, readManagerName, readPosition, readPrice } from './normalize'
 
 describe('readPrice', () => {
@@ -100,6 +101,30 @@ describe('readManagerName', () => {
   // Rob drafted on Jason's behalf in a past year and still appears in A1.
   it('returns null for a name the league does not know', () => {
     expect(readManagerName('Rob')).toBeNull()
+  })
+
+  /*
+   * Recognition spans seasons; membership does not. The app can render a past tab,
+   * and 2025's name cells correctly say `Nick`, who left the league before 2026.
+   * Without this, viewing 2025 reported `Unrecognized manager name "Nick"` on every
+   * poll -- a warning about data that is not wrong, just old. False alarms are what
+   * make a warning channel worthless on the night it matters.
+   */
+  it('recognizes a past manager, so a past tab parses without false alarms', () => {
+    expect(readManagerName('Nick')).toBe('Nick')
+    expect(readManagerName('  nick ')).toBe('Nick')
+  })
+
+  it('still rejects a name on neither list, so this is not a blanket amnesty', () => {
+    expect(readManagerName('Rob')).toBeNull()
+    expect(readManagerName('Kirs')).toBeNull() // a plausible typo for Kris
+  })
+
+  it('keeps a past manager out of the current roster and its totals', () => {
+    // Recognized is not the same as playing: `Nick` must not occupy one of the
+    // twelve slots that drive display order, the order denominator, or SLOTS n/180.
+    expect(league.managers as readonly string[]).not.toContain('Nick')
+    expect(totalAuctionSlots).toBe(180)
   })
 
   it('returns null for a blank cell', () => {

@@ -207,6 +207,18 @@ export function settingsFromQuery(
 }
 
 /**
+ * True when `?columns=` is what set the column list, in which case it is an in-room
+ * override and outranks the fit test (see `SelectOptions.forcedFrom`).
+ *
+ * `resolveSettings` merges the layers into one object and loses which one won, so
+ * this asks the query directly -- the same shape as `scalePinnedByQuery`, and for the
+ * same reason: the query is the only layer whose author can see the screen.
+ */
+export function columnsPinnedByQuery(search: string): boolean {
+  return new URLSearchParams(search.replace(/^\?/, '')).get('columns') !== null
+}
+
+/**
  * Later sources win. Order is deliberate:
  *
  *   defaults  <  SETTINGS tab  <  query string

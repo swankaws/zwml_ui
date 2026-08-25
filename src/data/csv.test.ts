@@ -49,19 +49,32 @@ describe('parseCsv', () => {
 
 describe('parseCsv against the live fixtures', () => {
   for (const file of ['2026-auction.csv', '2025-auction.csv']) {
-    it(`${file} yields 63 rows despite an embedded newline`, () => {
-      const text = readFileSync(`docs/data-samples/${file}`, 'utf8')
-      const rows = parseCsv(text)
-
-      // Proof the fixture really does contain the hazard, so this test cannot
-      // quietly stop testing anything if the sheet is re-exported.
-      expect(rows.some((r) => r.some((c) => c.includes('\n')))).toBe(true)
-
-      // A naive split would produce a different count. The real grid is 63.
-      expect(rows).toHaveLength(63)
-      expect(text.split('\n').length).not.toBe(63)
+    it(`${file} yields the true 63-row grid`, () => {
+      expect(parseCsv(readFileSync(`docs/data-samples/${file}`, 'utf8'))).toHaveLength(63)
     })
   }
+
+  /*
+   * The embedded-newline hazard now lives on 2025 only, and that is deliberate.
+   *
+   * It used to be asserted for both fixtures. The 2026 capture's sole quoted newline
+   * was in A16, and when the maintainer cleared that cell the re-export lost it --
+   * so the assertion below would have started passing vacuously on 2026 while
+   * appearing to still test something. The original version guarded against exactly
+   * that ("so this test cannot quietly stop testing anything if the sheet is
+   * re-exported") and the guard fired on the re-capture, which is why this moved
+   * rather than being deleted.
+   *
+   * 2025 is the better permanent home: it is a closed season, so it will never be
+   * re-exported and cannot lose the hazard the way 2026 just did.
+   */
+  it('2025-auction.csv still carries a quoted newline, so the 63 above is a real result', () => {
+    const text = readFileSync('docs/data-samples/2025-auction.csv', 'utf8')
+    const rows = parseCsv(text)
+    expect(rows.some((r) => r.some((c) => c.includes('\n')))).toBe(true)
+    // A naive split would produce a different count. The real grid is 63.
+    expect(text.split('\n').length).not.toBe(63)
+  })
 })
 
 describe('cell', () => {

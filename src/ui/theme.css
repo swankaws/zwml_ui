@@ -379,6 +379,24 @@ body {
     border-left: none;
     border-top: 2px solid var(--rule);
     align-items: start;
+    /*
+     * Immune to `--scale`, for both halves of the reason given for the header at the
+     * top of this file: stacked, the rail is chrome above the table rather than the
+     * table, so raising the scale must not inflate it -- and here its height steals
+     * from the twelve rows the nudge is trying to buy.
+     *
+     * `var(--type)` is the unscaled clamp, so every `em` inside this block still
+     * works, it just measures against a base the operator's nudge cannot move.
+     *
+     * This is not a hypothetical tidy-up. The maintainer put `scale: 1.15` in the
+     * live SETTINGS tab on 2026-08-25, which is clean on the 1080p projector and
+     * broke both narrow fallbacks: the item counts a few rules below were tuned by
+     * measurement at scale 1.0, so at 1024x768 and 1280x1024 the one surviving sale
+     * price cropped, and on a 390x844 phone the twelfth manager fell 3 px off the
+     * bottom. A sheet setting is broadcast to everyone watching, not just the room
+     * with the projector, so it may not cost a phone viewer a manager.
+     */
+    font-size: var(--type);
   }
   .rail .sales {
     display: flex;
@@ -508,6 +526,30 @@ body {
  * edge, and player names -- the widest strings in the app -- cropped mid-word.
  */
 @media (max-width: 700px) {
+  /*
+   * A phone has no vertical headroom to sell, so it does not honour `--scale`.
+   *
+   * Twelve rows fit at every resolution because the type comes from viewport height,
+   * which keeps rows a fixed *fraction* of the screen. `--scale` breaks that only
+   * where the chrome around the table does not shrink with it -- and this block is
+   * where that is worst: the header wraps to two lines and the rail stacks into a
+   * third band, both of which cost height that 1080p never spends. There is nothing
+   * left over, so 12 rows x 15% more each falls off the bottom.
+   *
+   * This overrides `font-size` rather than `--scale`, and that is not incidental:
+   * `useDisplayScale` sets `--scale` as an INLINE style, which outranks every rule in
+   * this file, so redefining the variable here would silently do nothing. `--type` is
+   * the unscaled clamp, so this is exactly "ignore the multiplier, keep the ramp".
+   *
+   * It is capped rather than tuned on purpose. Pinning the phone at 1.0 holds for any
+   * value the sheet broadcasts, up to the 2.0 clamp; matching the arithmetic to 1.15
+   * would break again the next time someone nudges it one step further. A phone
+   * viewer who wants bigger text has the browser's own zoom, which reflows.
+   */
+  :root {
+    font-size: var(--type);
+  }
+
   /*
    * Stack, do not shrink. Squeezing five totals onto one 390px line means type too
    * small to read, and dropping them means the room loses the league picture; a

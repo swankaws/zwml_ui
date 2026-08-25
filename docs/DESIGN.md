@@ -418,9 +418,17 @@ The algorithm, per band × column:
 5. **Read the stats mini-block** from `(R+2 .. R+8, C+3/C+4)`, checking each label
    (`Needs`, `Max Bid`, `QB`, `RB`, `WR`, `TE`, `K`) against its expected row.
 6. **Gate rendering.** If the template verification fails in a way that means we are looking at the
-   wrong tab or a restructured sheet — no `Total` label found, or fewer than the configured number
-   of manager names — **refuse to render** and show the last good frame with a loud banner (§7.8).
+   wrong tab or a restructured sheet — no `Total` label found, or *no* manager name recognized
+   anywhere — **refuse to render** and show the last good frame with a loud banner (§7.8).
    Isolated per-cell warnings do not blank the board; they surface in the status bar.
+
+   The recognized-name count is compared against **the grid's own geometry**
+   (`bandRows.length × blockStartCols.length` = 12), not against `league.managers.length`. Both are 12
+   today, which is exactly why the mistake was easy to make and invisible: they answer different
+   questions. "Did this tab's name cells resolve" is a property of the *tab*; the roster is a property
+   of the *season*. Comparing against the roster meant a config carrying a name the tab does not have —
+   or a year the league fielded eleven — raised a false alarm every three seconds, and it is the same
+   config-equals-membership coupling §6 rejects.
 
 Everything the parser needs is a constant in `config/league.ts`, so if the maintainer ever does
 restructure the tab, the fix is a config edit rather than a parser rewrite.
@@ -441,13 +449,21 @@ picks and a manager with a full 15.
   rather than being silently dropped. The `Jeffrey → Jeff` alias is now **cosmetic only** — `Jeffrey`
   appears solely in the Divisional Draft columns, which we no longer read (Q5). Keep it anyway; it
   costs one line and covers the case where it turns up somewhere else.
-- **CSV parsing must be a real RFC 4180 parser, not `text.split('\n')`.** Verified: cell `A16` of
-  both auction tabs contains a **quoted cell with an embedded newline**. A line-splitting parser
+- **CSV parsing must be a real RFC 4180 parser, not `text.split('\n')`.** Verified: cell `A16` of the
+  auction tabs contains a **quoted cell with an embedded newline**. A line-splitting parser
   desynchronizes from that row onward — every band-1 bench row, `DEF`, `Total`, and `Remaining`
   anchor lands one row off, and it *still parses*, producing a plausible board with wrong rosters.
   Found by the geometry test, not by reading: `src/data/csv.ts` handles quoted commas, escaped
-  quotes, embedded newlines, and CRLF, and `csv.test.ts` asserts the fixture still contains the
+  quotes, embedded newlines, and CRLF, and `csv.test.ts` asserts a fixture still contains the
   hazard so the test cannot quietly stop testing anything.
+
+  **That guard fired on the 2026 re-capture, exactly as designed.** `A16` is empty in the new export,
+  so the assertion that the hazard is *present* failed — a fixture quietly losing the thing it was
+  chosen to test is precisely what it was written to catch. The hazard test is now pinned to
+  `2025-auction.csv`, which is a closed season and cannot lose it, while the row-count and geometry
+  assertions still run over both. The parser is unchanged: the sheet can regain an embedded newline
+  the next time someone pastes a multi-line note, and the 63-row count is what proves both captures
+  are still full-height.
 - **Prices:** strip `$` and thousands separators; `$10`, `10`, `10.00` all accepted. **Blank ≠
   unparseable** (§5.3): a *blank* price means the row is not a pick at all and is skipped silently — it
   is a row mid-entry, not an error. A price that is *present but unparseable* → `$0`, flagged as a
@@ -693,6 +709,31 @@ totals follow the same rule (`managers.length × auctionSlots`, not a hard-coded
 change days before the draft needs no deploy. Membership drift still warns, via §5.4's
 `Unrecognized manager` check — it is reported, it just is not enforced.
 
+This stopped being hypothetical on 2026-08-25, when `Kris` replaced `Nick` four days before the draft
+(Q15). He appeared on the board, in the totals and in the nomination order with **no code change** —
+the sheet was edited and the next parse carried it. The committed lists were updated afterwards so the
+fallbacks are not stale, which is maintenance, not a prerequisite.
+
+**Recognition spans seasons; membership does not.** Two lists, and the distinction is the reason there
+are two. `league.managers` is *this* season's twelve: it decides display order, the order denominator,
+and `SLOTS n/180`. `league.pastManagers` is names the app should merely *recognize* — currently `Nick`.
+The app can render a past tab (`?year=2025`), and 2025's name cells correctly say `Nick`, so without
+the second list viewing 2025 reported `Unrecognized manager name "Nick"` on every poll: a warning
+about data that is not wrong, only old. **False alarms are how a warning channel becomes worthless on
+the one night it matters**, which is the same argument the blank-`SETTINGS`-tab rule rests on (§9.2). A
+name on neither list still warns — this enumerates who we know, it does not switch the check off.
+
+**Two managers with the same name is a silent loss, so it is now reported.** Rows are keyed by name, so
+two cells holding the same string overwrote each other: one manager vanished from the wall *and*
+`totalSlots` dropped by 15, leaving a board that is internally consistent and wrong — the same failure
+class as the dropped-manager bug above, and harder to spot because the arithmetic still adds up.
+`LeagueState.duplicated` now carries those names alongside `unmatched`.
+
+**Neither `unmatched` nor `duplicated` has an on-screen consumer yet**, and it is worth stating plainly
+rather than leaving the paragraph above to imply otherwise: both are populated, both are asserted in
+tests, and both currently reach nobody but a reader of `LeagueState`. §5.5 and this section promise the
+room gets told. That wiring is a phase-4 item, alongside the warning surface the error boundary needs.
+
 **Not validated: position counts.** Roster construction is unrestricted for bench slots, and while
 the league does have some positional caps, they are **not encoded in the sheet** (Q9). The display
 therefore reports position counts as facts and never flags one as "too many" — inventing a rule the
@@ -801,6 +842,16 @@ Three things follow, and all three are worth saying out loud:
 **So the largest available lever is not in this codebase.** Every figure in the table above scales
 linearly with the projected image, so moving the projector back — or throwing a 10 ft image instead
 of 7 ft — is worth more than the entire `scale` range. Check the image size before touching a setting.
+
+**A fourth thing follows that this table cannot show: the ceiling is 1080p's.** Every row above was
+measured at 1920 × 1080, and `scale` set from the `SETTINGS` tab applies to *every* screen watching —
+laptops, phones, and the 4:3 and 5:4 fallbacks, none of which have 1080p's vertical budget or its
+proportions. Measured at 1.15, the value the maintainer put in the live tab: clean on the projector,
+a cropped sale price at 1024 × 768 and 1280 × 1024, and a clipped twelfth row on a 390 × 844 phone.
+Both are fixed, and fixed the same way the header was — by making the width-bound chrome immune to a
+height-derived multiplier (§9.2 has the rules and the reasoning). The general lesson is the one the
+header taught in the note below, applied a second time: **`--scale` should move the table and nothing
+else**, because everything else is either bound by a different axis or is stealing from the rows.
 
 At **4:3 the trade is different**, because there the rail is a *bottom band* rather than a side rail,
 so turning it off genuinely returns vertical space: at 1024 × 768, `?rail=off` takes row height from
@@ -979,6 +1030,17 @@ The laptop is the interesting one: it keeps the rail (it is ≥ 16:10), so its t
 the 4:3 fallback's* at nearly the projector's type size. Six columns fit there arithmetically and
 `MAX BID` came up 8 px short on every row. Dropping `SPENT` — redundant with `LEFT` — is the cheapest
 thing in the room.
+
+**Forcing an exact set overrides this test, and which layer did the forcing decides whether that is
+allowed.** A `columns` value typed into the URL overrides it completely: the fit test is a heuristic
+about what *should* be readable, and a person standing in the room looking at the wall out-ranks a
+heuristic — that is the whole point of the escape hatch, given that the projector cannot be tested
+until the day before. But the identical value arriving from the `SETTINGS` tab is not the same act.
+It is broadcast to every screen following along, chosen by someone who can see one of them, and it
+defeats the mechanism this section exists to describe: forced to four columns, the phone that should
+drop to two truncated 41 cells instead. So a sheet-forced set is honoured wherever it fits and trimmed
+by priority where it cannot be — not all-or-nothing, so a narrow window still gets the operator's
+choice minus its cheapest part. §9.2 records the incident that produced this rule.
 
 Not changed: `MAX BID` stays in column 5 rather than moving beside `MANAGER`. Review flagged the two
 priority-1 columns as "split," but `SPENT → LEFT → NEEDS → MAX BID` reads left-to-right as the
@@ -1188,8 +1250,26 @@ A1 was written off in an earlier revision as a "historical artifact" because it 
 drafted on Jason's behalf years ago. That was a fair reading of a stale cell and the wrong conclusion
 to draw from it: the maintainer curates that cell, and on 2026-08-25 it read the correct twelve. A
 cell that is *sometimes* stale is not unusable — it is a cheap source that needs validating, which
-every source here needs anyway. **Both committed fixtures still carry the `Rob` spelling on purpose**,
-so the test suite exercises the stale path rather than only the happy one.
+every source here needs anyway.
+
+**The 2025 fixture keeps the `Rob` spelling on purpose**, so the suite still exercises the rejection
+path rather than only the happy one — and it is the better home for it, being a closed season that will
+never be re-exported. 2026's copy of that hazard is gone because the tab itself was fixed: the fixture
+was re-captured from `/export` on 2026-08-25, and the diff is three cells (A1's order, the `N44` name
+cell `Nick → Kris`, and one embedded newline). Everything derived stayed byte-identical, including all
+four of that block's numbers, which is itself evidence the re-capture was an export rather than a
+hand-edit. Two `Nick` occurrences remain in the Defensive and Divisional Draft columns, for the same
+reason.
+
+Re-capturing *removed* a warning that had been firing on every render of the live tab — while 2026's
+A1 was stale, each poll emitted a rejected-order warning — and a clean board is what makes a warning
+that *does* appear worth looking at. It also exposed a real bug by removing the condition that hid it:
+the committed fallback was returned **unvalidated**. On the 2025 board A1 is rejected, so the fallback
+took over, naming this season's twelve — and `Kris` has no row there. The rail treats a manager it
+cannot find as "not full", i.e. able to nominate, so a draft that finished a year ago rendered
+`Kris ON THE CLOCK` while the same state reported `draftComplete: true`. The committed copy is now
+validated against the board like every other source, and degrades to no rotation. "It is our own list"
+is not a reason to skip validation; it is a reason the failure is hard to see.
 
 Validation is the same at every level and is what makes the chain safe: an unknown or duplicated name
 **rejects the whole order** and falls through to the next source. A partial rotation is a wrong
@@ -1367,14 +1447,20 @@ export const league = {
 
   // Board ORDER and spelling fixups — *not* who is in the league. The sheet decides
   // membership (§6); a name missing here still gets a row, under the sheet's spelling.
+  // Keep it at twelve: it is the order denominator, and league.test.ts pins its
+  // length against bandRows × blockStartCols.
   managers: ['Kevin','Corky','Ryan','Toby','Jeff','Marc',
-             'Bill','Derrick','Colin','Jason','Nick','Tony'],
+             'Bill','Derrick','Colin','Jason','Kris','Tony'],
+  // Recognized, never displayed as current — so a past tab parses without false
+  // alarms (§6). Membership is above; this is only "we have heard of them".
+  pastManagers: ['Nick'],                 // left the league before 2026 (Q15)
   aliases: { Jeffrey: 'Jeff' },
   // Nomination order (§7.5), last resort only: ?order=, the SETTINGS tab and cell A1
-  // all outrank it. Transcribed from the live A1 on 2026-08-25.
+  // all outrank it. Transcribed from the live A1 on 2026-08-25. Validated like any
+  // other source: shipping it unchecked put Kris ON THE CLOCK on the 2025 board.
   nominationOrder: ['Jeff','Toby','Tony','Derrick','Marc','Corky',
-                    'Bill','Ryan','Colin','Kevin','Nick','Jason'],
-  settingsTabGid: '361377598',            // the SETTINGS tab now exists (§9.2)
+                    'Bill','Ryan','Colin','Kevin','Kris','Jason'],
+  settingsTabGid: '361377598',            // populated, but not yet fetched (§9.2)
   pollIntervalMs: 3000,
   enforceBudgetCap: true,                 // 2026: over $200 is an error (2025 allowed it)
   freeDefenseSlot: true,                  // DEF costs nothing and is drafted separately
@@ -1479,11 +1565,48 @@ would shift every index.
 | `A` | `B` | Notes |
 |---|---|---|
 | `ZWML SETTINGS` | | **Required in A1.** See the anchor note below |
-| `scale` | `1.15` | Root type multiplier. Clamped to 0.6–2.0, snapped to 0.05. **Read the ceiling in §7.1 first — it buys ~15%** |
-| `columns` | `manager, left, needs, maxbid` | Forces an exact set, bypassing the priority system. Names are case-insensitive |
+| `scale` | *(leave unset)* | Root type multiplier. Clamped to 0.6–2.0, snapped to 0.05. **Read the ceiling in §7.1 first — it buys ~15%, and the note below on who else is watching** |
+| `columns` | *(leave unset)* | Forces an exact set, overriding the priority system. Names are case-insensitive. **Costs you `POS` and `SPENT`** — see below |
 | `rail` | `on` / `off` | The nomination + sales rail. `off` returns *width* at 16:9, *height* at 4:3 |
 | `perslot` | `off` | The opt-in `$/SLOT` column (§7.2). Also spelled `$/slot` |
 | `order` | `Jeff > Toby > …` | Nomination order (§7.5). Comma-, newline- or `>`-separated. Names are checked against the roster **the sheet reported**, so a new manager needs no deploy |
+
+**The example values above used to be filled in, and that was a mistake in this document.** The
+maintainer populated the live tab on 2026-08-25 with `scale: 1.15` and
+`columns: manager, left, needs, maxbid` — character-for-character the two values this table happened
+to be illustrating the *syntax* with. Read as a recommendation rather than a sample, they cost
+something real: forcing that column set drops `POS` and `SPENT`, and the per-position counts are one
+of the things the display was asked for in the first place. Documentation examples get copied, so
+the columns showing a knob's shape now show it empty, and every knob below says what it costs.
+
+**A setting in the sheet is broadcast to everyone; a setting in a URL is not.** This is the sharpest
+thing learned from that tab, and it is now a behavioural rule rather than a caution. The precedence
+ladder below is a ladder of *proximity to the wall* — so authority over a readability judgement
+belongs to the layer whose author can see the screen in question:
+
+- **`scale` is ignored on phones** (`@media (max-width: 700px)`). A phone has no vertical headroom to
+  sell: the header wraps to two lines and the rail stacks into a third band, both of which cost height
+  the projector never spends. `scale: 1.15` in the sheet dropped the twelfth manager 3 px off the
+  bottom of a 390 × 844 screen — the worst failure the board has, because it looks fine and is simply
+  missing a person. Capped, not tuned: pinning the phone at 1.0 holds for anything up to the 2.0
+  clamp, where arithmetic tuned to 1.15 would break at the next nudge.
+- **The stacked rail ignores `scale` too**, for the reason already given for the header in §7.1:
+  stacked, the rail is chrome *above* the table rather than the table, so a nudge meant to enlarge the
+  rows must not inflate it. Its item counts ("one sale and three nominators, measured") were measured
+  at scale 1.0, and at 1.15 the one surviving sale price cropped at both 1024 × 768 and 1280 × 1024.
+- **A `columns` set from the sheet is fit-tested; one from `?columns=` is not.** The bypass in §7.2 is
+  defended by "a person standing in the room looking at the wall out-ranks the heuristic", and that
+  argument is airtight for a typed URL and void for a spreadsheet edited from the couch. Forced from
+  the sheet, the live set truncated **41 cells** on a phone — including the `NEEDS` header, which had
+  47 px of the 73 px it needed — because forcing defeats the priority system that drops to two columns
+  there on its own. Sheet-forced sets are now honoured wherever they fit (1024 × 768 and up, exactly
+  as written) and trimmed by priority where they cannot. A typed URL still overrules everything, which
+  is the escape hatch intact.
+
+Provenance is threaded explicitly (`App`'s `columnsFrom`, `SelectOptions.forcedFrom`) rather than
+sniffed from `window.location`, and **defaults to the cautious answer at every layer**: forgetting to
+pass it costs a forced set its bypass, which is visible and fixable with a URL, where the other
+default silently truncates every narrow screen in the league.
 
 **A1 must read `ZWML SETTINGS`, and that is a guard rather than decoration.** §5.2 verified that
 `gviz`'s `&sheet=<name>` selector answers `status:"ok"` **with the wrong tab's data** when the name
@@ -1525,6 +1648,25 @@ Two implementation notes that are easy to get wrong and were:
 
 `src/config/displaySettings.ts` is deliberately pure — no fetch, no DOM, no React — so the entire
 precedence chain is unit-tested with no network. Phase 4 supplies the grid; nothing above changes.
+
+**Status as of 2026-08-25: the tab is populated and parses, and nothing fetches it yet.** Those are
+separate facts and it is worth being blunt about the second. The live tab reads:
+
+```
+ ZWML SETTINGS          <- note the leading space
+order      Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Kris > Jason
+scale      1.15
+columns    manager, left, needs, maxbid
+rail       on
+```
+
+Every row parses exactly as typed. The leading space in A1 is absorbed by design — the anchor check
+trims, lower-cases and collapses runs of whitespace — and `maxbid` in lower case is accepted for the
+same reason. But `settingsTabGid: '361377598'` is currently referenced *only where it is declared*:
+no code path fetches gid `361377598`, so none of those four values reaches the screen today. They
+are read by the layout gate through `?asSheet=1` (§10) and they take effect on the wall when phase 4
+wires the second request. **The `order` row is therefore not yet what puts Kris in the rotation** —
+A1 of the auction tab is (§7.5), and it agrees.
 
 ---
 
@@ -1608,7 +1750,7 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 
   | Fixture | Exercises |
   |---|---|
-  | `2026-auction.csv` (63 rows, `/export`) | **Real partial state** — empty starter rows that keep their `Pos` label, empty bench rows with no label at all, `$200` cap, 3 managers with keepers and 9 at zero |
+  | `2026-auction.csv` (63 rows, `/export`) | **Real partial state** — empty starter rows that keep their `Pos` label, empty bench rows with no label at all, `$200` cap, 3 managers with keepers and 9 at zero. **Re-captured 2026-08-25**, so it is also the current roster including `Kris` and a valid `A1` |
   | `2025-auction.csv` (63 rows, `/export`) | Completed draft, all 15 slots filled per manager, `"Bill "` trailing space, overspent managers, uncapped-year `Remaining` |
   | `auction-display.csv` (36 rows) | Cross-check target (§5.6) |
   | `top300.csv` (323 rows) | Ranking-parse shape only — content is stale, see §7.6 |
@@ -1618,10 +1760,12 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   > regression fixture for the fallback path and as evidence for §5.0. **Never test the primary
   > parser against it**; it is the exact shape that produced rev 2's wrong conclusions.
 
-  > **Both auction fixtures carry a stale `A1` naming `Rob`, and that is now load-bearing.** The live
-  > cell was corrected to `Jason` the day after capture, so re-capturing would leave the order
-  > validator with only its happy path tested. The captures pin the case that has to degrade
-  > correctly: reject the whole order, warn, fall through (§7.5).
+  > **The 2025 fixture carries a stale `A1` naming `Rob`, and that is load-bearing.** Something has to
+  > pin the case that must degrade correctly — reject the whole order, warn, fall through (§7.5) — and
+  > 2026 can no longer do it: the maintainer fixed the live cell on 2026-08-25 and the fixture was
+  > re-captured to match. A closed season is the better custodian anyway, since it will never be
+  > re-exported out from under the test. Both the stale-`A1` and embedded-newline hazards moved there
+  > for that reason; §7.5 and §5.5 have the details, including the bug the re-capture exposed.
 
 - **Additional hand-built fixtures required:** a fully empty tab (day-one state), a
   single-manager-complete tab, a tab with a deliberately corrupted price and an unknown manager
@@ -1638,9 +1782,10 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   `Emulation.setDeviceMetricsOverride`, and reads the real DOM back: row count, whether the last row
   ends inside the viewport, ellipsised cells, rail clipping, header overflow, rail/table overlap,
   document overflow, console errors, and the computed type size of the columns that matter.
-  `tools/verify-layout.mjs` runs it across **eleven cases** — 1080p mid-draft / draft-complete /
-  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900, plus the three §9.2 escape hatches
-  — and exits non-zero on any failure.
+  `tools/verify-layout.mjs` runs it across **sixteen cases** — 1080p mid-draft / draft-complete /
+  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900, the three §9.2 escape hatches, the
+  live `SETTINGS` tab at four resolutions, and a phone at the `scale` clamp ceiling — and exits
+  non-zero on any failure.
 
   **The escape-hatch cases are in the matrix on purpose.** `?scale=1.15`, `?rail=off` with a forced
   column set, and a scaled 4:3 only earn their keep if they work on the night, unrehearsed, on the
@@ -1649,6 +1794,22 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   ceiling in §7.1, and pinning it means a later change to header height or row chrome cannot quietly
   invalidate the number the doc tells the operator to trust. It has already earned that: shrinking the
   header moved the real ceiling from 1.10 to 1.15.
+
+  **The gate also tests the live configuration, not only hypothetical ones.** Every case above covers
+  a combination somebody *might* choose; the five added on 2026-08-25 cover what the wall will actually
+  be running on Saturday, because the maintainer has filled the `SETTINGS` tab in. That distinction was
+  worth the five cases immediately: the live combination passed at 1080p and failed at every other
+  resolution in the matrix, and none of the eleven existing cases could see it — there was no case
+  pairing a raised `scale` with a forced column set, and no forced-columns case anywhere but 1920 ×
+  1080. **Configuration is now gated the same way code is**, which matters more here than usual, since
+  a sheet edit ships to the wall with no build, no review and no test run in between.
+
+  Those cases pass `?asSheet=1`, and that flag is load-bearing rather than cosmetic: a forced column
+  set from the sheet is fit-tested while one from a URL is not (§9.2), so driving them through the
+  query string alone would exercise the wrong path and report the sheet's configuration as clean while
+  it truncated. The flag replays query settings down the sheet layer, which is also the only way to
+  rehearse the tab at all before phase 4 wires the fetch. It is removed with the rest of the fixture
+  harness.
 
   Two probes worth calling out, because both exist to see through a *successful* degradation:
 
@@ -1707,19 +1868,31 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 | Q11 | Do nominations rotate strictly? | **Yes** — strictly through a fixed order, but a manager whose **roster is full can no longer nominate** and is skipped. |
 | Q12 | Does every nomination end in a sale? | **Yes.** So `nominations == sales` and the pointer is fully derivable — no operator input needed (§7.5). |
 | Q13 | Where does the order live? | **Fixed for the season.** Four sources, checked in order: `?order=`, the `SETTINGS` tab, cell `A1` of the auction tab, then `league.ts`. Three of the four are editable without a deploy, and each validates against the roster the sheet reported (§7.5). |
-| Q14 | What **is** the 2026 nomination order? | **`Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Jason`** — given by the maintainer and matching the live `A1` on 2026-08-25. Committed to `league.nominationOrder` *and* already live from A1, so it renders with no further action. |
+| Q14 | What **is** the 2026 nomination order? | **`Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Kris > Jason`** — given by the maintainer and matching the live `A1` on 2026-08-25. Committed to `league.nominationOrder` *and* already live from A1, so it renders with no further action. |
+| **Q15** | Is `Nick` being replaced for 2026, and by whom? | **Yes — by `Kris`** (maintainer, 2026-08-25). The design carried this with no code change: `Kris` appeared on the board and in the rotation purely because the sheet says so. Committed anyway, so the fallbacks are not stale — and `Nick` moved to `league.pastManagers`, because 2025 still says `Nick` and that is correct history, not an error (§6). |
 | — | Sheet vs. own data store | Keep the sheet (D7, §5.10). |
 | — | Change log feasibility | Free via Apps Script `onEdit`; deferred to phase 8 (D8, §5.11). |
 | — | Is the grid geometry stable? | **Yes — fixed and uniform.** An earlier revision wrongly claimed otherwise; that was a `gviz` artifact (§5.0, §5.3). |
 
 ### Open
 
-| # | Question | Blocks |
-|---|---|---|
-| **Q15** | **Is `Nick` being replaced for 2026, and by whom?** The maintainer's stated order named a twelfth manager who is not `Nick`, but the live sheet says `Nick` in *both* places that matter — cell `A1` and the band-3 name cell (read 2026-08-25). One of the two is out of date and only the maintainer knows which. | Nothing. This is why membership is sheet-derived (§6) and why the order validates against the parsed roster rather than `league.managers` (§7.5): whichever name lands in the sheet gets a row and can appear in the order, with no deploy. The committed copy tracks the sheet, so it says `Nick` |
+None. Q15 was the last one, and it closed the way the design intended: the answer arrived as a sheet
+edit four days before the draft and the board rendered it correctly before any code was written.
 
-Nothing blocks implementation. Every design decision is resolved; Q15 is a data question whose two
-possible answers are already both handled.
+Worth recording what that cost, because "no deploy needed" was true of the *display* and not of the
+repository. Swapping one name broke **seven tests**, and only one of them was the assertion being
+updated. The rest were coupling this design had already argued against and had not finished removing:
+
+- `league.test.ts` asserted, for *both* fixtures, that the twelve grid names sort-equal
+  `league.managers`. Once 2026 said `Kris` and 2025 said `Nick` no value could satisfy it — and it was
+  asserting exactly the config-equals-membership equivalence §6 renounces. Replaced with a per-season
+  roster table.
+- Three tests pinned behaviour on the *instance* rather than the behaviour: `Nick` as the stand-in for
+  "a name the config does not know" stopped being unknown the moment he was replaced. They now use a
+  fresh unknown name, so the next swap does not touch them.
+
+The rule that generalises: **a test that names a manager is a test about this season.** If the same
+assertion should hold next year, it must not spell a name.
 
 ---
 
@@ -1759,8 +1932,14 @@ Each phase ends with something demonstrable.
    **Revised Q7: the projector is not available until roughly the day before the draft** (2026-08-28),
    which removes the whole point of moving this spike forward. The mitigation is to make the outcome
    *not require code*: `scale`, `columns`, `rail`, `perslot` and `order` are all now settable from the
-   `SETTINGS` tab or the query string (§9.2), and the three highest-value combinations are gated by
-   `verify:layout` so they are known to work unrehearsed. 243 tests and eleven layout cases green.
+   `SETTINGS` tab or the query string (§9.2), and the highest-value combinations are gated by
+   `verify:layout` so they are known to work unrehearsed. **270 tests and sixteen layout cases green.**
+
+   Five of those cases are the maintainer's *actual* `SETTINGS` tab, added once it was populated on
+   2026-08-25, and they were worth adding the moment they existed: the live combination passed at 1080p
+   and clipped at every other resolution in the matrix (§9.2). The mitigation above quietly assumed a
+   knob is safe because it is reachable; what it is really worth depends on it being *measured at the
+   resolutions people will use*, and until the tab had real values in it there was nothing to measure.
 
    **Configurable names, added on request.** "The names should be configurable" turned out to reach
    past the order into membership: the first cut gated the board on `league.managers`, so a swapped
@@ -1804,8 +1983,15 @@ Each phase ends with something demonstrable.
    and tested (§9.2), and `main.tsx` already wires the query-string layer, so all that remains is
    reading the tab and passing its grid to `parseSettingsGrid` **with the parsed roster**, as
    `main.tsx` already does for the query layer. `settingsTabGid` is committed (`361377598`) and the tab
-   exists, so §7.5's caveat no longer gates this. Also drop `src/dev/fixtureState.ts` from the entry
-   point — including its `resolveOrder`, whose A1 fallback chain moves to the live path. Change
+   is **populated with four real settings that nothing yet reads** (§9.2), so this is the phase that
+   makes the maintainer's configuration actually take effect — it is no longer a hypothetical layer.
+   Three specific obligations come with it: pass `columnsFrom: 'sheet'` so a sheet-forced column set is
+   fit-tested rather than obeyed blindly (§9.2 — the default is already the safe one, so forgetting
+   costs the bypass rather than the phones), surface `unmatched` and `duplicated`, which §6 promises the
+   room gets told about and which currently reach nobody, and delete the `?asSheet=1` rehearsal flag
+   once real provenance exists. Also drop `src/dev/fixtureState.ts` from the entry point — including its
+   `resolveOrder`, whose A1 fallback chain moves to the live path, **with its validation intact**: the
+   unvalidated version put a manager ON THE CLOCK on a finished draft (§7.5). Change
    detection, status bar, error resilience, **the error boundary and the `window`-registered watchdog
    together** (§8.1 — the boundary without the out-of-tree watchdog leaves the blank-projector case
    half-covered). Then **leave it running overnight against the live sheet**: §2 claims "runs

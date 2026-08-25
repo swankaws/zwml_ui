@@ -95,17 +95,36 @@ export interface SelectOptions {
   /** Override the readability floor directly, in px per unit. For tests. */
   minUnitPx?: number
   /**
-   * An exact column set from the SETTINGS tab or the query string, which bypasses
-   * the fit test entirely.
+   * An exact column set from the SETTINGS tab or the query string.
    *
-   * Deliberate: the fit test is a heuristic about what *should* be readable, and a
-   * person standing in the room looking at the wall out-ranks it. This is the
-   * escape hatch for the case the heuristic gets wrong on unfamiliar hardware --
-   * the projector is not available until the day before the draft (7.1), so an
-   * override that needs no rebuild is the difference between a two-minute fix and
-   * a deploy plus CDN propagation on the night.
+   * From the query it bypasses the fit test entirely, and that is deliberate: the
+   * fit test is a heuristic about what *should* be readable, and a person standing
+   * in the room looking at the wall out-ranks it. This is the escape hatch for the
+   * case the heuristic gets wrong on unfamiliar hardware -- the projector is not
+   * available until the day before the draft (7.1), so an override that needs no
+   * rebuild is the difference between a two-minute fix and a deploy plus CDN
+   * propagation on the night.
    */
   forced?: readonly ColumnKey[] | null
+  /**
+   * Where `forced` came from. The distinction is the one `resolveSettings` already
+   * draws: the URL is the in-room override, while the SETTINGS tab is "durable,
+   * phone-editable, shared" -- edited from the couch and broadcast to everyone
+   * watching, on screens the operator cannot see.
+   *
+   * So the argument above earns the bypass only for `'query'`. A sheet-forced set is
+   * honoured wherever it fits and trimmed by priority where it cannot: the maintainer
+   * put `columns: manager, left, needs, maxbid` in the live tab on 2026-08-25, which
+   * is clean from 1024x768 up and truncated 41 cells on a 390x844 phone -- including
+   * the NEEDS header, which had 47 px of the 73 px it needed. Nobody following along
+   * on a phone can see that to fix it, and it is the exact failure the priority
+   * system exists to prevent (it drops to two columns there on its own).
+   *
+   * Defaults to `'sheet'`, the cautious answer: forgetting to pass it costs a forced
+   * set its bypass, which is visible and recoverable, rather than silently truncating
+   * every narrow screen in the league.
+   */
+  forcedFrom?: 'query' | 'sheet'
 }
 
 /**
@@ -129,23 +148,38 @@ export function selectColumns(options: SelectOptions): Column[] {
     typePx = REFERENCE_TYPE_PX,
     minUnitPx = MIN_UNIT_RATIO * typePx,
     forced = null,
+    forcedFrom = 'sheet',
   } = options
 
-  // An explicit set skips the fit test but still goes out in display order, so the
-  // row reads the same way however the columns were chosen.
+  // An explicit set still goes out in display order, so the row reads the same way
+  // however the columns were chosen.
   if (forced && forced.length > 0) {
-    return DISPLAY_ORDER.filter((key) => forced.includes(key)).map(
+    const chosen = DISPLAY_ORDER.filter((key) => forced.includes(key)).map(
       (key) => COLUMNS.find((c) => c.key === key) as Column,
     )
+    return forcedFrom === 'query' ? chosen : dropUntilItFits(chosen, width, minUnitPx, typePx)
   }
 
   const candidates = COLUMNS.filter((c) => !c.optIn || enabled.includes(c.key))
+  return dropUntilItFits(candidates, width, minUnitPx, typePx)
+}
+
+/**
+ * Drops one column at a time, least important first, until the set fits, and returns
+ * what survives in display order.
+ *
+ * A priority-1 column is never dropped: an unreadable board and a board with no MAX
+ * BID are both useless, but only one of them is fixable by squinting.
+ */
+function dropUntilItFits(
+  candidates: Column[],
+  width: number,
+  minUnitPx: number,
+  typePx: number,
+): Column[] {
   const byPriority = [...candidates].sort((a, b) => b.priority - a.priority)
 
   let kept = candidates
-  // Drop one column at a time, least important first, until the set fits. A
-  // priority-1 column is never dropped: an unreadable board and a board with no
-  // MAX BID are both useless, but only one of them is fixable by squinting.
   for (const column of byPriority) {
     if (fits(kept, width, minUnitPx, typePx)) break
     if (column.priority === 1) break

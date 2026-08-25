@@ -73,7 +73,8 @@ export const league = {
   },
 
   /**
-   * Display order on the board, and the canonicalization table for sheet spellings.
+   * **This season's** twelve managers: display order on the board, and the
+   * canonicalization table for sheet spellings.
    *
    * **Not the authority on who is in the league** -- the sheet is (see
    * `deriveLeague`). A manager in the twelve name cells but missing here still gets
@@ -81,14 +82,36 @@ export const league = {
    * draft must not need a deploy. This list decides *order* and fixes up known
    * spellings; it does not gate membership.
    *
+   * The length matters in two unrelated places, so keep it at twelve: it is the
+   * order denominator in `parseOrder`, and `league.test.ts` pins it against
+   * `bandRows x blockStartCols` -- the grid holds exactly 12 blocks.
+   *
    * Verified against the live `2026 Auction` tab on 2026-08-25: rows 2 / 23 / 44
-   * read exactly these twelve names.
+   * read exactly these twelve names. `Kris` replaced `Nick` for 2026.
    */
   managers: [
     'Kevin', 'Corky', 'Ryan', 'Toby',
     'Jeff', 'Marc', 'Bill', 'Derrick',
-    'Colin', 'Jason', 'Nick', 'Tony',
+    'Colin', 'Jason', 'Kris', 'Tony',
   ] as const,
+
+  /**
+   * Managers from *earlier* seasons, recognized but never displayed as current.
+   *
+   * The app can render a past tab (`?fixture=2025`, later `?year=2025`), and those
+   * tabs correctly contain whoever played that year. Without this list, rendering
+   * 2025 would report `Unrecognized manager name "Nick"` on every poll -- a warning
+   * about data that is not wrong, just old. That is a false alarm, and this project
+   * spends real effort keeping the warning channel trustworthy (see the blank-tab
+   * rule in 9.2); a channel that cries wolf on correct historical data is worth
+   * less on the one night it matters.
+   *
+   * Names here are recognized, so they get a row and a correct board. They are
+   * deliberately *not* in `managers`, so they take no slot in this season's order,
+   * roster length, or league totals. A name on neither list still warns -- which is
+   * the point: this enumerates who we know, it does not switch the check off.
+   */
+  pastManagers: ['Nick'] as readonly string[],
 
   /**
    * Cosmetic only now: `Jeffrey` appears solely in the Divisional Draft
@@ -105,15 +128,17 @@ export const league = {
    * deploy: `?order=`, the `Settings` tab, and cell A1 of the auction tab. This
    * exists so a total sheet failure still leaves a rotation on the wall.
    *
-   * Transcribed from the live A1 on 2026-08-25. Note slot 11: the maintainer has
-   * said a new manager replaces `Nick`, but the sheet -- both A1 and the roster cell
-   * -- still says `Nick`, so that is what is committed. When the real name lands in
-   * the sheet, nothing here needs to change: the roster is sheet-derived and A1
-   * outranks this list.
+   * Transcribed from the live A1 on 2026-08-25, and matching the `Settings` tab's
+   * `order` row read the same day. Slot 11 is `Kris`, who replaced `Nick` for 2026.
+   *
+   * Being the *last* resort does not exempt it from validation. It names this
+   * season's managers, so it is wrong for any other season's tab, and it is checked
+   * against the board before use -- see `resolveOrder`. Skipping that check put
+   * `Kris` on the clock on the 2025 board, on a draft that had already finished.
    */
   nominationOrder: [
     'Jeff', 'Toby', 'Tony', 'Derrick', 'Marc', 'Corky',
-    'Bill', 'Ryan', 'Colin', 'Kevin', 'Nick', 'Jason',
+    'Bill', 'Ryan', 'Colin', 'Kevin', 'Kris', 'Jason',
   ] as string[],
 
   /** The `Settings` tab (9.2). Read from the live workbook's tab list, 2026-08-25. */

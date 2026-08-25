@@ -116,7 +116,11 @@ describe('cross-check against the sheet own formulas', () => {
       { name: 'Kevin', needs: 11, remaining: 123, maxBid: 113 },
       { name: 'Corky', needs: 11, remaining: 135, maxBid: 125 },
       { name: 'Ryan', needs: 15, remaining: 200, maxBid: 186 },
-      { name: 'Nick', needs: 14, remaining: 190, maxBid: 177 },
+      // 5.7 spot-checked this block as Nick's. Only the NAME cell changed when Kris
+      // replaced Nick for 2026 -- the keeper, the price and all four derived numbers
+      // are byte-identical in the re-captured fixture, which is itself a small check
+      // that the re-capture was an export and not a hand-edit.
+      { name: 'Kris', needs: 14, remaining: 190, maxBid: 177 },
     ]
     for (const row of table) {
       const m = partial.managers.find((x) => x.name === row.name)
@@ -240,6 +244,29 @@ describe('missing and unmatched blocks', () => {
 
   it('renders managers in config order, not sheet order', () => {
     expect(partial.managers.map((m) => m.name)).toEqual([...league.managers])
+  })
+
+  it('reports a duplicated name instead of silently deleting a manager', () => {
+    /*
+     * Managers are keyed by name, so two cells holding the same string overwrite
+     * each other: one row disappears from the wall AND totalSlots drops by 15, which
+     * makes the board look internally consistent while being wrong. Same class as the
+     * dropped-manager bug -- a silent loss, not a visible error.
+     */
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    const band3 = rows[43]
+    if (!band3) throw new Error('fixture has no band-3 row')
+    band3[13] = 'Tony' // N44: Kris -> a second Tony
+
+    const state = deriveLeague(parseAuctionGrid(rows).blocks)
+    expect(state.duplicated).toEqual(['Tony'])
+    expect(state.managers).toHaveLength(11)
+    expect(state.totalSlots).toBe(11 * 15)
+  })
+
+  it('reports nothing duplicated on the real fixtures', () => {
+    expect(partial.duplicated).toEqual([])
+    expect(complete.duplicated).toEqual([])
   })
 
   it('handles an empty league without dividing by anything', () => {

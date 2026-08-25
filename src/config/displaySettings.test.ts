@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
   SETTINGS_ANCHOR,
+  columnsPinnedByQuery,
   parseOrder,
   parseSettingsGrid,
   resolveSettings,
@@ -160,31 +161,35 @@ describe('parseOrder', () => {
 
   /*
    * The roster parameter is why a manager the committed config has never heard of can
-   * be in the order without a deploy. The maintainer has said a new manager replaces
-   * `Nick`; when that name reaches the sheet, this is the path that has to accept it.
+   * be in the order without a deploy.
+   *
+   * This is not hypothetical any more: `Kris` replaced `Nick` four days before the
+   * 2026 draft, and this is the path that carried it. `Kris` is in the committed
+   * config now, so the test uses a *fresh* unknown name -- pinning the behaviour
+   * rather than the one instance of it, so the next swap is covered too.
    */
   describe('validating against the roster rather than the committed list', () => {
-    const swapped = league.managers.map((n) => (n === 'Nick' ? 'NewGuy' : n))
+    const swapped = league.managers.map((n) => (n === 'Colin' ? 'Newcomer' : n))
 
     it('accepts a name the committed config does not know, if the sheet has it', () => {
-      const raw = 'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > NewGuy > Jason'
+      const raw = 'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Newcomer > Kevin > Kris > Jason'
 
       // Against the committed roster this is the failure the maintainer would hit.
       expect(parseOrder(raw).order).toBeNull()
-      expect(parseOrder(raw).warnings[0]).toContain('NewGuy')
+      expect(parseOrder(raw).warnings[0]).toContain('Newcomer')
 
       // Against the sheet's own roster it just works, with no warning.
       const { order, warnings } = parseOrder(raw, swapped)
       expect(order).toHaveLength(12)
-      expect(order).toContain('NewGuy')
-      expect(order).not.toContain('Nick')
+      expect(order).toContain('Newcomer')
+      expect(order).not.toContain('Colin')
       expect(warnings).toEqual([])
     })
 
     it('still rejects a name that is on neither list, so typos do not slip through', () => {
-      const { order, warnings } = parseOrder('Kevin > Nick > Corky', swapped)
+      const { order, warnings } = parseOrder('Kevin > Colin > Corky', swapped)
       expect(order).toBeNull()
-      expect(warnings[0]).toContain('Nick')
+      expect(warnings[0]).toContain('Colin')
     })
 
     it('counts a short order against the roster it was given, not against 12', () => {
@@ -212,6 +217,36 @@ describe('settingsFromQuery', () => {
 
   it('returns nothing for an empty query', () => {
     expect(settingsFromQuery('').settings).toEqual({})
+  })
+})
+
+describe('columnsPinnedByQuery', () => {
+  /*
+   * Provenance decides whether a forced column set overrules the fit test, so this
+   * one-line predicate is load-bearing: answer it wrong for the sheet and every phone
+   * following along truncates; answer it wrong for the URL and the in-room escape
+   * hatch stops working on the night it is needed.
+   */
+  it('is true only when the query itself carries columns', () => {
+    expect(columnsPinnedByQuery('?columns=manager,maxBid')).toBe(true)
+    expect(columnsPinnedByQuery('?scale=1.15&columns=manager,maxBid&rail=on')).toBe(true)
+  })
+
+  it('is false for a query that sets other keys, or nothing', () => {
+    expect(columnsPinnedByQuery('?scale=1.15&rail=on')).toBe(false)
+    expect(columnsPinnedByQuery('')).toBe(false)
+    expect(columnsPinnedByQuery('?')).toBe(false)
+  })
+
+  it('does not care whether the value is usable', () => {
+    // `?columns=nonsense` is still the operator reaching for the hatch; the parser
+    // decides what to do with the value, and this only reports who spoke.
+    expect(columnsPinnedByQuery('?columns=')).toBe(true)
+    expect(columnsPinnedByQuery('?columns=budget')).toBe(true)
+  })
+
+  it('tolerates a search string with no leading question mark', () => {
+    expect(columnsPinnedByQuery('columns=manager,maxBid')).toBe(true)
   })
 })
 

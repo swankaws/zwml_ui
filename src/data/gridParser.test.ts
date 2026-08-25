@@ -199,22 +199,23 @@ describe('the A1 nomination-order hint', () => {
    */
   it('hands A1 through verbatim, without interpreting it', () => {
     expect(partial.orderHint).toBe(
-      'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Rob',
+      'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Kris > Jason',
     )
   })
 
   /*
-   * And this is why it is a hint rather than truth. Both fixtures were captured
-   * 2026-08-24 with an A1 naming `Rob`, who drafted on Jason's behalf years ago and
-   * is not in the league. The live sheet was corrected to `Jason` on 2026-08-25, so
-   * these captures now pin the *stale* case on purpose: validation must reject it and
-   * fall through rather than put a non-manager on the wall.
+   * And this is why it is a hint rather than truth. The 2025 capture's A1 names
+   * `Rob`, who drafted on Jason's behalf years ago and has never been a manager --
+   * the cell sat stale for years. Validation must reject it and fall through rather
+   * than put a non-manager on the wall.
+   *
+   * This case used to be pinned on BOTH fixtures. 2026's A1 was corrected by the
+   * maintainer on 2026-08-25 and the fixture re-captured, so 2025 is now its only
+   * home -- and a better one, being a closed season that will never be re-exported.
    */
-  it('is stale in both captures, which is the case validation has to survive', () => {
-    for (const parsed of [partial, complete]) {
-      expect(parsed.orderHint).toContain('Rob')
-      expect(parseOrder(parsed.orderHint).order).toBeNull()
-    }
+  it('is stale in the 2025 capture, which is the case validation has to survive', () => {
+    expect(complete.orderHint).toContain('Rob')
+    expect(parseOrder(complete.orderHint).order).toBeNull()
   })
 
   it('is empty rather than undefined when A1 is blank', () => {
@@ -222,18 +223,33 @@ describe('the A1 nomination-order hint', () => {
     expect(parseAuctionGrid([['  ']]).orderHint).toBe('')
   })
 
+  /*
+   * The live 2026 A1, resolving against the roster THIS TAB reported -- built the way
+   * production builds it, from the parsed blocks. That distinction is the whole point:
+   * `Kris` joined the league days before the draft, so an order naming him only
+   * validates because the roster came from the sheet rather than from a committed list.
+   */
   it('validates against the parsed roster, so the live A1 resolves cleanly', () => {
-    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
-    setCell(rows, 0, 0, 'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Jason')
+    const roster = partial.blocks.flatMap((b) => (b.name ? [b.name] : []))
+    expect(roster).toContain('Kris')
 
-    const parsed = parseAuctionGrid(rows)
-    const roster = parsed.blocks.flatMap((b) => (b.name ? [b.name] : []))
-    const { order, warnings } = parseOrder(parsed.orderHint, roster)
+    const { order, warnings } = parseOrder(partial.orderHint, roster)
     expect(order).toEqual([
       'Jeff', 'Toby', 'Tony', 'Derrick', 'Marc', 'Corky',
-      'Bill', 'Ryan', 'Colin', 'Kevin', 'Nick', 'Jason',
+      'Bill', 'Ryan', 'Colin', 'Kevin', 'Kris', 'Jason',
     ])
     expect(warnings).toEqual([])
+  })
+
+  /*
+   * The regression the re-capture removed, kept as an assertion because it is easy to
+   * reintroduce: while 2026's A1 was stale, every render of the live tab emitted a
+   * rejected-order warning. A clean A1 means draft night starts with a silent console,
+   * which is what makes a warning that DOES appear worth looking at.
+   */
+  it('leaves the 2026 board with no warnings at all', () => {
+    expect(partial.warnings).toEqual([])
+    expect(parseOrder(partial.orderHint, partial.blocks.flatMap((b) => (b.name ? [b.name] : []))).warnings).toEqual([])
   })
 })
 
@@ -258,6 +274,22 @@ describe('degradation, not exceptions', () => {
     const parsed = parseAuctionGrid(rows)
     expect(parsed.renderable).toBe(false)
     expect(parsed.warnings.some((w) => w.severity === 'fatal' && w.ref === 'C20')).toBe(true)
+  })
+
+  it('counts recognized names against the grid, not against the committed roster', () => {
+    /*
+     * This gate used to compare `named` with `league.managers.length`. The two happen
+     * to both be 12, but they answer different questions -- "did this tab's name cells
+     * resolve" is a property of the tab, the roster is a property of the season. The
+     * old form meant a config carrying a name the tab does not have, or a year with
+     * eleven managers, raised a false alarm on every 3-second poll.
+     */
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    setCell(rows, 43, 13, 'Rob') // N44: one of twelve now unrecognized
+
+    const parsed = parseAuctionGrid(rows)
+    const counted = parsed.warnings.find((w) => /manager names recognized/.test(w.message))
+    expect(counted?.message).toBe('Only 11 of 12 manager names recognized')
   })
 
   it('surfaces an unrecognized manager name instead of dropping the block', () => {

@@ -9,6 +9,18 @@ describe('league config invariants', () => {
     expect(new Set(league.managers).size).toBe(12)
   })
 
+  it('keeps past managers out of the current roster, and out of each other', () => {
+    /*
+     * `pastManagers` exists so a past tab's names still resolve (2025 has Nick).
+     * If a name were on both lists it would take one of this season's twelve slots
+     * and silently distort the order denominator and league totals.
+     */
+    for (const past of league.pastManagers) {
+      expect(league.managers as readonly string[]).not.toContain(past)
+    }
+    expect(new Set(league.pastManagers).size).toBe(league.pastManagers.length)
+  })
+
   it('accounts for every roster slot', () => {
     expect(league.starterTemplate.length + league.benchSlots).toBe(league.auctionSlots)
     expect(totalAuctionSlots).toBe(180)
@@ -49,6 +61,25 @@ describe('sheet template geometry', () => {
   const load = (file: string): string[][] =>
     parseCsv(readFileSync(`docs/data-samples/${file}`, 'utf8'))
 
+  /*
+   * The roster is a property of the SEASON, not of the config.
+   *
+   * This used to assert `found === league.managers` for both files, which quietly
+   * required the committed roster to equal every captured season at once. The moment
+   * 2026 said `Kris` and 2025 said `Nick`, no value of `league.managers` could
+   * satisfy it -- the assertion was unsatisfiable rather than merely failing. It was
+   * also the exact config-equals-membership coupling DESIGN.md 6 renounces, so it
+   * did not belong in a test either. Each season now names its own twelve.
+   */
+  const rosterOf: Record<string, readonly string[]> = {
+    '2026-auction.csv': league.managers,
+    '2025-auction.csv': [
+      'Kevin', 'Corky', 'Ryan', 'Toby',
+      'Jeff', 'Marc', 'Bill', 'Derrick',
+      'Colin', 'Jason', 'Nick', 'Tony',
+    ],
+  }
+
   for (const file of ['2026-auction.csv', '2025-auction.csv']) {
     describe(file, () => {
       const rows = load(file)
@@ -58,9 +89,10 @@ describe('sheet template geometry', () => {
         expect(rows.length).toBeGreaterThanOrEqual(63)
       })
 
-      it('places all 12 known managers at the expected band/column anchors', () => {
+      it("places all 12 of that season's managers at the expected band/column anchors", () => {
         const found = bandRows.flatMap((r) => blockStartCols.map((c) => cell(rows, r, c)))
-        expect([...found].sort()).toEqual([...league.managers].sort())
+        expect(found.filter((n) => n !== '')).toHaveLength(12)
+        expect([...found].sort()).toEqual([...rosterOf[file]!].sort())
       })
 
       it('places every label exactly where the template says', () => {

@@ -52,6 +52,48 @@ const CASES = [
     label: '1080p rail off, forced cols',
   },
   { size: '1024x768', query: '?scale=1.1&rail=off&demoOrder=1', label: '4:3 scaled, rail off' },
+  /*
+   * The maintainer's ACTUAL live SETTINGS tab as of 2026-08-25 (`scale: 1.15`,
+   * `columns: manager, left, needs, maxbid`, rail on), replayed down the sheet path
+   * with `?asSheet=1`.
+   *
+   * These are the highest-value cases in the matrix and they were missing: every case
+   * above tests a combination somebody *might* choose, while this is the one the wall
+   * will really be running on Saturday. It was also broken when it was measured --
+   * clean at 1080p and clipping at all three fallbacks -- which is precisely the
+   * argument for gating configuration rather than only code.
+   *
+   * `asSheet` is not incidental. A sheet-forced column set is fit-tested and a
+   * URL-forced one is not (App's `columnsFrom`), so testing this through the query
+   * string would exercise the wrong path and pass while the sheet still truncated.
+   */
+  {
+    size: '1920x1080',
+    query: '?asSheet=1&scale=1.15&rail=on&columns=manager,left,needs,maxbid&demoOrder=1',
+    label: 'LIVE TAB on the projector',
+  },
+  {
+    size: '1024x768',
+    query: '?asSheet=1&scale=1.15&rail=on&columns=manager,left,needs,maxbid&demoOrder=1',
+    label: 'LIVE TAB at 4:3',
+  },
+  {
+    size: '1280x1024',
+    query: '?asSheet=1&scale=1.15&rail=on&columns=manager,left,needs,maxbid&demoOrder=1',
+    label: 'LIVE TAB at 5:4',
+  },
+  {
+    size: '390x844',
+    query: '?asSheet=1&scale=1.15&rail=on&columns=manager,left,needs,maxbid&demoOrder=1',
+    label: 'LIVE TAB on a phone',
+  },
+  /*
+   * The ceiling of the `scale` clamp, on the screen with the least room to give. The
+   * phone ignores the multiplier outright (theme.css, `@media (max-width: 700px)`),
+   * and this is what pins that: the fix is a cap rather than arithmetic tuned to
+   * 1.15, so it has to hold for anything the sheet can broadcast.
+   */
+  { size: '390x844', query: '?asSheet=1&scale=2&rail=on&demoOrder=1', label: 'phone, scale clamped' },
 ]
 
 function measure(size, query) {
