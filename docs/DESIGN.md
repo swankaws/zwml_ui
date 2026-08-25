@@ -350,8 +350,8 @@ stride 6. Within a block: `+0` Pos, `+1` Player, `+2` $, `+3` stat label, `+4` s
 - Therefore **auction roster size = 15**, and the `$200` budget buys 15 players. Confirmed
   arithmetically: every completed stats block's `QB+RB+WR+TE+K` sums to exactly 15.
 
-**The one usable slot test:** a row is a pick iff it has **both a non-empty Player and a parseable
-price**. `Pos`-label presence is *not* a slot test — empty starter rows have a label, empty bench
+**The one usable slot test:** a row is a pick iff it has **both a non-empty Player and a non-blank
+price cell**. `Pos`-label presence is *not* a slot test — empty starter rows have a label, empty bench
 rows do not, and the `DEF` row has a label but never a price.
 
 > ⚠️ **Order of operations matters here, and review caught the doc getting it wrong.** §5.5 coerces a
@@ -507,10 +507,16 @@ throughout. The old `Remaining %` breakage and the `Max Bid = Remaining + 1` ful
 were artifacts of the uncapped 2025 tab.
 
 One more 2025-only quirk, found during verification and worth *not* fixing: `Remaining` is floored at
-`$0` for the overspenders, and for Marc (`$198` spent → `$4`) and Nick (`$194` → `$7`) it is off by
-one or two from `200 − spent` in a way that isn't internally consistent. Old sloppy formulas, legal
-that year, invisible in 2026. It is precisely why D6 recomputes and the debug overlay shows both
-numbers side by side.
+`$0` for the **five** overspenders (Corky `$201`, Derrick `$203`, Tony `$204`, Toby `$205`, Jeff
+`$206`), and **Marc** (`$198` spent → sheet says `$4`, not `$2`) is off by two from `200 − spent`. Six
+`remaining` disagreements in total, and `spent` agrees for all twelve. Old sloppy formulas, legal that
+year, invisible in 2026 — precisely why D6 recomputes and the debug overlay shows both numbers side by
+side.
+
+> **Corrected while implementing phase 2.** An earlier revision of this section also named **Nick**
+> (`$194` → `$7`) as inconsistent. Read directly from the fixture at `P63`, that cell says **`$6`** —
+> exactly `200 − 194`, and perfectly consistent. Only Marc is actually off. `derive.test.ts` now pins
+> the exact disagreement set, so this paragraph no longer rests on anyone's reading of a spreadsheet.
 
 **We still recompute (D6)** — not out of distrust, but because:
 
@@ -1442,9 +1448,15 @@ Each phase ends with something demonstrable.
 1. ~~**Recapture fixtures via `/export`.**~~ **Done** — all fixtures re-captured 2026-08-24; repo
    scaffolded with `config/league.ts`, `data/csv.ts`, the Pages workflow, and 24 passing tests that
    lock in the §5.3 geometry against both fixtures.
-2. **Parser + model with tests.** `gridParser` and `derive` against those fixtures, cross-checked
-   against `AUCTION DISPLAY` and against the sheet's own `Max Bid` / `Needs` values. Correctness
-   lives here; get `maxBid` right once. *Unblocked.*
+2. ~~**Parser + model with tests.**~~ **Done** — `data/normalize.ts`, `data/gridParser.ts`, and
+   `model/derive.ts`, 158 tests passing. The design's own claims are now assertions rather than prose:
+   **zero template violations across all 24 blocks in both fixtures**; all 12 managers agree with the
+   sheet on `spent`, `remaining`, `needs`, and `maxBid` on the 2026 tab; `spent` agrees for all 12 on
+   2025 with exactly the six known `remaining` artifacts; and `leagueSpent` for 2025 comes to
+   **$2,411**, independently matching the `AUCTION DISPLAY` tab's own total from a completely separate
+   set of formulas (§5.6). The name-then-price race of §5.3 and the two §6 header bugs each have a
+   dedicated test. One §5.7 error was found and corrected in the process (Nick's `$6` is correct; only
+   Marc's is off).
 3. **Static board at 1920 × 1080.** Full table from the partial fixture, no network. Build the
    **table + rail** shell and the column-priority system here, not later — both shape the markup.
    Verify at 1024 × 768 too, so the fallback is exercised from day one rather than discovered broken.
