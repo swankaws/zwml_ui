@@ -1,6 +1,6 @@
 # ZWML Auction Display — Design
 
-**Status:** Draft, rev 5 — 1080p target, spreadsheet id out of the repo, session-staleness bug fixed
+**Status:** Draft, rev 6 — 1080p target, spreadsheet id out of the repo, review findings verified and fixed
 **Last updated:** 2026-08-25
 **Blocking questions:** none — Q1–Q13 all resolved. Q14 is data entry (the 12-name order), not a
 design decision.
@@ -18,6 +18,17 @@ design decision.
 4. Two smaller review fixes: the id-resolution precedence now ranks the CI default **above**
    `localStorage` and persists only after a successful fetch (§9.1), and the committed-id guard test
    now catches base64 and unquoted forms it was previously blind to.
+5. **Rev 6 — the eight findings left unverified in rev 5 have now been checked one by one.** Five were
+   real and are fixed: the header's `$/slot` divided by zero at draft end and counted unspendable money
+   (§6); the blank-price rule contradicted the slot test in a way that made every sale flicker mid-entry
+   (§5.3, §5.5); nothing implemented the promised "never blank the screen", and the watchdog shared a
+   fate with the tree it was meant to rescue (**§8.1, new**); the rail's vertical budget was
+   over-subscribed by ~50 px and the mock hid it by showing 6 of 12 names (§7.2); and the phase-7
+   legibility measurement was the sole test of §7.1's arithmetic, so it moves to **phase 3** (§12). One
+   was a genuine imbalance worth measuring rather than re-guessing (column widths, §7.2), one was a
+   documentation overstatement (`SETTINGS` "zero redeploy", §7.5), and the endurance claim in §2 now has
+   an actual test in phase 4. One flagged item was **rejected** with reasoning: `MAX BID` stays in
+   column 5.
 
 **Carried correction from earlier revs:** rev 2's claim that the row geometry was dynamic and that band 1
 was structurally irregular was **wrong** — both were artifacts of the `gviz` endpoint, not the sheet.
@@ -343,6 +354,24 @@ stride 6. Within a block: `+0` Pos, `+1` Player, `+2` $, `+3` stat label, `+4` s
 price**. `Pos`-label presence is *not* a slot test — empty starter rows have a label, empty bench
 rows do not, and the `DEF` row has a label but never a price.
 
+> ⚠️ **Order of operations matters here, and review caught the doc getting it wrong.** §5.5 coerces a
+> blank or unparseable price to `$0`. If that coercion runs *before* the slot test, every row with a
+> player name passes, the "and a parseable price" half of the test is dead, and a half-entered row
+> becomes a $0 pick.
+>
+> This is not hypothetical: the commissioner types the player name and the price as two separate
+> keystrokes, so **every single sale passes through a name-without-price state** that a 3-second poll
+> will sometimes catch. In that window the coerce-first reading consumes a roster slot, drops `needs`
+> by one, bumps a position count, and shifts `maxBid` by exactly $1 — for the manager who just won
+> the bid, while the room is looking at them. Then it corrects itself a poll later. Numbers that
+> flicker are worse than numbers that lag, because the room stops trusting the board.
+>
+> **The rule, stated once and referenced everywhere else:** the slot test runs on the **raw** cells,
+> before any coercion. A blank price means *not yet a pick* — the row is invisible to `picks`,
+> `spent`, `needs`, `maxBid`, `positionCounts`, and the ticker. `$0` coercion applies only to a price
+> that is present but *unparseable* (`"TBD"`, `"?"`, a stray letter), which is a genuine data error
+> worth surfacing rather than a row mid-entry. §5.5 and §6 both defer to this paragraph.
+
 **Other content in the tab** (must be ignored by the parser, and is a good reason to anchor on
 labels rather than scan columns):
 
@@ -419,8 +448,10 @@ picks and a manager with a full 15.
   Found by the geometry test, not by reading: `src/data/csv.ts` handles quoted commas, escaped
   quotes, embedded newlines, and CRLF, and `csv.test.ts` asserts the fixture still contains the
   hazard so the test cannot quietly stop testing anything.
-- **Prices:** strip `$` and thousands separators; `$10`, `10`, `10.00` all accepted. Blank or
-  unparseable → `$0`, flagged as a warning.
+- **Prices:** strip `$` and thousands separators; `$10`, `10`, `10.00` all accepted. **Blank ≠
+  unparseable** (§5.3): a *blank* price means the row is not a pick at all and is skipped silently — it
+  is a row mid-entry, not an error. A price that is *present but unparseable* → `$0`, flagged as a
+  warning, because that one is a real data problem someone should see.
 - **Positions:** uppercase; map `D/ST`, `DST`, `DEF`, `DEFENSE` → `DEF`.
 - **DEF rows carry no price and no player** and must not count toward spend or auction slots.
 - Blank rows, spacer columns, and trailing empties are ignored.
@@ -600,7 +631,7 @@ service that has never been exercised on draft night — for a feature the poll-
 Per manager, with `budget = 200`, `minBid = 1`, `auctionSlots = 15` (DEF excluded):
 
 ```
-picks           = rows with a player name and a price (DEF row excluded)
+picks           = rows passing the §5.3 slot test (DEF row excluded)
 spent           = Σ price
 remaining       = budget − spent      // 2026 caps at $200; historical tabs can go negative,
                                       // so never floor at 0 — render the truth
@@ -620,11 +651,28 @@ heads. It gets the largest, boldest type on each row.
 League-wide, for the header:
 
 ```
-leagueSpent      = Σ spent
-leagueRemaining  = Σ remaining          // dollars still chasing players
+active           = managers with needs > 0             // a FULL manager cannot bid again
+leagueSpent      = Σ spent                             // over all 12
+leagueRemaining  = Σ remaining over active             // dollars that can still chase players
+leagueNeeds      = Σ needs                             // = Σ needs over active, by definition
 slotsFilled / (12 × 15)
-avgPerRemainingSlot = leagueRemaining / Σ needs        // market pace
+avgPerRemainingSlot = leagueNeeds > 0                   // market pace
+                        ? leagueRemaining / leagueNeeds
+                        : null                          // draft over → render "—", never a number
 ```
+
+> ⚠️ **Two bugs found in review, fixed above.** Both live in the header, which is on screen for the
+> whole draft.
+>
+> 1. **Divide by zero at the moment the draft ends.** `leagueNeeds` reaches 0 when the last slot
+>    fills, so the un-guarded form yields `Infinity` — the header would read `$Infinity/slot` at the
+>    single most-watched moment of the night. The per-manager `avgPerSlot` one block up was already
+>    guarded, which is what makes this an oversight rather than a decision. `null` renders as `—`.
+> 2. **Dead money inflated the pace.** `leagueRemaining` summed over *all* managers, so a manager
+>    holding $14 with a full roster contributed $14 to "dollars still chasing players" — money that
+>    is structurally unspendable, since they can never bid again. Summing over `active` only is the
+>    honest figure, and it matters most late, exactly when the room is watching pace to judge
+>    whether the remaining players are about to go cheap.
 
 Validation states surfaced visually, never hidden: `remaining < 0` (overspent),
 `slotsFilled > 15` (over-rostered), unmatched manager names, unparseable prices.
@@ -716,8 +764,8 @@ version of something they already understand.
 ├─────────┬───────┬──────┬───────┬─────────┬────────────────┤  ▶ Marc             │
 │ MANAGER │ SPENT │ LEFT │ NEEDS │ MAX BID │ QB  RB WR TE K │    Bill             │
 ├─────────┼───────┼──────┼───────┼─────────┼────────────────┤    Derrick          │
-│ Kevin   │  $77  │ $123 │  11   │  $113   │  1  2  1  ·  · │    Colin            │
-│ Corky   │  $65  │ $135 │  11   │  $125   │  ·  1  3  ·  · │    Jason  FULL      │
+│ Kevin   │  $77  │ $123 │  11   │  $113   │  1  2  1  ·  · │    ̶J̶a̶s̶o̶n̶      FULL  │
+│ Corky   │  $65  │ $135 │  11   │  $125   │  ·  1  3  ·  · │    Colin            │
 │ Ryan    │   $0  │ $200 │  15   │  $186   │  ·  ·  ·  ·  · │    Nick             │
 │ Nick    │  $10  │ $190 │  14   │  $177   │  1  ·  ·  ·  · │                     │
 │ …  (12 rows, ~75 px each)                                 │  ───────────────    │
@@ -727,13 +775,43 @@ version of something they already understand.
 │                                                           │  Bijan Robinson     │
 │                                                           │    $69 → Jeff       │
 │                                                           │  Puka Nacua         │
+│                                                           │    $54 → Kevin      │
+│                                                           │  Malik Nabers       │
+│                                                           │    $41 → Corky      │
 └───────────────────────────────────────────────────────────┴─────────────────────┘
    ~1300 px                                                    ~530 px
+
+Five live nominators (`Jason` struck through and skipped, not counted toward the five) and four
+sales — the budget worked out below.
 ```
 
 The rail is a real improvement over the stacked ticker, not just a space trick: a **vertical** sales
 list shows 4–5 recent sales legibly instead of one scrolling line, and the nomination order is a
 column of names — its natural shape — instead of a horizontal strip that has to abbreviate.
+
+**The rail's vertical budget, which review found over-subscribed.** The mock above shows six names
+under ON THE CLOCK — but the league has **twelve** managers and Q10 asked for the nomination order
+displayed. Showing all of it does not fit, and the mock hid that by trailing off:
+
+| Rail content | Height |
+|---|---|
+| Usable rail height (1080 − header − padding) | **~1000 px** |
+| `ON THE CLOCK` label | 50 |
+| 12 nomination names at rail type (~44 px) | 528 |
+| Divider + `JUST SOLD` label | 74 |
+| 5 sales × 2 lines (player, then `$60 → Toby`) at ~40 px | 400 |
+| **Demanded** | **1052 px** — over by ~50, before any breathing room |
+
+**Resolved: the rail shows a window, not the whole cycle** — the current nominator plus the next
+four, and **4** sales instead of 5. That is 5 × 44 + 50 + 74 + 320 = 664 px, leaving real slack for
+line spacing and a long name wrapping. The full order is one keypress away in the roster view.
+
+This is the right call independent of the arithmetic: the room's live question is *"who's up, and am
+I next?"*, which the next four answer completely. Positions six through twelve are minutes away and
+will have changed by then anyway, since a manager who fills their roster drops out of the rotation
+(§7.5). Rendering seven names nobody is acting on, to squeeze the sales list that people *do* read,
+would be the wrong trade. Managers who go `FULL` are struck through and skipped as the window
+advances, so the window is always five *live* nominators.
 
 **At 4:3 or narrower**, the rail collapses beneath the table as a single-line ticker plus a
 horizontal strip, and columns start dropping (below). Same components, same data.
@@ -759,6 +837,21 @@ phones and laptops (Q8), and as insurance if the projector changes on the day.
 
 Rough widths at 1080p, summing to ~1300 px: `MANAGER` 210, `SPENT` 120, `LEFT` 130, `NEEDS` 105,
 `MAX BID` 185, five position columns at 86, remainder as gutters.
+
+**Flagged in review, to settle by measurement rather than on paper:** those widths give the position
+matrix 430 px — **36% of the content width, to priority 4** — while `MAX BID`, priority 1 and rendered
+at 1.4× type, gets 185 px. Each position cell holds a *single digit* in 86 px; `MAX BID` holds four
+glyphs (`$186`, or `FULL`) in 185 px. At 1.4× of ~47 px type a digit runs ~36 px, so `$186` needs
+~145 px and leaves only ~40 px of padding — the tightest column on the row is the one that matters
+most, and it is the one at risk of clipping. There is roughly 150 px recoverable from the matrix. I am
+**not** re-tuning these numbers here: §7.1's sizes are arithmetic, and guessing twice is not better
+than measuring once (phase 3, §12). The action is to check `$200`/`FULL` for clipping on real hardware
+and move width from the matrix into `MAX BID` if it clips.
+
+Not changed: `MAX BID` stays in column 5 rather than moving beside `MANAGER`. Review flagged the two
+priority-1 columns as "split," but `SPENT → LEFT → NEEDS → MAX BID` reads left-to-right as the
+derivation that produces it, and the rightmost numeric column before the matrix gives the biggest
+number a clean right-aligned edge. That is a deliberate trade, not an oversight.
 
 **Per-row `$/SLOT` is built but off by default.** It fits at 1080p, and it is `LEFT ÷ NEEDS` — two
 columns already on the row — so a ninth number competes for attention while telling the room nothing
@@ -940,7 +1033,14 @@ historical artifact naming `Rob`, who drafted on Jason's behalf in a past year. 
 |---|---|
 | Hard-code in `league.ts` | Works, but a typo found at 7pm needs a rebuild **plus up to 10 min of Pages CDN propagation** (§10) |
 | Cells **in the auction tab** | **Avoid.** That grid's geometry is verified cell-by-cell (§5.3); adding to it risks the thing the parser depends on |
-| **A separate `SETTINGS` tab** | **Chosen.** Editable from a phone, zero redeploy, and structurally isolated from the auction grid |
+| **A separate `SETTINGS` tab** | **Chosen.** Editable from a phone, zero redeploy *after the first one*, and structurally isolated from the auction grid |
+
+> **One honest caveat on "zero redeploy," from review.** Reading a tab requires its `gid`, and a gid
+> only exists once the tab does — so `settingsTabGid` has to be committed *after* the `SETTINGS` tab is
+> created, which is itself a redeploy. Today it is `null` (§9), meaning the fallback path is the only
+> one live and **2026's order will come from `league.ts`** — so Q14's twelve names do need a deploy.
+> The zero-redeploy benefit is real but starts one step later than the row above implies: create the
+> tab and commit its gid once, well before draft night, and every subsequent edit is free.
 
 One column of 12 names in a new tab. The app reads it at startup, validates it against the known
 manager list, and **falls back to `config.nominationOrder`** if the tab is missing, short, or has an
@@ -1037,12 +1137,40 @@ and `D` are operator-only and simply absent there.
 | Sheet formulas disagree with ours | We win (D6); disagreement is logged to the debug overlay. |
 | Laptop sleeps / tab throttled | `visibilitychange` forces an immediate refetch. |
 | Stale bundle after a deploy | See §10 — hashed assets, `vite:preloadError` self-reload, deploy early. |
-| Wedged JS context | Watchdog: no successful poll for N minutes → `location.reload()`, guarded by a `sessionStorage` counter so it can't loop. |
+| Wedged JS context | Watchdog: no successful poll for N minutes → `location.reload()`, guarded by a `sessionStorage` counter so it can't loop. **Registered on `window` in `main.tsx`, outside the React tree** — see below. |
+| **An exception during render** | Error boundary holds the last good board and shows a warning chip. Without it React 19 unmounts the whole tree and the projector goes white — see below. |
 | **Reload mid-draft** | `(order, baseline, saleLog)` restored from `localStorage`, so the ticker and nomination pointer survive exactly (§7.5). |
 | **Session state left over from a rehearsal or a prior day** (§7.5) | Restore is refused if `savedAt` is older than ~30 min; unaccounted picks are **absorbed into the baseline, never replayed as sales**. Status bar shows `resynced · N absorbed`. `X` forces it manually. |
 | **A pick is corrected or deleted in the sheet** | Diff shows a negative/batch change → recompute the pointer from the sale log rather than patching it (§7.5). |
 | `SETTINGS` tab missing, short, or misspelled | Falls back to `config.nominationOrder`; an empty order hides the strip instead of blocking the board (§7.5). |
 | **Every manager full** | Rotation is empty → strip renders `COMPLETE` rather than looping or dividing by zero. |
+
+### 8.1 The blank-projector failure, and why the watchdog did not cover it
+
+Review found that §2 and §4 promise the board will **"never blank the screen"** while nothing in this
+design actually delivered that promise. Two compounding gaps:
+
+1. **No error boundary.** Every failure mode above is a *data* failure, caught at the fetch or parse
+   boundary. A **render** exception is different: in React 19 an uncaught error during render unmounts
+   the entire tree, leaving a white page. One bad cell reaching one unguarded `.toFixed()` is enough.
+2. **The watchdog would die with it.** Its trigger is "no successful poll for N minutes" — but if the
+   polling loop lives in a React effect, the unmount that blanked the screen also cancels the timer
+   that was supposed to notice. The recovery mechanism and the thing it recovers share a fate.
+
+This is a bad failure for *this* product specifically. A wall display has no one sitting at it: there
+is no cursor, no keyboard within reach, and nobody in the room is going to walk over and press F5
+mid-auction. A white wall stays white until someone gives up on the board entirely.
+
+**Required:**
+
+- An error boundary wrapping the board, rendering the **last successfully derived snapshot** plus a
+  `⚠ display error — recovering` chip, not a blank page and not a stack trace. The last-good snapshot
+  is already retained for the network-drop case, so this reuses it.
+- The **watchdog registered on `window` in `main.tsx`**, outside the component tree, so an unmount
+  cannot cancel it. It must reload on *either* condition: no successful poll for N minutes, **or** the
+  boundary having caught an error that a re-render did not clear.
+- One test: throw from a cell renderer and assert the board still shows the prior figures and the
+  chip. Cheap, and it is the only way this promise stays true after the first refactor.
 
 ---
 
@@ -1320,9 +1448,26 @@ Each phase ends with something demonstrable.
 3. **Static board at 1920 × 1080.** Full table from the partial fixture, no network. Build the
    **table + rail** shell and the column-priority system here, not later — both shape the markup.
    Verify at 1024 × 768 too, so the fallback is exercised from day one rather than discovered broken.
+   **Ends with a legibility spike on the real projector** — see below.
+
+   > ⚠️ **Moved forward from phase 7, per review.** Every type size in §7.1 is arithmetic, not a
+   > measurement, and phase 7 was the *only* point where that assumption got tested — at the end,
+   > against a hard date, with the whole layout already built on top of it. If the rehearsal says the
+   > type is too small, the fix is not always a `+`/`−` nudge: it can mean dropping a column, cutting
+   > the rail, or showing ten rows instead of twelve. That is structural, and structural rework is
+   > exactly what you cannot absorb in the last phase.
+   >
+   > So: as soon as a static board renders, put it on the actual projector at the actual throw
+   > distance and read it from the back of the room. One evening, no dependencies — phase 3 needs no
+   > network, no live sheet, and no secret. It either confirms §7.1 or it changes the layout while
+   > changing the layout is still cheap. Phase 7 then verifies rather than discovers.
 4. **Live polling.** `sheetClient` on top of `sheetLocation` (§9.1) — including the setup card, since
    until the CI secret exists that card is the only way to point the app at a sheet. Change
-   detection, status bar, error resilience, watchdog.
+   detection, status bar, error resilience, **the error boundary and the `window`-registered watchdog
+   together** (§8.1 — the boundary without the out-of-tree watchdog leaves the blank-projector case
+   half-covered). Then **leave it running overnight against the live sheet**: §2 claims "runs
+   unattended ~4 hours" and nothing else in this plan tests it. ~4,800 polls surfaces timer drift,
+   listener leaks, and unbounded growth for the price of walking away from a laptop.
 5. **Diff engine + ticker.**
 6. **Roster view + keyboard controls + nomination list.** Automatic (§7.5); it rides on phase 5's
    diff engine, so build it here rather than earlier. Include the `localStorage` persistence of
