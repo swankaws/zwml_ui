@@ -1,0 +1,551 @@
+/*
+ * One root scale, everything else in em/rem (docs/DESIGN.md section 7.1).
+ *
+ * Legibility across a room depends on the PHYSICAL height of a glyph, not the
+ * pixel count: (type size / vertical resolution) x image height. So every size
+ * here derives from viewport HEIGHT, never width -- at 16:9 the vertical budget
+ * is the binding constraint, and a width-based scale would silently shrink the
+ * type on the exact display this is built for.
+ *
+ * Projectors are dimmer and lower-contrast than the laptop this was written on:
+ * bold weights over thin, no mid-grey text, and large colour differences rather
+ * than subtle ones.
+ */
+
+:root {
+  /*
+   * ~47 px at 1080 px tall, which section 7.1 works out to ~2.1" of glyph on an
+   * 84"-wide image -- comfortable to about 26 ft. The clamp keeps a laptop window
+   * and a phone sane at the ends.
+   */
+  --type: clamp(13px, 4.35vh, 64px);
+  --scale: 1;
+  font-size: calc(var(--type) * var(--scale));
+
+  /* ~2% safe area for projector overscan and keystone cropping. */
+  --pad-v: 2vh;
+  --pad-h: 2vw;
+
+  --bg: #07090c;
+  --bg-row: #0e1216;
+  --bg-row-alt: #121821;
+  --fg: #f4f7fa;
+  --fg-dim: #7c8b9c;
+  --rule: #1e2833;
+
+  --accent: #37d67a; /* the top max bid: who can still swing */
+  --warn: #ff5c5c; /* overspent, over-rostered, negative money */
+  --live: #37d67a;
+  --stale: #ffb020;
+  --dead: #ff5c5c;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 700;
+  /* Tabular figures so columns of numbers line up and do not jitter as they change. */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* 12 rows always fit; the board never scrolls. */
+}
+
+/* ---------------------------------------------------------------- app shell */
+
+.app {
+  height: 100vh;
+  padding: var(--pad-v) var(--pad-h);
+  display: grid;
+  /*
+   * minmax(0, 1fr), not the implicit `auto`. An auto column is max-content, so the
+   * header's nowrap totals sized the whole app to 1303px inside a 1024px viewport
+   * and body's overflow:hidden quietly cropped the right-hand end of every row.
+   * Every grid track in this file is min-0 for the same reason.
+   */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  gap: 0.34rem;
+  /*
+   * Every vertical budget in 7.1 assumes the glyph box is the type size. Normal
+   * line-height silently adds ~20%, which is the difference between twelve rows
+   * fitting and the twelfth being cropped.
+   */
+  line-height: 1;
+}
+
+/*
+ * Aspect-ratio-aware, not width-aware. The same 1920 px means very different
+ * things at 16:9 and 4:3, and it is the *height* that decides whether a rail is
+ * affordable. At >= 16:10 the rail pays for itself; below that it would eat the
+ * rows it was meant to protect, so the stacked layout takes over.
+ *
+ * Range syntax, because the boundary is exclusive. `max-aspect-ratio: 16/10` also
+ * matches *exactly* 16:10, so a 1440x900 laptop -- which has ample room for the
+ * rail -- was getting the stacked fallback and cropping the sale price.
+ */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1300fr) minmax(0, 530fr);
+  gap: 0.34rem;
+  min-height: 0;
+}
+
+@media (aspect-ratio < 16 / 10) {
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  /*
+   * The totals strip is sized for a 1920px-wide header. At 1024 the same text wants
+   * 1303px, and since it must not be the flex item that shrinks, it is the type that
+   * gives -- losing "$/SLOT" off the right-hand edge is not an option.
+   */
+  .header {
+    font-size: 0.72em;
+  }
+}
+
+/* -------------------------------------------------------------------- header */
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.1rem;
+  border-bottom: 2px solid var(--rule);
+  min-width: 0;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.06em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.totals {
+  display: flex;
+  align-items: baseline;
+  gap: 0.62em;
+  font-size: 0.78em;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  /* Must not be the item that shrinks: these are numbers, not decoration. */
+  flex: 0 0 auto;
+}
+
+.totals b {
+  color: var(--fg);
+  font-weight: 800;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.dot {
+  width: 0.44em;
+  height: 0.44em;
+  border-radius: 50%;
+  background: var(--live);
+}
+.status[data-state='stale'] .dot {
+  background: var(--stale);
+}
+.status[data-state='dead'] .dot {
+  background: var(--dead);
+}
+
+/* --------------------------------------------------------------------- board */
+
+/*
+ * Measured by App to decide which columns fit, so it must be free to be narrower
+ * than its content -- without min-width: 0 a grid item floors at max-content and
+ * the measurement would never report the squeeze the priority system exists for.
+ */
+.table-area {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.board {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.row {
+  display: grid;
+  align-items: center;
+  gap: 0 0.5em;
+  padding: 0 0.42em;
+}
+
+.rows {
+  display: grid;
+  /*
+   * minmax(0, 1fr): twelve equal rows that consume exactly the space left over and
+   * are *allowed to shrink below their content*. A plain 1fr floors at min-content,
+   * so on a resolution the type scale has not been tuned for the rows overflow the
+   * board and paint over whatever is beneath them -- at 1024x768 that was the rail,
+   * and the twelfth manager was cropped off the bottom of the screen.
+   *
+   * The type sizes below are picked so this never actually has to clip anything;
+   * this is the guarantee that an unexpected resolution loses a few pixels of a row
+   * rather than a whole manager.
+   */
+  grid-auto-rows: minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rows .row:nth-child(odd) {
+  background: var(--bg-row);
+}
+.rows .row:nth-child(even) {
+  background: var(--bg-row-alt);
+}
+
+.head {
+  font-size: 0.5em;
+  letter-spacing: 0.14em;
+  color: var(--fg-dim);
+  padding-bottom: 0.3em;
+}
+
+.cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell[data-align='right'] {
+  text-align: right;
+}
+.cell[data-align='center'] {
+  text-align: center;
+}
+
+.cell-manager {
+  font-size: 0.94em;
+}
+
+/* MAX BID gets the largest type on the row: 1.4x, per 7.1's physical-size table. */
+.cell-maxBid {
+  font-size: 1.4em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * 4:3 is short, not narrow. 1024x768 leaves ~47px per row against ~78px at 1080p,
+ * and MAX BID at 1.4em is what sets a row's minimum height -- at 1.4em the rows
+ * land exactly on that minimum with nothing spare. Measured with tools/measure.mjs.
+ *
+ * This block has to come *after* the rule above: a media query carries no extra
+ * specificity, so the override only wins on source order. It was written higher up
+ * first and did nothing at all.
+ */
+@media (aspect-ratio < 16 / 10) {
+  .cell-maxBid {
+    font-size: 1.2em;
+  }
+}
+
+.cell-left {
+  font-size: 1.06em;
+}
+
+.negative {
+  color: var(--warn);
+}
+
+/* Position counts read as a matrix, so the sub-columns are fixed and equal. */
+.positions {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0 0.2em;
+  font-size: 0.84em;
+}
+
+/* Zero is a dim dot, not a 0, so unfilled needs pop out of a wall of digits. */
+.zero {
+  color: var(--fg-dim);
+  opacity: 0.5;
+}
+
+/* Row states (7.2). Meaning only -- never decoration. */
+.row[data-state='full'],
+.row[data-state='broke'] {
+  color: var(--fg-dim);
+}
+
+.row[data-state='full'] .cell-maxBid {
+  font-size: 1.1em;
+  letter-spacing: 0.08em;
+}
+
+.row[data-state='leader'] .cell-maxBid {
+  color: var(--accent);
+}
+
+.row[data-invalid='true'] {
+  box-shadow: inset 0.16em 0 0 var(--warn);
+}
+
+.row[data-invalid='true'] .cell-manager {
+  color: var(--warn);
+}
+
+/* ---------------------------------------------------------------------- rail */
+
+.rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.3rem;
+  padding-left: 0.7em;
+  border-left: 2px solid var(--rule);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rail-nominations,
+.rail-sales {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.24em;
+}
+
+@media (aspect-ratio < 16 / 10) {
+  /*
+   * Stacked fallback: the rail collapses to a single horizontal band beneath the
+   * table. Same components, same data, less of it.
+   */
+  .rail {
+    grid-template-rows: auto;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 1.2em;
+    padding: 0.3em 0 0;
+    border-left: none;
+    border-top: 2px solid var(--rule);
+    align-items: start;
+  }
+  .rail .sales {
+    display: flex;
+    gap: 1.1em;
+    flex-wrap: nowrap;
+    font-size: 0.66em;
+  }
+  .rail .sales > * {
+    white-space: nowrap;
+  }
+  /*
+   * One sale and three nominators, measured -- not four and five. A single 983px
+   * band cannot hold the rail's full contents: player names are the widest strings
+   * in the app, and two of them cropped mid-word. The same trade the column
+   * priorities make: fewer things, all legible, beats more things torn in half.
+   */
+  .rail .sales > *:nth-child(n + 2) {
+    display: none;
+  }
+  .rail .nomination > *:nth-child(n + 4) {
+    display: none;
+  }
+  .rail .nomination {
+    display: flex;
+    gap: 0.7em;
+    align-items: baseline;
+  }
+  .rail .sale-price {
+    display: inline;
+  }
+  /* Both bands read left-to-right when stacked, so the headings sit inline too. */
+  .rail-nominations,
+  .rail-sales {
+    grid-template-rows: auto;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: 0 0.7em;
+  }
+}
+
+.rail h2 {
+  margin: 0;
+  font-size: 0.5em;
+  letter-spacing: 0.14em;
+  color: var(--fg-dim);
+  font-weight: 700;
+}
+
+.nomination {
+  display: grid;
+  gap: 0.06em;
+  font-size: 0.84em;
+}
+
+.nominee {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+  white-space: nowrap;
+}
+
+.nominee[data-onclock='true'] {
+  color: var(--accent);
+  font-size: 1.12em;
+  font-weight: 800;
+}
+
+.nominee[data-full='true'] {
+  color: var(--fg-dim);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.nominee .tag {
+  font-size: 0.55em;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+}
+
+.sales {
+  display: grid;
+  align-content: start;
+  gap: 0.32em;
+  font-size: 0.78em;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sale-player {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sale-price {
+  display: block;
+  padding-left: 0.7em;
+  font-size: 0.86em;
+  color: var(--fg-dim);
+}
+
+.sale-price b {
+  color: var(--fg);
+}
+
+.empty {
+  color: var(--fg-dim);
+  font-size: 0.62em;
+  letter-spacing: 0.06em;
+}
+
+/* ------------------------------------------------------- narrow (phone, Q8) */
+
+/*
+ * The only width-keyed block in the file, and deliberately so. Everything above
+ * keys off aspect ratio because that is what decides the *vertical* budget. This
+ * one is about horizontal room, which a phone in portrait genuinely lacks: the
+ * type comes from viewport height (7.1), so a 390x844 phone renders nearly a
+ * laptop's type size in a third of the width.
+ *
+ * It comes last because a media query carries no extra specificity -- the
+ * aspect-ratio blocks above also match a portrait phone, and these override them.
+ *
+ * The columns look after themselves (the priority system drops to MANAGER and
+ * MAX BID here). The header and the rail have no such mechanism, so at this width
+ * they were the two things still overflowing: the totals strip ran off the right
+ * edge, and player names -- the widest strings in the app -- cropped mid-word.
+ */
+@media (max-width: 700px) {
+  /*
+   * Stack, do not shrink. Squeezing five totals onto one 390px line means type too
+   * small to read, and dropping them means the room loses the league picture; a
+   * second line costs a few px of row height and keeps both.
+   */
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15em;
+  }
+
+  .totals {
+    flex-wrap: wrap;
+    row-gap: 0.15em;
+    /* Wrapping is the point here, so it may now take the width it needs. */
+    flex: 0 1 auto;
+    white-space: normal;
+  }
+
+  /*
+   * Undo the stacked band's horizontal packing. Player names are the widest strings
+   * in the app -- "Christian McCaffery" is ~9.5em -- so at 390px they need the whole
+   * width, which means the headings go back above their content rather than beside
+   * it, and each section back to one item per line.
+   */
+  .rail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 0.3em 0;
+  }
+
+  .rail-nominations,
+  .rail-sales {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 0.1em 0;
+  }
+
+  .rail .sales {
+    display: grid;
+    gap: 0.2em;
+  }
+
+  .rail .sale-price {
+    display: block;
+    padding-left: 0;
+  }
+
+  /* One nominator: who is on the clock. The rest of the lap costs rows. */
+  .rail .nomination > *:nth-child(n + 2) {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------------- debug badge */
+
+.scale-badge {
+  position: fixed;
+  right: var(--pad-h);
+  bottom: var(--pad-v);
+  font-size: 0.44em;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+  background: var(--bg);
+  padding: 0.3em 0.6em;
+  border: 1px solid var(--rule);
+  border-radius: 0.3em;
+  pointer-events: none;
+}

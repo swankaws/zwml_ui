@@ -822,6 +822,22 @@ advances, so the window is always five *live* nominators.
 **At 4:3 or narrower**, the rail collapses beneath the table as a single-line ticker plus a
 horizontal strip, and columns start dropping (below). Same components, same data.
 
+The switch keys off **aspect ratio, not width**: the same 1920 px means very different things at 16:9
+and 4:3, and it is the *height* that decides whether a rail is affordable. The boundary is
+`(aspect-ratio < 16 / 10)` in range syntax, because `max-aspect-ratio: 16/10` also matches *exactly*
+16:10 — which sent a 1440 × 900 laptop, with ample room for the rail, into the stacked fallback.
+
+Measured, the stacked band holds **three nominators and one sale**, not five and four: a single 983 px
+band cannot hold the rail's full contents, because player names are the widest strings in the app and
+two of them cropped mid-word. Same trade the column priorities make — fewer things, all legible, beats
+more things torn in half.
+
+The one **width**-keyed rule in the whole stylesheet is for phones (≤ 700 px), and only because two
+things there have no priority mechanism of their own: the header's totals strip, which ran off the
+right edge, and the rail, where `Christian McCaffery` is ~9.5 em and needs the full width. The totals
+wrap to a second line rather than shrink, and the rail's headings go back above their content rather
+than beside it. Everything else stays aspect-keyed.
+
 A **table, not cards.** Twelve managers sharing a baseline down each column is what makes them
 comparable at a glance; cards force the eye to hunt for the same number in twelve places. **One
 table of 12, not two of 6** — splitting would double the row height, but two sets of column
@@ -841,18 +857,55 @@ phones and laptops (Q8), and as insurance if the projector changes on the day.
 | 5 | `SPENT` | **Fully redundant** — `$200 − LEFT`. First to go. |
 | 6 | `$/SLOT` pace | Nice-to-have. Off by default — see below. |
 
-Rough widths at 1080p, summing to ~1300 px: `MANAGER` 210, `SPENT` 120, `LEFT` 130, `NEEDS` 105,
-`MAX BID` 185, five position columns at 86, remainder as gutters.
+**Widths — measured in phase 3, not estimated.** The review flag below was correct: the paper widths
+gave the position matrix 430 px (**36% of the content width, to priority 4**) while `MAX BID` — priority
+1, rendered at 1.4× type — got 185 px, and at 1080p `LEFT` rendered `$2…` for `$200` while `SPENT`
+rendered `$2…` for `$201`. Corrected by measurement, as relative units rather than px so the ratios
+hold at any width:
 
-**Flagged in review, to settle by measurement rather than on paper:** those widths give the position
-matrix 430 px — **36% of the content width, to priority 4** — while `MAX BID`, priority 1 and rendered
-at 1.4× type, gets 185 px. Each position cell holds a *single digit* in 86 px; `MAX BID` holds four
-glyphs (`$186`, or `FULL`) in 185 px. At 1.4× of ~47 px type a digit runs ~36 px, so `$186` needs
-~145 px and leaves only ~40 px of padding — the tightest column on the row is the one that matters
-most, and it is the one at risk of clipping. There is roughly 150 px recoverable from the matrix. I am
-**not** re-tuning these numbers here: §7.1's sizes are arithmetic, and guessing twice is not better
-than measuring once (phase 3, §12). The action is to check `$200`/`FULL` for clipping on real hardware
-and move width from the matrix into `MAX BID` if it clips.
+| Column | Paper | Measured | Why it moved |
+|---|---|---|---|
+| `MANAGER` | 210 | 210 | — |
+| `SPENT` | 120 | 145 | clipped `$201` on the 2025 fixture |
+| `LEFT` | 130 | 170 | clipped `$200`, at 1.06× type |
+| `NEEDS` | 105 | 95 | two digits never needed 105 |
+| `MAX BID` | 185 | 190 | four glyphs at 1.4× type |
+| Positions (all five) | 430 | 370 | single digits; ~60 units recovered |
+| `$/SLOT` (opt-in) | — | 130 | |
+
+The default six still sum to 1180 units, so every drop threshold below is unchanged.
+
+> The original flag, kept because the reasoning is what produced the measurement: *"the tightest
+> column on the row is the one that matters most, and it is the one at risk of clipping… I am **not**
+> re-tuning these numbers here: §7.1's sizes are arithmetic, and guessing twice is not better than
+> measuring once."* It clipped exactly where predicted, and the fix came from the harness rather than
+> from a second guess.
+
+**The fit test is about readability, and its floor is not a constant.** Any set of columns can be
+squeezed into any width, so what decides is whether each unit of relative width still maps to enough
+pixels to draw the value. The first version of that test used a fixed px-per-unit floor and passed a
+390 px phone board that truncated `LEFT`, `NEEDS` and `MAX BID` on all twelve rows — because type here
+is sized from viewport *height* (§7.1) while the space available is a *width*, so a phone in portrait
+renders nearly a laptop's type size in a third of the room. The floor is therefore a **ratio of the
+root type size**: 0.0194 px per unit per px of root type, measured off `MAX BID` (the largest type on
+the row, and `$186` at ~2.63 em-widths). The same test also has to subtract row gaps and padding —
+~157 px of the 1298 px table at 1080p, 12% the columns never see. Ignoring them made it optimistic by
+roughly one column.
+
+What that produces at each verified resolution:
+
+| Display | Table area | Root type | Columns |
+|---|---|---|---|
+| 1920 × 1080 projector | 1298 px | 47 px | all 6 |
+| 1280 × 1024 (5:4) | 1229 px | 44.5 px | all 6 |
+| 1024 × 768 fallback | 983 px | 33.4 px | all 6 |
+| 1440 × 900 laptop | 973 px | 39.15 px | 5 — `SPENT` drops |
+| 390 × 844 phone | 374 px | 36.7 px | 2 — `MANAGER`, `MAX BID` |
+
+The laptop is the interesting one: it keeps the rail (it is ≥ 16:10), so its table is *narrower than
+the 4:3 fallback's* at nearly the projector's type size. Six columns fit there arithmetically and
+`MAX BID` came up 8 px short on every row. Dropping `SPENT` — redundant with `LEFT` — is the cheapest
+thing in the room.
 
 Not changed: `MAX BID` stays in column 5 rather than moving beside `MANAGER`. Review flagged the two
 priority-1 columns as "split," but `SPENT → LEFT → NEEDS → MAX BID` reads left-to-right as the
@@ -874,6 +927,10 @@ key toggles the column on if draft night proves otherwise.
 - Row states: **out of money** (`maxBid = $1`) dimmed; **roster full** dimmed with `FULL`;
   **top max bid** subtly accented so the room knows who can still swing; **invalid** (overspent /
   over-rostered) flagged in warning color.
+- **The top-bid accent is suppressed when more than half the field ties it.** On the opening board
+  everyone with an untouched roster has the same `$186`, and the first render lit **nine of twelve
+  rows** green — a highlight on the majority conveys nothing and costs the accent its meaning for the
+  rest of the night. Found on screen in phase 3, not on paper.
 - Default sort: **max bid descending** — the room's real question is who can outbid whom.
   Toggleable to config order or name.
 
@@ -953,6 +1010,15 @@ The pointer is maintained **incrementally by the diff engine** (§7.3), which al
 sale. That sidesteps the one genuinely hard problem: fullness must be evaluated *at the time of each
 nomination*, and a single snapshot cannot tell you when a manager crossed 15 — only that they have.
 Watching the sales happen gives it exactly, for free.
+
+> **Confirmed in phase 3, by writing the shortcut and deleting it.** Building the rail against a
+> static fixture invites deriving the pointer from the snapshot, and both obvious ways are wrong:
+> `saleCount % order.length` diverges from the real position the moment anyone's roster fills, and
+> replaying the order against *current* fullness over-advances, because a manager who is full now was
+> not full on their earlier turns. That is the paragraph above, made concrete. `nominationWindow()`
+> therefore takes the cursor as a parameter — phase 3 renders the window and its edge cases (skip,
+> strike-through, one lap, nobody eligible → `DRAFT COMPLETE`), and phase 6 supplies the cursor on
+> top of phase 5's chronological sale log.
 
 **Keepers are not sales.** They are entered in the days before the draft, so the pointer must start
 from the roster state at auction start, not from zero picks. The first successful poll establishes
@@ -1399,6 +1465,26 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   is the state the display actually runs in for most of the draft.
 - Cross-check parse output against the `AUCTION DISPLAY` tab during development (§5.6).
 - `?mock=1` renders from a fixture with no network, for offline UI work and demos.
+- **Layout is verified by measurement, not by looking** — `npm run verify:layout`. Unit tests run in
+  jsdom, which has no layout engine, so nothing in the suite above can see a cropped row or a
+  truncated cell. `tools/measure.mjs` drives headless Chrome over the DevTools Protocol (zero
+  dependencies — CDP over Node 22's global `WebSocket`), sets an exact viewport with
+  `Emulation.setDeviceMetricsOverride`, and reads the real DOM back: row count, whether the last row
+  ends inside the viewport, ellipsised cells, rail clipping, header overflow, rail/table overlap,
+  document overflow, console errors, and the computed type size of the columns that matter.
+  `tools/verify-layout.mjs` runs it across **eight cases** — 1080p mid-draft / draft-complete /
+  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900 — and exits non-zero on any failure.
+
+  This paid for itself immediately and repeatedly. Screenshots showed the 4:3 layout was broken but
+  not why; the harness reported `.app` measuring **1303 px inside a 1024 px viewport**, because a
+  `display: grid` with no `grid-template-columns` gets one `auto` (= max-content) track and
+  `body { overflow: hidden }` then cropped the right-hand end of every row in silence. It went on to
+  catch: `grid-auto-rows: 1fr` flooring at min-content and cropping the twelfth manager; a
+  `font-size` override that did nothing because it sat above the rule it meant to override (media
+  queries carry no extra specificity, so only source order decides); `LEFT` rendering `$2…`; the rail
+  cropping a player name mid-word; and the 1440 × 900 column shortfall above. **Every one of those is
+  invisible to a unit test and easy to miss on a screenshot.**
+
 - **Dress rehearsal is mandatory:** real projector, real laptop, real network, before draft night —
   including pulling the network cable to watch the staleness indicator do its job. Prevent OS
   interference (`caffeinate -dis` on macOS, notifications off, kiosk/fullscreen). Keep the sheet
@@ -1461,6 +1547,25 @@ Each phase ends with something demonstrable.
    **table + rail** shell and the column-priority system here, not later — both shape the markup.
    Verify at 1024 × 768 too, so the fallback is exercised from day one rather than discovered broken.
    **Ends with a legibility spike on the real projector** — see below.
+
+   **Built** — `theme.css`, `App`, `Header`, `Board`, `Rail`, `nominations.ts`, and the column
+   priority system, rendering from `src/dev/fixtureState.ts` (`?fixture=2025` for the completed board,
+   `?demoOrder=1` for a stand-in nomination order). **208 tests passing and all eight layout cases
+   green** at 1920 × 1080, 1024 × 768, 1280 × 1024, 1440 × 900 and 390 × 844. On-screen corroboration
+   of the model, independent of the unit tests: the 2025 fixture renders `CHASING $0` and `$/SLOT —`
+   rather than `$Infinity`, and flags exactly the five §5.7 overspenders. Seven layout defects found
+   and fixed by measurement — see §10's testing notes and §7.2's width table.
+
+   ⏳ **Still open: the projector evening.** Everything above verifies *pixels*; §7.1's claim is about
+   *physical glyph size at a viewing distance*, and no harness can check that. This is the calendar
+   dependency in the plan — it needs the room, not the desk.
+
+   Deferred out of this phase deliberately: deriving the nomination **cursor** from the sheet. Two
+   plausible derivations are both wrong — `saleCount % order.length` diverges from the real position
+   the moment anyone's roster fills, and replaying the order against *current* fullness over-advances,
+   because a manager who is full now was not full for their earlier turns. It needs the chronological
+   sale sequence, which phase 5's diff engine produces, so §7.5's cursor belongs to phase 6.
+   `nominationWindow()` takes the cursor as a parameter and is fully tested against it now.
 
    > ⚠️ **Moved forward from phase 7, per review.** Every type size in §7.1 is arithmetic, not a
    > measurement, and phase 7 was the *only* point where that assumption got tested — at the end,
