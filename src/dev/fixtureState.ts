@@ -20,6 +20,7 @@ import { parseCsv } from '../data/csv'
 import { parseAuctionGrid } from '../data/gridParser'
 import { deriveLeague, type LeagueState } from '../model/derive'
 import { league } from '../config/league'
+import { parseOrder } from '../config/displaySettings'
 import type { Sale } from '../ui/Rail'
 
 const FIXTURES: Record<string, { year: number; csv: string }> = {
@@ -42,28 +43,53 @@ export function loadFixture(search: string): FixtureState {
 
   const parsed = parseAuctionGrid(parseCsv(fixture.csv))
   const state = deriveLeague(parsed.blocks)
+  const resolved = resolveOrder(params.get('demoOrder'), state, parsed.orderHint)
 
   return {
     year: fixture.year,
     state,
     sales: recentSales(state),
-    order: demoOrder(params.get('demoOrder'), state),
-    warnings: parsed.warnings.map((w) => `${w.ref}: ${w.message}`),
+    order: resolved.order,
+    warnings: [...parsed.warnings.map((w) => `${w.ref}: ${w.message}`), ...resolved.warnings],
   }
 }
 
 /**
- * `?demoOrder=1` fills the rail with a stand-in order. NOT the league's order --
- * that is still unanswered and lives in `league.nominationOrder`.
+ * Nomination order, cheapest usable source first (7.5, 9.2):
  *
- * It exists because the rail's vertical budget is the one thing review actually
+ *   `?demoOrder=1`          a stand-in for layout work -- roster order, not the league's
+ *   A1 of the auction tab   what the maintainer actually curates
+ *   `league.nominationOrder`  the committed fallback
+ *
+ * The SETTINGS tab and `?order=` sit above all of these and are applied by `App`,
+ * so they are not repeated here.
+ *
+ * A1 is validated against the roster **as parsed from this tab**, not against the
+ * committed list, which is the whole point: it lets a manager the config has never
+ * heard of appear in the order without a deploy. A stale or fumbled A1 rejects
+ * wholesale and falls through to the committed copy -- and it *does* go stale, so
+ * this is not theoretical: both committed fixtures still carry an A1 naming `Rob`,
+ * who has not played in years.
+ *
+ * `?demoOrder=1` stays because the rail's vertical budget is the one thing review
  * caught here: the first draft demanded ~1052px against ~1000px available, and the
- * fix was to window it to five nominators and four sales. With the real order empty
- * the rail renders a one-line placeholder, so that fix would ship unverified.
+ * fix was to window it to five nominators and four sales. It must stay verifiable
+ * even when no real order resolves.
  */
-function demoOrder(flag: string | null, state: LeagueState): readonly string[] {
-  if (flag === null || flag === '0') return league.nominationOrder
-  return state.managers.map((m) => m.name)
+function resolveOrder(
+  flag: string | null,
+  state: LeagueState,
+  hint: string,
+): { order: readonly string[]; warnings: string[] } {
+  if (flag !== null && flag !== '0') {
+    return { order: state.managers.map((m) => m.name), warnings: [] }
+  }
+
+  const roster = state.managers.map((m) => m.name)
+  const fromSheet = parseOrder(hint, roster)
+  if (fromSheet.order) return { order: fromSheet.order, warnings: fromSheet.warnings }
+
+  return { order: league.nominationOrder, warnings: fromSheet.warnings }
 }
 
 /**

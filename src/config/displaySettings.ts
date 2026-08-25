@@ -82,8 +82,26 @@ const PROTECTED: ColumnKey[] = COLUMNS.filter((c) => c.priority === 1).map((c) =
  * Unknown keys are ignored with a warning rather than treated as errors. Someone
  * will put a note in this tab, and a comment must not take the board down.
  */
-export function parseSettingsGrid(rows: readonly (readonly string[])[]): ParseResult {
+export function parseSettingsGrid(
+  rows: readonly (readonly string[])[],
+  roster: readonly string[] = league.managers,
+): ParseResult {
   const warnings: string[] = []
+
+  /*
+   * A blank tab is not a wrong tab, and must not warn.
+   *
+   * The anchor below exists to catch gviz handing us the auction grid, and the
+   * auction grid is never empty. A freshly created `Settings` tab, on the other
+   * hand, is empty by definition -- which is the normal state between "create the
+   * tab so its gid can be committed" and "fill it in". Warning about that on every
+   * poll would teach whoever is watching to ignore warnings, on the one night the
+   * warnings matter.
+   */
+  if (rows.every((row) => row.every((cell) => cell.trim() === ''))) {
+    return { settings: {}, warnings: [] }
+  }
+
   const anchor = (rows[0]?.[0] ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
   if (anchor !== SETTINGS_ANCHOR) {
     return {
@@ -153,7 +171,7 @@ export function parseSettingsGrid(rows: readonly (readonly string[])[]): ParseRe
       }
 
       case 'order': {
-        const result = parseOrder(raw)
+        const result = parseOrder(raw, roster)
         warnings.push(...result.warnings)
         if (result.order) settings.order = result.order
         break
@@ -175,14 +193,17 @@ export function parseSettingsGrid(rows: readonly (readonly string[])[]): ParseRe
  * or fumbled, a URL typed into the address bar still fixes the wall, which is why
  * it sits above the sheet in the precedence below.
  */
-export function settingsFromQuery(search: string): ParseResult {
+export function settingsFromQuery(
+  search: string,
+  roster: readonly string[] = league.managers,
+): ParseResult {
   const params = new URLSearchParams(search.replace(/^\?/, ''))
   const rows: string[][] = [[SETTINGS_ANCHOR]]
   for (const key of ['scale', 'columns', 'rail', 'perslot', 'order']) {
     const value = params.get(key)
     if (value !== null) rows.push([key, value])
   }
-  return parseSettingsGrid(rows)
+  return parseSettingsGrid(rows, roster)
 }
 
 /**
@@ -241,7 +262,10 @@ function withProtected(requested: ColumnKey[], warnings: string[]): ColumnKey[] 
  * one name: a partial rotation is a wrong rotation, and silently skipping a
  * manager on the wall is worse than falling back to the committed copy (§7.5).
  */
-export function parseOrder(raw: string): { order: readonly string[] | null; warnings: string[] } {
+export function parseOrder(
+  raw: string,
+  roster: readonly string[] = league.managers,
+): { order: readonly string[] | null; warnings: string[] } {
   const warnings: string[] = []
   const parts = raw
     .split(/[,>\n]|\s{2,}/)
@@ -249,10 +273,19 @@ export function parseOrder(raw: string): { order: readonly string[] | null; warn
     .filter((part) => part !== '')
   if (parts.length === 0) return { order: null, warnings }
 
+  /*
+   * `roster` defaults to the committed list but is meant to be the roster parsed
+   * from the sheet. That matters more than it looks: this function rejects the whole
+   * order on an unknown name, so validating against a stale committed list would
+   * reject a *correct* order the moment the league changes a manager -- and the
+   * fallback it drops to would be the equally stale committed order. The sheet knows
+   * who is playing; ask it.
+   */
   const canonical = new Map<string, string>()
-  for (const name of league.managers) canonical.set(name.toLowerCase(), name)
+  for (const name of roster) canonical.set(name.toLowerCase(), name)
   for (const [alias, name] of Object.entries(league.aliases)) {
-    canonical.set(alias.toLowerCase(), name)
+    // Only honour an alias whose target is actually on this roster.
+    if (canonical.has(name.toLowerCase())) canonical.set(alias.toLowerCase(), name)
   }
 
   const resolved: string[] = []
@@ -281,9 +314,9 @@ export function parseOrder(raw: string): { order: readonly string[] | null; warn
    * just excludes whoever is missing, which is a visible, self-explaining state on
    * the wall, unlike a silently reordered rotation.
    */
-  if (resolved.length !== league.managers.length) {
+  if (resolved.length !== roster.length) {
     warnings.push(
-      `SETTINGS: order lists ${resolved.length} of ${league.managers.length} managers. ` +
+      `SETTINGS: order lists ${resolved.length} of ${roster.length} managers. ` +
         'Using it as given; the rest will not nominate.',
     )
   }

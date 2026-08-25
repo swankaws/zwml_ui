@@ -72,7 +72,18 @@ export const league = {
     statLabels: ['Needs', 'Max Bid', 'QB', 'RB', 'WR', 'TE', 'K'] as const,
   },
 
-  /** Display order on the board; also the expected set for name validation. */
+  /**
+   * Display order on the board, and the canonicalization table for sheet spellings.
+   *
+   * **Not the authority on who is in the league** -- the sheet is (see
+   * `deriveLeague`). A manager in the twelve name cells but missing here still gets
+   * a row, under the sheet's own spelling, because a roster change days before a
+   * draft must not need a deploy. This list decides *order* and fixes up known
+   * spellings; it does not gate membership.
+   *
+   * Verified against the live `2026 Auction` tab on 2026-08-25: rows 2 / 23 / 44
+   * read exactly these twelve names.
+   */
   managers: [
     'Kevin', 'Corky', 'Ryan', 'Toby',
     'Jeff', 'Marc', 'Bill', 'Derrick',
@@ -90,11 +101,23 @@ export const league = {
    * is full is skipped. Every nomination ends in a sale, so the pointer is
    * derived from the sale count and needs no operator input.
    *
-   * The SETTINGS tab wins if readable; this is the fallback copy. An empty
-   * order hides the nomination strip rather than blocking the board.
+   * **The last-resort copy only.** Three sources outrank it, all editable without a
+   * deploy: `?order=`, the `Settings` tab, and cell A1 of the auction tab. This
+   * exists so a total sheet failure still leaves a rotation on the wall.
+   *
+   * Transcribed from the live A1 on 2026-08-25. Note slot 11: the maintainer has
+   * said a new manager replaces `Nick`, but the sheet -- both A1 and the roster cell
+   * -- still says `Nick`, so that is what is committed. When the real name lands in
+   * the sheet, nothing here needs to change: the roster is sheet-derived and A1
+   * outranks this list.
    */
-  nominationOrder: [] as string[],
-  settingsTabGid: null as string | null,
+  nominationOrder: [
+    'Jeff', 'Toby', 'Tony', 'Derrick', 'Marc', 'Corky',
+    'Bill', 'Ryan', 'Colin', 'Kevin', 'Nick', 'Jason',
+  ] as string[],
+
+  /** The `Settings` tab (9.2). Read from the live workbook's tab list, 2026-08-25. */
+  settingsTabGid: '361377598' as string | null,
 
   pollIntervalMs: 3000,
 

@@ -19,8 +19,14 @@ const fixture = loadFixture(search)
  * Query layer only, for now. Phase 4 adds the SETTINGS tab beneath it -- the
  * precedence chain in `resolveSettings` already has the slot, so wiring the fetch
  * in is a one-line change here and nothing under src/ui moves.
+ *
+ * The roster comes from the parsed sheet, not from `league.managers`, so `?order=`
+ * accepts whoever is actually playing. Validating against the committed list would
+ * reject a *correct* order the moment the league swaps a manager -- and then fall
+ * back to the equally stale committed order (9.2).
  */
-const query = settingsFromQuery(search)
+const roster = fixture.state.managers.map((m) => m.name)
+const query = settingsFromQuery(search, roster)
 const settings = resolveSettings(query.settings)
 
 const warnings = [...fixture.warnings, ...query.warnings]

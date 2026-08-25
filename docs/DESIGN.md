@@ -683,6 +683,16 @@ avgPerRemainingSlot = leagueNeeds > 0                   // market pace
 Validation states surfaced visually, never hidden: `remaining < 0` (overspent),
 `slotsFilled > 15` (over-rostered), unmatched manager names, unparseable prices.
 
+**Who is on the board is decided by the sheet, not by `league.managers`.** `deriveLeague` builds a row
+for every one of the twelve name cells; `league.managers` then supplies *order* and fixes up known
+spellings, and a manager missing from it lands at the end of the board under the sheet's own spelling.
+The first cut had this backwards — it iterated `league.managers` and looked each one up, so an
+unrecognized name produced **eleven rows and no indication a twelfth person existed**. That is the
+worst available failure: not an error, just a person quietly missing from the wall. The league
+totals follow the same rule (`managers.length × auctionSlots`, not a hard-coded 180), so a roster
+change days before the draft needs no deploy. Membership drift still warns, via §5.4's
+`Unrecognized manager` check — it is reported, it just is not enforced.
+
 **Not validated: position counts.** Roster construction is unrestricted for bench slots, and while
 the league does have some positional caps, they are **not encoded in the sheet** (Q9). The display
 therefore reports position counts as facts and never flags one as "too many" — inventing a rule the
@@ -1158,34 +1168,49 @@ repeating their name, which would look like a bug.
 
 #### Where the order lives
 
-**Recommendation: a dedicated `SETTINGS` tab, with a config fallback.**
+**Four sources, checked in order. Three of them are editable without a deploy.**
 
-Confirmed no longer usable: cell `A1` of the auction tab holds
-`"Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Rob "` — a
-historical artifact naming `Rob`, who drafted on Jason's behalf in a past year. The parser ignores it.
+```
+  ?order=Jeff,Toby,…        the in-room override: no sheet, no network, no gid
+  SETTINGS tab, `order` key durable and phone-editable (§9.2)
+  cell A1 of the auction tab arrives free, in a fetch the app already makes
+  league.nominationOrder    the committed last resort
+```
 
 | Option | Verdict |
 |---|---|
-| Hard-code in `league.ts` | Works, but a typo found at 7pm needs a rebuild **plus up to 10 min of Pages CDN propagation** (§10) |
-| Cells **in the auction tab** | **Avoid.** That grid's geometry is verified cell-by-cell (§5.3); adding to it risks the thing the parser depends on |
-| **A separate `SETTINGS` tab** | **Chosen.** Editable from a phone, zero redeploy *after the first one*, and structurally isolated from the auction grid |
+| Hard-code in `league.ts` | Kept as the **bottom** of the chain. On its own it is a poor primary: a typo found at 7pm needs a rebuild **plus up to 10 min of Pages CDN propagation** (§10) |
+| Cells **inside a band** of the auction tab | **Avoid.** That grid's geometry is verified cell-by-cell (§5.3); adding to it risks the thing the parser depends on |
+| **Cell `A1`** of the auction tab | **Added.** `bandRows` starts at row 1, so A1 is outside every block — reading it cannot disturb the verified geometry, and it costs no second request |
+| **A separate `SETTINGS` tab** | **Chosen as primary.** Editable from a phone and structurally isolated from the auction grid |
 
-The tab now carries more than the order — the display knobs live there too, for the same
+A1 was written off in an earlier revision as a "historical artifact" because it named `Rob`, who
+drafted on Jason's behalf years ago. That was a fair reading of a stale cell and the wrong conclusion
+to draw from it: the maintainer curates that cell, and on 2026-08-25 it read the correct twelve. A
+cell that is *sometimes* stale is not unusable — it is a cheap source that needs validating, which
+every source here needs anyway. **Both committed fixtures still carry the `Rob` spelling on purpose**,
+so the test suite exercises the stale path rather than only the happy one.
+
+Validation is the same at every level and is what makes the chain safe: an unknown or duplicated name
+**rejects the whole order** and falls through to the next source. A partial rotation is a wrong
+rotation, and a wall that quietly skips a manager is worse than one showing the committed copy.
+
+**Validated against the roster the sheet reported, not against `league.managers`.** This is the part
+that matters when the league changes. Checking against the committed list would reject a *correct*
+order the moment a manager is swapped — and then fall back to the equally stale committed order, so
+the board would be wrong in two places for one edit. Validating against the parsed roster means a new
+manager can appear in A1, in the tab, or in a URL and simply work, with no deploy and no warning.
+Typos are still caught, because they are on neither list.
+
+The tab carries more than the order — the display knobs live there too, for the same
 redeploy-avoidance reason. Its full format, key list, A1 anchor requirement and precedence rules are
 specified in **§9.2**; this section covers only the `order` key.
 
-> **One honest caveat on "zero redeploy," from review.** Reading a tab requires its `gid`, and a gid
-> only exists once the tab does — so `settingsTabGid` has to be committed *after* the `SETTINGS` tab is
-> created, which is itself a redeploy. Today it is `null` (§9), meaning the fallback path is the only
-> one live and **2026's order will come from `league.ts`** — so Q14's twelve names do need a deploy.
-> The zero-redeploy benefit is real but starts one step later than the row above implies: create the
-> tab and commit its gid once, well before draft night, and every subsequent edit is free.
-
-One column of 12 names in a new tab. The app reads it at startup, validates it against the known
-manager list, and **falls back to `config.nominationOrder`** if the tab is missing, short, or has an
-unrecognized name — so a fumbled edit degrades to the hard-coded copy instead of taking the strip
-down. Keeping both is the point: the sheet copy removes the redeploy risk, the config copy removes
-the single point of failure.
+> **On the earlier "zero redeploy" caveat — mostly retired.** Reading a tab requires its `gid`, and a
+> gid only exists once the tab does, so `settingsTabGid` had to be committed *after* the tab was
+> created. The tab now exists and its gid is committed (`361377598`, §9), so that one-time cost is
+> paid. What made it a non-issue in the meantime is the A1 source: it needs no gid at all, so even
+> with `settingsTabGid: null` the order was already editable without a deploy.
 
 Since the order is fixed for the season, it is read **once at startup**, not every poll.
 
@@ -1340,12 +1365,16 @@ export const league = {
   },
   colOffsets: { pos: 0, player: 1, price: 2, statLabel: 3, statValue: 4 },
 
+  // Board ORDER and spelling fixups — *not* who is in the league. The sheet decides
+  // membership (§6); a name missing here still gets a row, under the sheet's spelling.
   managers: ['Kevin','Corky','Ryan','Toby','Jeff','Marc',
              'Bill','Derrick','Colin','Jason','Nick','Tony'],
   aliases: { Jeffrey: 'Jeff' },
-  // Nomination order (§7.5). The SETTINGS tab wins if readable; this is the fallback copy.
-  nominationOrder: [],                    // 12 names in sequence — TODO before draft night (Q14)
-  settingsTabGid: null,                   // set once the SETTINGS tab exists
+  // Nomination order (§7.5), last resort only: ?order=, the SETTINGS tab and cell A1
+  // all outrank it. Transcribed from the live A1 on 2026-08-25.
+  nominationOrder: ['Jeff','Toby','Tony','Derrick','Marc','Corky',
+                    'Bill','Ryan','Colin','Kevin','Nick','Jason'],
+  settingsTabGid: '361377598',            // the SETTINGS tab now exists (§9.2)
   pollIntervalMs: 3000,
   enforceBudgetCap: true,                 // 2026: over $200 is an error (2025 allowed it)
   freeDefenseSlot: true,                  // DEF costs nothing and is drafted separately
@@ -1454,13 +1483,20 @@ would shift every index.
 | `columns` | `manager, left, needs, maxbid` | Forces an exact set, bypassing the priority system. Names are case-insensitive |
 | `rail` | `on` / `off` | The nomination + sales rail. `off` returns *width* at 16:9, *height* at 4:3 |
 | `perslot` | `off` | The opt-in `$/SLOT` column (§7.2). Also spelled `$/slot` |
-| `order` | `Jeff > Toby > …` | Nomination order (§7.5). Comma-, newline- or `>`-separated |
+| `order` | `Jeff > Toby > …` | Nomination order (§7.5). Comma-, newline- or `>`-separated. Names are checked against the roster **the sheet reported**, so a new manager needs no deploy |
 
 **A1 must read `ZWML SETTINGS`, and that is a guard rather than decoration.** §5.2 verified that
 `gviz`'s `&sheet=<name>` selector answers `status:"ok"` **with the wrong tab's data** when the name
 does not match. Without an anchor, a renamed or misspelled tab would hand this parser the auction grid
 and let it apply whatever happened to look like a key. With it, the wrong tab yields zero settings and
 one loud warning, and the built-in defaults stand.
+
+**A blank tab is silent — it is not a missing anchor.** The empty check runs *before* the anchor
+check, because the tab spends real time empty: it has to exist before its gid can be committed, and it
+sat empty in the live workbook for exactly that reason. Warning on every 3-second poll would put a
+permanent complaint on screen about a tab nobody has filled in yet, and train whoever is watching to
+ignore warnings on the one night they matter. The two states are safely distinguishable: the auction
+grid is never blank, so "empty" cannot be the wrong-tab case the anchor guards against.
 
 **Precedence — later wins:**
 
@@ -1582,6 +1618,11 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   > regression fixture for the fallback path and as evidence for §5.0. **Never test the primary
   > parser against it**; it is the exact shape that produced rev 2's wrong conclusions.
 
+  > **Both auction fixtures carry a stale `A1` naming `Rob`, and that is now load-bearing.** The live
+  > cell was corrected to `Jason` the day after capture, so re-capturing would leave the order
+  > validator with only its happy path tested. The captures pin the case that has to degrade
+  > correctly: reject the whole order, warn, fall through (§7.5).
+
 - **Additional hand-built fixtures required:** a fully empty tab (day-one state), a
   single-manager-complete tab, a tab with a deliberately corrupted price and an unknown manager
   name, and a **deliberately restructured tab** (one row inserted) to prove the label verification
@@ -1654,7 +1695,7 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 |---|---|---|
 | Q1 | Is `2026 Auction` an uncleared copy? | Yes, deliberately duplicated; now partially cleared. Keepers being populated, will be complete before draft night. (§5.9) |
 | Q2 | Roster template for 2026 | **Confirmed:** 15 auction slots + 1 free defense. |
-| Q3 | Manager identity | **Jason** is the manager; **Rob** was drafting on his behalf that year. `A1`'s order string is a historical artifact — parser ignores it. `Jeffrey` → `Jeff` alias stands. |
+| Q3 | Manager identity | **Jason** is the manager; **Rob** was drafting on his behalf that year. `Jeffrey` → `Jeff` alias stands. `A1` named `Rob` when the fixtures were captured; the maintainer corrected it to `Jason` on 2026-08-25, and A1 is now a live order source that validates rather than a cell the parser ignores (§7.5). |
 | Q4 | Over-$200 spends | Legal in **2025 only**; `$200` is a hard cap for 2026 and the sheet is fixed. Overspend is now a genuine error state → flag it. |
 | Q7 | Projector | **1920 × 1080 (16:9)** (corrected in rev 5 from 1024 × 768), with multi-resolution support required. Primary design target; note 16:9 is *shorter*, which drove the side-rail layout (§7.1). **Not available for testing until ~2026-08-28, the day before the draft** — which is why every legibility knob is settable from the `SETTINGS` tab rather than the source (§9.2), and why the measured `scale` ceiling is documented rather than left to be discovered (§7.1). |
 | — | Where does the spreadsheet id live? | **Not in the repo.** Runtime resolution with a CI-secret default; base64 is obfuscation only (D14, §9.1). |
@@ -1665,7 +1706,8 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 | Q10 | Show the nomination order? | **Yes** (§7.5). |
 | Q11 | Do nominations rotate strictly? | **Yes** — strictly through a fixed order, but a manager whose **roster is full can no longer nominate** and is skipped. |
 | Q12 | Does every nomination end in a sale? | **Yes.** So `nominations == sales` and the pointer is fully derivable — no operator input needed (§7.5). |
-| Q13 | Where does the order live? | **Fixed for the season.** Chosen: a dedicated `SETTINGS` tab with a `league.ts` fallback — keeps it phone-editable without touching the verified auction grid (§7.5). |
+| Q13 | Where does the order live? | **Fixed for the season.** Four sources, checked in order: `?order=`, the `SETTINGS` tab, cell `A1` of the auction tab, then `league.ts`. Three of the four are editable without a deploy, and each validates against the roster the sheet reported (§7.5). |
+| Q14 | What **is** the 2026 nomination order? | **`Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Jason`** — given by the maintainer and matching the live `A1` on 2026-08-25. Committed to `league.nominationOrder` *and* already live from A1, so it renders with no further action. |
 | — | Sheet vs. own data store | Keep the sheet (D7, §5.10). |
 | — | Change log feasibility | Free via Apps Script `onEdit`; deferred to phase 8 (D8, §5.11). |
 | — | Is the grid geometry stable? | **Yes — fixed and uniform.** An earlier revision wrongly claimed otherwise; that was a `gviz` artifact (§5.0, §5.3). |
@@ -1674,10 +1716,10 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 
 | # | Question | Blocks |
 |---|---|---|
-| **Q14** | What **is** the 2026 nomination order (the 12 names in sequence)? Needed as the `league.ts` fallback copy; the `SETTINGS` tab can be filled in whenever. | Nothing — the strip is built against either source, and an empty order simply hides it (§7.5) |
+| **Q15** | **Is `Nick` being replaced for 2026, and by whom?** The maintainer's stated order named a twelfth manager who is not `Nick`, but the live sheet says `Nick` in *both* places that matter — cell `A1` and the band-3 name cell (read 2026-08-25). One of the two is out of date and only the maintainer knows which. | Nothing. This is why membership is sheet-derived (§6) and why the order validates against the parsed roster rather than `league.managers` (§7.5): whichever name lands in the sheet gets a row and can appear in the order, with no deploy. The committed copy tracks the sheet, so it says `Nick` |
 
-Nothing blocks implementation. Every design decision is resolved; Q14 is data entry that can happen
-any time before draft night.
+Nothing blocks implementation. Every design decision is resolved; Q15 is a data question whose two
+possible answers are already both handled.
 
 ---
 
@@ -1718,7 +1760,16 @@ Each phase ends with something demonstrable.
    which removes the whole point of moving this spike forward. The mitigation is to make the outcome
    *not require code*: `scale`, `columns`, `rail`, `perslot` and `order` are all now settable from the
    `SETTINGS` tab or the query string (§9.2), and the three highest-value combinations are gated by
-   `verify:layout` so they are known to work unrehearsed. 233 tests and eleven layout cases green.
+   `verify:layout` so they are known to work unrehearsed. 243 tests and eleven layout cases green.
+
+   **Configurable names, added on request.** "The names should be configurable" turned out to reach
+   past the order into membership: the first cut gated the board on `league.managers`, so a swapped
+   manager would have rendered **eleven rows with nothing to say a twelfth person existed**, and an
+   order naming them would have been rejected wholesale and fallen back to the stale committed copy.
+   Fixed in three places — membership derives from the sheet (§6), order validation takes the parsed
+   roster instead of the committed list (§7.5), and cell `A1` became a live order source so the
+   rotation was already editable without a deploy before the `SETTINGS` tab had a gid. Ten tests,
+   including the swapped-roster case end to end.
 
    That converts a structural risk into a tuning risk, but does not erase it, and the honest limit is
    worth stating plainly: **`scale` buys about 15% and no more** (measured table in §7.1), because
@@ -1751,8 +1802,10 @@ Each phase ends with something demonstrable.
    until the CI secret exists that card is the only way to point the app at a sheet. **This is where
    the `SETTINGS` tab gets its fetch**: `displaySettings.ts` and the full precedence chain are built
    and tested (§9.2), and `main.tsx` already wires the query-string layer, so all that remains is
-   reading the tab and passing its grid to `parseSettingsGrid`. It needs `settingsTabGid`, which needs
-   the tab to exist (§7.5's caveat). Also drop `src/dev/fixtureState.ts` from the entry point. Change
+   reading the tab and passing its grid to `parseSettingsGrid` **with the parsed roster**, as
+   `main.tsx` already does for the query layer. `settingsTabGid` is committed (`361377598`) and the tab
+   exists, so §7.5's caveat no longer gates this. Also drop `src/dev/fixtureState.ts` from the entry
+   point — including its `resolveOrder`, whose A1 fallback chain moves to the live path. Change
    detection, status bar, error resilience, **the error boundary and the `window`-registered watchdog
    together** (§8.1 — the boundary without the out-of-tree watchdog leaves the blank-projector case
    half-covered). Then **leave it running overnight against the live sheet**: §2 claims "runs

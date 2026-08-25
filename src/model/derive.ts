@@ -106,13 +106,43 @@ export function deriveManager(block: ManagerBlock & { name: string }): ManagerSt
 }
 
 export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
-  const named = blocks.filter((b): b is ManagerBlock & { name: string } => b.name !== null)
   const unmatched = blocks.filter((b) => b.name === null && b.rawName).map((b) => b.rawName)
 
-  const byName = new Map(named.map((b) => [b.name, deriveManager(b)]))
-  // Config order is the board's display order, and it also means a missing block
-  // cannot reorder the table -- it just goes absent.
-  const managers = league.managers.map((n) => byName.get(n)).filter((m): m is ManagerState => !!m)
+  /*
+   * A manager the config does not recognize still gets a row, under whatever the
+   * sheet calls them.
+   *
+   * This used to drop them. `league.managers` is a committed list, so a roster
+   * change -- someone leaves, someone joins, a name is spelled differently -- meant
+   * eleven rows on the wall and no indication that a twelfth person existed. The
+   * warning was raised, but warnings are not what the room is looking at.
+   *
+   * The sheet is the authority on who is in the league: those twelve cells are
+   * maintained all season by the person running the draft, and they are the same
+   * cells the money is read from. Deferring to them is what makes a roster change
+   * need no deploy -- the point of the SETTINGS work in 9.2, applied to names.
+   *
+   * The wrong-tab guard does not weaken, because it lives in the parser and keys off
+   * how many names it *recognized* (gridParser: zero recognized is fatal). A genuinely
+   * wrong tab does not contain eleven correct league names and one surprise.
+   */
+  const byName = new Map<string, ManagerState>()
+  for (const block of blocks) {
+    const name = block.name ?? block.rawName.trim()
+    if (name === '') continue
+    byName.set(name, deriveManager({ ...block, name }))
+  }
+
+  /*
+   * Config order first, so a known roster renders in a stable, familiar order and a
+   * missing block just goes absent rather than reshuffling the table. Anyone the
+   * config has not heard of follows, in grid order. (The board sorts by max bid for
+   * display anyway; this only decides the tie-break and the roster view.)
+   */
+  const roster: readonly string[] = league.managers
+  const known = league.managers.map((n) => byName.get(n)).filter((m): m is ManagerState => !!m)
+  const extra = [...byName.values()].filter((m) => !roster.includes(m.name))
+  const managers = [...known, ...extra]
 
   const leagueSpent = managers.reduce((sum, m) => sum + m.spent, 0)
   const leagueNeeds = managers.reduce((sum, m) => sum + m.needs, 0)
@@ -139,7 +169,14 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
     leagueRemaining,
     leagueNeeds,
     slotsFilled,
-    totalSlots: totalAuctionSlots,
+    /*
+     * Counted from who is actually on the board, not from the committed roster
+     * length. The header reads "SLOTS 9/180" all night; if the league ever runs
+     * eleven or thirteen managers, a constant 180 is quietly wrong in the one place
+     * everyone is looking. Falls back to the constant only for an empty board, so
+     * the denominator is never 0.
+     */
+    totalSlots: managers.length > 0 ? managers.length * league.auctionSlots : totalAuctionSlots,
     avgPerRemainingSlot: leagueNeeds > 0 ? leagueRemaining / leagueNeeds : null,
     draftComplete: managers.length > 0 && leagueNeeds === 0,
   }

@@ -65,6 +65,22 @@ export interface ParsedTab {
    * keeps the last good frame rather than rendering nonsense.
    */
   renderable: boolean
+  /**
+   * Raw text of A1, which the maintainer keeps the nomination order in
+   * (`Jeff > Toby > Tony > ...`). Unvalidated and uninterpreted here -- this only
+   * hands the string on, because 7.5 belongs to the caller.
+   *
+   * Reading it costs nothing: A1 sits above every band (`bandRows` starts at row 1),
+   * so it is outside all the geometry the template check verifies, and it arrives in
+   * a request the app already makes. That makes it the only order source needing no
+   * gid, no second fetch and no deploy. 7.5 declined to *write* league config into
+   * this grid, which still holds; reading a cell the maintainer already curates is a
+   * different trade.
+   *
+   * Treat it as a hint, not as truth -- it held a stale order naming a manager who
+   * had not played for years until 2026-08-25. Validation is the caller's job.
+   */
+  orderHint: string
 }
 
 /** 0-indexed (row, col) -> `D19`. Columns past Z are not reachable in this grid. */
@@ -111,6 +127,7 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
     blocks,
     warnings,
     renderable: !warnings.some((w) => w.severity === 'fatal'),
+    orderHint: cell(rows, 0, 0).trim(),
   }
 
   function parseBlock(

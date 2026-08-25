@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { league } from '../config/league'
+import { parseOrder } from '../config/displaySettings'
 import { parseCsv } from './csv'
 import { a1, parseAuctionGrid, type ParsedTab } from './gridParser'
 
@@ -187,6 +188,52 @@ describe('the slot test runs on raw cells', () => {
     expect(kevin?.picks.at(-1)).toMatchObject({ player: 'Brock Bowers', price: 0, priceSuspect: true })
     expect(parsed.warnings).toHaveLength(1)
     expect(parsed.warnings[0]).toMatchObject({ ref: 'D11', severity: 'warning' })
+  })
+})
+
+describe('the A1 nomination-order hint', () => {
+  /*
+   * A1 is the cheapest order source there is: no gid, no second request, no deploy,
+   * and it arrives in a fetch the app already makes. It is also outside every band
+   * (bandRows starts at row 1), so reading it cannot disturb the verified geometry.
+   */
+  it('hands A1 through verbatim, without interpreting it', () => {
+    expect(partial.orderHint).toBe(
+      'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Rob',
+    )
+  })
+
+  /*
+   * And this is why it is a hint rather than truth. Both fixtures were captured
+   * 2026-08-24 with an A1 naming `Rob`, who drafted on Jason's behalf years ago and
+   * is not in the league. The live sheet was corrected to `Jason` on 2026-08-25, so
+   * these captures now pin the *stale* case on purpose: validation must reject it and
+   * fall through rather than put a non-manager on the wall.
+   */
+  it('is stale in both captures, which is the case validation has to survive', () => {
+    for (const parsed of [partial, complete]) {
+      expect(parsed.orderHint).toContain('Rob')
+      expect(parseOrder(parsed.orderHint).order).toBeNull()
+    }
+  })
+
+  it('is empty rather than undefined when A1 is blank', () => {
+    expect(parseAuctionGrid([]).orderHint).toBe('')
+    expect(parseAuctionGrid([['  ']]).orderHint).toBe('')
+  })
+
+  it('validates against the parsed roster, so the live A1 resolves cleanly', () => {
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    setCell(rows, 0, 0, 'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Jason')
+
+    const parsed = parseAuctionGrid(rows)
+    const roster = parsed.blocks.flatMap((b) => (b.name ? [b.name] : []))
+    const { order, warnings } = parseOrder(parsed.orderHint, roster)
+    expect(order).toEqual([
+      'Jeff', 'Toby', 'Tony', 'Derrick', 'Marc', 'Corky',
+      'Bill', 'Ryan', 'Colin', 'Kevin', 'Nick', 'Jason',
+    ])
+    expect(warnings).toEqual([])
   })
 })
 

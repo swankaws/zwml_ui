@@ -206,14 +206,36 @@ describe('league aggregates', () => {
 })
 
 describe('missing and unmatched blocks', () => {
-  it('surfaces an unmatched name instead of silently dropping it', () => {
+  /*
+   * The old spec here was `toHaveLength(11)` with the unknown manager present only
+   * in `unmatched`. That is the roster-change failure: the league adds someone, or
+   * spells a name differently, and the wall shows eleven people with no hint that a
+   * twelfth exists. The sheet is the authority on the roster (derive.ts), so an
+   * unknown name now gets a row under the sheet's own spelling.
+   */
+  it('gives an unrecognized manager a row under the sheet spelling, and still flags it', () => {
     const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
     rows[1]![1] = 'Rob'
 
     const state = deriveLeague(parseAuctionGrid(rows).blocks)
     expect(state.unmatched).toEqual(['Rob'])
-    expect(state.managers).toHaveLength(11)
+    expect(state.managers).toHaveLength(12)
+    expect(state.managers.find((m) => m.name === 'Rob')).toBeDefined()
+    // Kevin's cell is what was overwritten, so Kevin is genuinely absent.
     expect(state.managers.find((m) => m.name === 'Kevin')).toBeUndefined()
+    // Unknown names sort after the known roster, so the table does not reshuffle.
+    expect(state.managers.at(-1)?.name).toBe('Rob')
+    // And the denominator follows the board rather than the committed list.
+    expect(state.totalSlots).toBe(180)
+  })
+
+  it('counts total slots from the managers present, not the committed roster', () => {
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    rows[1]![1] = '' // Kevin's block loses its name entirely: eleven managers.
+
+    const state = deriveLeague(parseAuctionGrid(rows).blocks)
+    expect(state.managers).toHaveLength(11)
+    expect(state.totalSlots).toBe(11 * league.auctionSlots)
   })
 
   it('renders managers in config order, not sheet order', () => {

@@ -43,6 +43,21 @@ describe('parseSettingsGrid', () => {
     expect(parseSettingsGrid([]).settings).toEqual({})
   })
 
+  /*
+   * A freshly created tab is empty, and stays empty between "create it so its gid can
+   * be committed" and "fill it in" -- which is exactly the state the live workbook is
+   * in as of 2026-08-25. Warning on every poll would train whoever is watching to
+   * ignore warnings, on the one night they matter. A wrong tab is a different thing:
+   * the auction grid is never blank.
+   */
+  it('does not warn about a blank tab: empty is not the same as wrong', () => {
+    for (const blank of [[], [[]], [['']], [['', ''], ['  ', '']]]) {
+      const { settings, warnings } = parseSettingsGrid(blank)
+      expect(settings).toEqual({})
+      expect(warnings).toEqual([])
+    }
+  })
+
   it('is position-independent, so blank and reordered rows are fine', () => {
     // This is what makes the tab safe to read over gviz, which drops empty rows.
     const { settings } = parseSettingsGrid(tab([], ['rail', 'off'], [], ['scale', '0.9']))
@@ -141,6 +156,46 @@ describe('parseOrder', () => {
 
   it('treats an empty value as "not set" rather than an empty order', () => {
     expect(parseOrder('   ').order).toBeNull()
+  })
+
+  /*
+   * The roster parameter is why a manager the committed config has never heard of can
+   * be in the order without a deploy. The maintainer has said a new manager replaces
+   * `Nick`; when that name reaches the sheet, this is the path that has to accept it.
+   */
+  describe('validating against the roster rather than the committed list', () => {
+    const swapped = league.managers.map((n) => (n === 'Nick' ? 'NewGuy' : n))
+
+    it('accepts a name the committed config does not know, if the sheet has it', () => {
+      const raw = 'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > NewGuy > Jason'
+
+      // Against the committed roster this is the failure the maintainer would hit.
+      expect(parseOrder(raw).order).toBeNull()
+      expect(parseOrder(raw).warnings[0]).toContain('NewGuy')
+
+      // Against the sheet's own roster it just works, with no warning.
+      const { order, warnings } = parseOrder(raw, swapped)
+      expect(order).toHaveLength(12)
+      expect(order).toContain('NewGuy')
+      expect(order).not.toContain('Nick')
+      expect(warnings).toEqual([])
+    })
+
+    it('still rejects a name that is on neither list, so typos do not slip through', () => {
+      const { order, warnings } = parseOrder('Kevin > Nick > Corky', swapped)
+      expect(order).toBeNull()
+      expect(warnings[0]).toContain('Nick')
+    })
+
+    it('counts a short order against the roster it was given, not against 12', () => {
+      const { warnings } = parseOrder('Kevin > Corky', ['Kevin', 'Corky', 'Ryan'])
+      expect(warnings[0]).toContain('2 of 3')
+    })
+
+    it('drops an alias whose target is not on the roster', () => {
+      // `Jeffrey -> Jeff` must not smuggle Jeff in when Jeff is not playing.
+      expect(parseOrder('Kevin > Jeffrey', ['Kevin', 'Corky']).order).toBeNull()
+    })
   })
 })
 
