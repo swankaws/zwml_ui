@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>ZWML Auction</title>
+    <script>
+      // Stale-bundle self-heal. GitHub Pages serves index.html with a fixed
+      // max-age=600, so a browser can hold an old index that references hashed
+      // assets which no longer exist -- a white screen. Reload once to recover.
+      // See docs/DESIGN.md section 10. Guarded so it can never loop.
+      window.addEventListener('vite:preloadError', (e) => {
+        e.preventDefault()
+        if (!sessionStorage.getItem('zwml:reloadedOnce')) {
+          sessionStorage.setItem('zwml:reloadedOnce', '1')
+          location.reload()
+        }
+      })
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

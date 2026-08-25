@@ -1,0 +1,1272 @@
+# ZWML Auction Display — Design
+
+**Status:** Draft, rev 4 — display target corrected to 1080p; spreadsheet id removed from the repo
+**Last updated:** 2026-08-25
+**Blocking questions:** none — Q1–Q13 all resolved. Q14 is data entry (the 12-name order), not a
+design decision.
+**Changes in this rev:**
+1. **The projector is 1080p, not 1024 × 768.** This is *not* a pure relaxation — 16:9 gives less
+   vertical room than 4:3 for the same physical image, so it changed the layout rather than just the
+   numbers. See §7.1 and §7.2.
+2. **The spreadsheet id is no longer stored in this repository** and must never be re-added; it is
+   resolved at runtime (§9.1, D14).
+
+**Carried correction from rev 3:** rev 2's claim that the row geometry was dynamic and that band 1
+was structurally irregular was **wrong** — both were artifacts of the `gviz` endpoint, not the sheet.
+See §5.0. The template is fixed and uniform; the primary endpoint is `/export?format=csv&gid=`.
+
+**Repo:** https://github.com/swankaws/zwml_ui
+**Data source:** one link-shared Google Sheet, verified readable with no credentials. Its id is
+deliberately **not recorded here or anywhere else in the repo** — see §9.1.
+
+---
+
+## 1. Purpose
+
+A large-format, always-on display for a live fantasy football auction draft, projected on a wall
+while the auction runs. It is a **read-only mirror** of the league's existing Google Sheet: the
+commissioner keeps entering picks exactly as they do today, and the display updates itself within
+a few seconds.
+
+Its job is to answer, at a glance and from across a room, the questions that otherwise get shouted
+mid-auction:
+
+- How much money does each manager have left?
+- How many roster spots do they still have to fill?
+- **What is the most they can bid right now?**
+- What positions do they still need?
+
+The league already maintains an **`AUCTION DISPLAY`** tab that computes exactly these figures by
+hand (§5.6). That tab is the proof this display is worth building — and its column choices are the
+league's own mental model, which this design deliberately matches.
+
+### Non-goals
+
+- Not an auction *engine*. It does not run the clock, take bids, or write to the sheet.
+- Not multi-league or multi-tenant. One sheet, one league.
+- No login, no user accounts, no server we operate.
+
+**In scope, but secondary:** league members opening the same URL on **phones and laptops** during the
+draft (Q8). The projector is the design target and wins every trade-off; the compact layout is the
+same components with fewer columns, not a separate product.
+
+---
+
+## 2. Constraints
+
+| Constraint | Implication |
+|---|---|
+| Zero hosting cost | Static site only, no backend we pay for. GitHub Pages. |
+| Updates when the sheet changes | Browser polls the sheet; no server push available for free. |
+| Runs unattended ~4 hours | No auth token that expires mid-draft. No human clicking a consent popup. |
+| Read from a projector, 10–30 ft away | Very large type, high contrast, dark background, no fine detail. |
+| Projector is **1920 × 1080 (16:9)** (Q7) | 16:9 is *short*. Vertical room, not width, is the binding constraint (§7.1). |
+| Also viewed on phones and laptops (Q8) | Column-priority layout must degrade to one narrow column without a second codebase. |
+| Operated by one person who is also running the draft | Zero-config startup: open URL, fullscreen, done. **This is why the sheet id is baked in at deploy time rather than typed on draft night** (§9.1). |
+| The sheet's location must not be in the repo | Resolved at runtime; committed config holds gids only, which are useless alone (§9.1, D14). |
+| The sheet's layout is fixed and not ours to change | The parser adapts to the sheet, never the reverse. |
+
+---
+
+## 3. Decisions
+
+| # | Decision | Choice |
+|---|---|---|
+| D1 | Sheet access | **Link-shared sheet, read `/export?format=csv&gid=` directly from the browser** — verified (§5.0) |
+| D2 | Front end | **Vite + React + TypeScript** |
+| D3 | Primary layout | **Full manager table, always visible, nothing rotating** |
+| D4 | Extras in scope | **Recent-sales ticker** (via poll diffing, §7.3), **full per-manager roster view** (§7.4), **auto-advancing nomination strip** (§7.5) |
+| D5 | Hosting | GitHub Pages, project site, GitHub Actions publishing source |
+| D6 | Source of truth for derived numbers | **Recompute in the app from player-level data**, cross-checking the sheet's own figures (§5.7) |
+| D7 | Data store | **Keep the Google Sheet as the system of record** — do not build our own (§5.10) |
+| D8 | Sales history | **Browser-side poll diffing** (§7.3); optional Apps Script change log as a later upgrade (§5.11) |
+| D9 | Display target | **1920 × 1080 (16:9) is the primary target**, laid out as **table + side rail** to buy back the vertical room 16:9 costs (§7.1); phones and laptops second (Q8) |
+| D10 | Grid parsing | **Walk the fixed template, verify every anchor by label** (§5.4) — the geometry is uniform and stable (§5.3) |
+| D11 | Defensive / Divisional draft | **Out of scope for the display** (Q5, §7.4) |
+| D12 | Nomination order source | **A new `SETTINGS` tab, with a `league.ts` fallback** — never added to the auction grid (Q13, §7.5) |
+| D13 | Live session state | **Persist `(order, baseline, saleLog)` to `localStorage`** so a mid-draft reload is exact (§7.5) |
+| D14 | Spreadsheet location | **Never committed.** Resolved at runtime: `#sheet=` fragment → `localStorage` → base64 build-time default from a CI secret → setup screen (§9.1) |
+
+### D1 — resolved
+
+The sheet is shared **"Anyone with the link → Viewer"** and confirmed readable with no credentials
+as of 2026-08-24. **We use `/export?format=csv&gid=<gid>`, not `gviz/tq`** — see §5.0 for why.
+
+Verified against the real sheet with `Origin: https://swankaws.github.io`:
+
+- **CORS works on both hops.** The first response is a `307` carrying
+  `access-control-allow-origin: https://swankaws.github.io`, redirecting to
+  `doc-10-b0-sheets.googleusercontent.com`, which returns
+  `access-control-allow-origin: *`. The wildcard on the final hop is what makes this legal, since a
+  cross-origin redirect taints the request origin to `null`. So a browser `fetch` works with no
+  proxy — but it **must** use `redirect: 'follow'` (the default).
+- `cache-control: no-cache, no-store, max-age=0, must-revalidate` on **both** hops — always fresh,
+  no publish lag.
+- `content-disposition: attachment` is present and harmless to `fetch` (it would only matter if a
+  human navigated to the URL).
+- The full 63-row × 28-column tab is ~5 KB uncompressed, ~1 KB gzipped.
+- **No documented quota** on either endpoint, so league members can open the board on phones and
+  laptops (Q8) without us managing a rate limit.
+
+Link-sharing alone is sufficient — **"Publish to web" is not required** and would be worse (§5.8).
+
+> ⚠️ **Standing note:** the whole workbook is world-readable to anyone with the URL, and the URL is
+> observable in the running page's network traffic even though it is no longer in the repo or greppable
+> in the bundle (§9.1 — that is discoverability reduction, not access control). Column `AB` of the auction tab currently
+> contains league business (`"RULE CHANGES 2026 … Increase dues to $150"`). That is mild, but it is
+> a reminder that *everything* in this workbook is public now, including anything added later.
+> If dues records, contact details, or payment tracking ever land in it, move the auction tabs to a
+> dedicated spreadsheet and share only that.
+
+**Hot spare (behind a flag, not the default):** Sheets API v4 with an API key — documented and
+supported, unlike `gviz`, but needs a GCP project, ships a key in public JS, and carries a real
+quota (300 reads/min/project, 60/min/user ≈ 15 concurrent viewers at 3 s polling), with Google
+warning that overage *"is planned to incur charges … later in 2026."* Insurance, not primary.
+
+**Rejected:** browser OAuth via Google Identity Services — tokens last ~1 hour, Google removed
+silent refresh, and renewal requires a click in a popup, so the display would go dark mid-draft.
+Also rejected: a service-account key, which cannot reach a browser without publishing its private
+key. **Available if the sheet ever needs to go private again:** an Apps Script web app
+(*Execute as: me* / *Anyone*), plain `GET` with no custom headers — Apps Script cannot answer a
+CORS preflight, so any custom header breaks it permanently.
+
+---
+
+## 4. Architecture
+
+```
+┌──────────────────────────────────────┐
+│ Google Sheet (link-shared)           │
+│  tab "2026 Auction"   ← picks, live  │
+│  tab "AUCTION DISPLAY" ← cross-check │
+└─────────────────┬────────────────────┘
+                  │  HTTPS GET every ~3s, no credentials, cache: 'no-store'
+                  │  /spreadsheets/d/<id>/export?format=csv&gid=1565415907
+                  │      id resolved at runtime, never committed (§9.1)
+                  │      redirect: 'follow'  (required — see D1)
+                  ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Browser — static SPA served from GitHub Pages                │
+│                                                              │
+│  sheetClient ─► gridParser ─► ManagerBlock[] ─► derive ─► UI │
+│   (poll,         (fixed        (name, picks,     (spent,     │
+│    backoff,       template,     totals as        needs,      │
+│    body-hash      label-        written)         maxBid,     │
+│    change         verified)                      posCounts)  │
+│    detection)                                                │
+│                        │                                     │
+│                        └─► diffEngine ─► sales ticker        │
+│                                                              │
+│  config/league.ts ──► budget, slot template, manager names   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Everything runs in the browser. No build-time data fetch, so the deployed bundle is year-agnostic
+and a new draft season needs no redeploy.
+
+### Modules
+
+| Module | Responsibility |
+|---|---|
+| `config/league.ts` | Budget, slot template, min bid, poll interval, manager roster and display order, name aliases, tab gids. The only file that changes year to year. **Holds no spreadsheet id** (§9.1). |
+| `config/sheetLocation.ts` | Resolves the spreadsheet id at runtime and builds validated export URLs (§9.1). Pure functions plus a thin browser wrapper, so precedence is testable without a DOM. |
+| `data/sheetClient.ts` | Fetches a tab by `gid` via `/export?format=csv`. Owns polling, backoff, abort, and change detection. Interface `SheetSource` so the gviz, API-v4, or Apps Script variant drops in. |
+| `data/tabs.ts` | Tab inventory and auction-tab selection (§5.2). |
+| `data/gridParser.ts` | Raw cell grid → `ManagerBlock[]`. Reads the fixed template, then verifies its assumptions against the row labels (§5.4). Collects `ParseWarning[]` instead of throwing. |
+| `model/derive.ts` | `ManagerBlock[]` + config → `ManagerState[]` + `LeagueState`. Pure, unit-tested, no DOM. |
+| `model/diff.ts` | Compares consecutive parses to emit `SaleEvent[]` for the ticker and to flash changed values. |
+| `ui/*` | Presentational components. Receive derived state, own no fetching. |
+| `ui/StatusBar` | Live/stale indicator, data age, warning count. |
+
+### Update loop
+
+1. Poll every **3 s**, `fetch(url, { cache: 'no-store' })`.
+2. Hash the response body. Unchanged → stop. No re-parse, no re-render.
+3. Changed → parse → derive → diff → render, flashing values that moved and pushing new sales onto
+   the ticker.
+4. On error: keep the last good frame, mark the status bar stale with the data's age, retry with
+   backoff (3 → 6 → 12 s, cap ~15 s). **Never** blank the screen or show a stack trace.
+5. On `visibilitychange` → visible, force an immediate refetch rather than trusting the interval
+   (browsers throttle background timers).
+
+**Refetch the whole tab every poll — conditional requests are unavailable.** Neither `/export` nor
+`gviz` sends an `ETag` or `Last-Modified`; both answer `cache-control: no-cache, no-store,
+max-age=0, must-revalidate` on every hop, and `If-None-Match` was verified to return a full 200
+body. gviz's `tqx=sig:` "not_modified" handshake is *not implemented* by Google Sheets (tested:
+returned the full table with `status:ok`). At ~5 KB raw / ~1 KB gzipped this is irrelevant.
+
+Polling beats every free alternative. Drive push notifications are structurally impossible for a
+static site (they POST to a server with a CA-signed cert, and `files` channels expire within a day
+with no auto-renewal). An Apps Script `onEdit` → Firebase route would give sub-second updates but
+adds a service and a silent-failure mode where one missed trigger leaves the board invisibly
+stale. ~4,800 requests over four hours against Google's CDN is free and boring.
+
+---
+
+## 5. Data contract — verified against the live sheet
+
+### 5.0 Endpoint choice: `/export`, not `gviz` — and a correction
+
+**An earlier revision of this document claimed the sheet's row geometry was dynamic and that band 1
+was structurally irregular. Both claims were wrong.** They were artifacts of the `gviz/tq` endpoint,
+not properties of the sheet. The maintainer was correct that the template is fixed. Recording the
+error here because the two endpoints disagree in ways that will bite anyone who assumes otherwise.
+
+Same tab, same moment, two endpoints:
+
+| | `/export?format=csv&gid=` | `gviz/tq?tqx=out:csv` |
+|---|---|---|
+| Rows returned | **63 — the true grid** | 43 |
+| `K` rows (col B) | **10, 31, 52** — uniform stride 21 | 8, 27, 40 |
+| `DEF` rows | **19, 40, 61** | 15, 29, 41 |
+| Bench rows per band | **8, 8, 8** | 6, 1, 0 |
+| Band 1 header | `B2 = "Kevin"`, `B3 = "Pos"` | `"Kevin Pos"` — **one concatenated cell** |
+
+Two distinct gviz behaviors caused this:
+
+1. **gviz silently drops fully-empty rows.** 63 → 43. Because the number of empty rows *shrinks as
+   the draft fills in*, **gviz row indices shift during the draft** — which is what I misread as the
+   sheet changing. The sheet is stable; the gviz *representation* is not.
+2. **gviz auto-detects header rows and concatenates them.** It merged sheet rows 2 and 3
+   (`"Kevin"` + `"Pos"`) into the single label `"Kevin Pos"`, inventing the "irregular band 1" that
+   does not exist. Passing `headers=0` suppresses this, but the empty-row dropping remains.
+
+**Therefore `/export?format=csv&gid=` is the primary endpoint.** It returns the literal grid,
+preserving empty rows and keeping row numbers identical to what the maintainer sees in Google
+Sheets — which makes the sheet debuggable against the app by eye. Its only real constraint is that
+it selects by `gid` only, never by tab name; the gids are stable and already known (§5.1).
+
+`gviz/tq` is retained as a **fallback** behind the same `SheetSource` interface. If used, it needs
+`headers=0` and a parser that cannot depend on row indices at all.
+
+> Meta-lesson worth keeping: **verify structural claims against more than one endpoint before
+> designing around them.** A single source's representation is not the data.
+
+### 5.1 Tab inventory (read 2026-08-24)
+
+| gid | Name | Role |
+|---|---|---|
+| 1565415907 | `2026 Auction` | current season — **primary source** |
+| 1089546311 | `AUCTION DISPLAY` | league's hand-built summary — cross-check only |
+| 599461641 | `2025 Auction` | prior season |
+| 2115370449 … 1982099215 | `2024`–`2018 Auction` | prior seasons, 7 more tabs |
+| 1494036952 | `2017 Final Rosters` | different shape, ignore |
+| 1445441490 | `Top 300` | player rankings — 323 rows, **stale by ~3 seasons**; see §7.6 |
+
+### 5.2 Tab selection
+
+`/export` selects a tab **by `gid` only** — there is no name-based selector — so the mapping from
+year to gid lives in `config/league.ts` (§9) and the app picks the **highest configured year**,
+with `?year=2025` to override for testing. The gids are permanent for the life of a tab, so this
+list only changes when a new season tab is created.
+
+Optionally, a `/htmlview` scrape can auto-detect a newly added `YYYY Auction` tab: that endpoint
+returns 200 with CORS on a link-shared sheet and embeds every tab name and gid. It is undocumented
+markup, so a scrape failure must always fall back to config and never take the board down.
+
+> **⚠️ Why gid-only is a feature, not a limitation.** gviz accepts `&sheet=<name>` and, on a name
+> that doesn't exist, **silently returns the WRONG TAB** — verified: `&sheet=Sheet1` answered
+> `status:"ok"` with the *first* tab's data and no error at all. That is the nastiest failure mode
+> available to this design, because it renders a plausible-looking board full of wrong numbers.
+> `/export`'s `gid=` is unambiguous and 400s on a bad value. Regardless, **always assert expected
+> anchor cells after parsing** and refuse to render on mismatch (§5.4).
+
+### 5.3 Layout of a `YYYY Auction` tab
+
+A **grid**, not a pick log: 12 managers laid out as **3 bands of 4**, each manager owning a
+6-column block.
+
+**The geometry is a fixed, perfectly uniform template.** Verified identical in the `2026 Auction`
+and `2025 Auction` tabs, and identical across all three bands. Row numbers below are the **real
+Google Sheets row numbers** the maintainer sees, so the sheet and the app can be compared by eye.
+
+```
+        B        C                D       E          F     │  H…M   │  N…S  │  T…Y
+ r2   Kevin                                                │ Corky  │ Ryan  │ Toby     ← band name
+ r3   Pos      Player            $                         │        │       │          ← header
+ r4    QB      Jayden Daniels    $10    Needs       0      │   ← stats mini-block, cols +3/+4
+ r5    RB      De'Von Achane     $10    Max Bid     $1     │
+ r6    RB      Chase Brown       $11    QB          2      │
+ r7    WR      Jameson Williams  $4     RB          6      │
+ r8    WR      Emeka Egbuka      $28    WR          5      │
+ r9    TE      Tyler Warren      $18    TE          1      │
+ r10   K       Fairbairn         $1     K           1      │
+ r11…r18       8 bench rows, position typed per player     │
+ r19   DEF     (no player, no price)                       │
+ r20           Total             $200                      │
+ r21           Remaining         $0                        │
+ r22   (blank spacer)
+ r23  Jeff / Marc / Bill / Derrick   ← band 2, same shape, +21 rows
+ r44  Colin / Jason / Nick / Tony    ← band 3, same shape, +42 rows
+```
+
+**Row anchors — stride 21, three bands** (Google Sheets row numbers; subtract 1 for 0-indexed):
+
+| Element | Band 1 | Band 2 | Band 3 |
+|---|---|---|---|
+| Manager name | 2 | 23 | 44 |
+| `Pos` / `Player` / `$` header | 3 | 24 | 45 |
+| Starters (`QB RB RB WR WR TE K`) | 4–10 | 25–31 | 46–52 |
+| Bench (8 rows) | 11–18 | 32–39 | **53–60** |
+| `DEF` | 19 | 40 | 61 |
+| `Total` | 20 | 41 | 62 |
+| `Remaining` | 21 | 42 | 63 |
+
+**Column geometry:** manager blocks start at columns **B, H, N, T** (0-indexed 1, 7, 13, 19),
+stride 6. Within a block: `+0` Pos, `+1` Player, `+2` $, `+3` stat label, `+4` stat value,
+`+5` spacer.
+
+**Stats mini-block** (cols `+3`/`+4`, rows 4–10 relative to the band): `Needs`, `Max Bid`, then
+`QB`, `RB`, `WR`, `TE`, `K` counts. Computed by sheet formula — see §5.7 before trusting it.
+
+**Roster template — 16 slots, of which 15 are auction slots** (confirmed by the maintainer for
+2026):
+
+- 7 fixed **starter** rows: `QB, RB, RB, WR, WR, TE, K`. These keep their `Pos` label even when the
+  slot is empty.
+- 8 **bench** rows, position typed per player as drafted. The rows always exist; empty ones simply
+  carry no `Pos` label, no player, and no price. **No rows are inserted during the draft.**
+- 1 **`DEF`** row — position label only, **no player and no price**, because defenses are chosen in
+  a separate "Defensive Draft" (cols Y/Z), not bought with auction dollars.
+- Therefore **auction roster size = 15**, and the `$200` budget buys 15 players. Confirmed
+  arithmetically: every completed stats block's `QB+RB+WR+TE+K` sums to exactly 15.
+
+**The one usable slot test:** a row is a pick iff it has **both a non-empty Player and a parseable
+price**. `Pos`-label presence is *not* a slot test — empty starter rows have a label, empty bench
+rows do not, and the `DEF` row has a label but never a price.
+
+**Other content in the tab** (must be ignored by the parser, and is a good reason to anchor on
+labels rather than scan columns):
+
+- `A1` — a draft-order string, `"Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan >
+  Colin > Kevin > Nick > Rob "`. **Resolved:** it lists `Rob`, who was *drafting on Jason's behalf*
+  that year; `Jason` is the manager. So this string is a historical artifact of a past draft night
+  and **is not a reliable manager list**. The parser ignores it entirely; manager identity comes
+  from the block header cells and `config/league.ts`.
+- Cols `Y`/`Z`, rows 1–11 — "Defensive Draft": manager → NFL team pairs.
+- Col `Z`, rows 14–28 — "Divisional Draft" order. Uses **`Jeffrey`** where the auction blocks use
+  **`Jeff`**.
+- Col `AB` — free-text 2026 rule changes.
+
+### 5.4 Parsing strategy: fixed template, verified by label
+
+Because the grid is uniform (§5.3), the parser walks the template directly and uses the row labels
+as an **integrity check** rather than as a search mechanism. This is simpler and stricter than a
+label-driven scan: it computes where every cell *must* be, then proves the sheet agrees.
+
+```ts
+const BANDS = [1, 22, 43]          // 0-indexed manager-name rows  (= sheet rows 2, 23, 44)
+const COLS  = [1, 7, 13, 19]       // 0-indexed block start columns (= B, H, N, T)
+// relative to band row R: header R+1, starters R+2..R+8, bench R+9..R+16,
+//                         DEF R+17, Total R+18, Remaining R+19
+// relative to block col C: pos C+0, player C+1, price C+2, statLabel C+3, statValue C+4
+```
+
+> Mind the two row bases. The table in §5.3 lists **sheet** row numbers so the doc can be read
+> against Google Sheets; code is **0-indexed** into the parsed CSV, one less. Getting this wrong
+> shifts every block by one row and still parses — it just silently drops each manager's `QB` and
+> reads `DEF` as a pick. Assert on the labels and it cannot happen.
+
+The algorithm, per band × column:
+
+1. **Read the manager name** at `(R, C)`; normalize and alias-resolve (§5.5).
+2. **Verify the template** before trusting anything: `(R+1, C) == "Pos"`, the starter labels at
+   `R+2..R+8` equal `QB RB RB WR WR TE K`, `(R+17, C) == "DEF"`, `(R+18, C+1) == "Total"`,
+   `(R+19, C+1) == "Remaining"`. Each mismatch is a `ParseWarning` naming the exact cell.
+3. **Collect picks** from `R+2 .. R+16` (starters + bench, excluding `DEF`): a row is a pick iff
+   Player (`C+1`) is non-empty **and** `$` (`C+2`) parses as a number. Position comes from the
+   row's `Pos` cell (`C+0`) when present, else inferred from the ranking data if available (§5.6).
+4. **Read `Total` and `Remaining`** from `(R+18, C+2)` and `(R+19, C+2)` — recorded as *what the
+   sheet says*, kept strictly separate from what we compute (§5.7).
+5. **Read the stats mini-block** from `(R+2 .. R+8, C+3/C+4)`, checking each label
+   (`Needs`, `Max Bid`, `QB`, `RB`, `WR`, `TE`, `K`) against its expected row.
+6. **Gate rendering.** If the template verification fails in a way that means we are looking at the
+   wrong tab or a restructured sheet — no `Total` label found, or fewer than the configured number
+   of manager names — **refuse to render** and show the last good frame with a loud banner (§7.8).
+   Isolated per-cell warnings do not blank the board; they surface in the status bar.
+
+Everything the parser needs is a constant in `config/league.ts`, so if the maintainer ever does
+restructure the tab, the fix is a config edit rather than a parser rewrite.
+
+**Fallback for the gviz source.** If `SheetSource` is ever switched to gviz (§5.0), row indices are
+not usable and the parser must instead scan for `Total` / `DEF` labels to delimit blocks. Keeping
+that path behind the same interface is cheap; keeping it *primary* is not, because its geometry
+shifts as the draft fills in.
+
+**Required tests:** parse the completed fixture and the partially-cleared fixture — both captured
+via `/export` — and assert correct per-manager results for each, including a manager with zero
+picks and a manager with a full 15.
+
+### 5.5 Normalization rules
+
+- **Manager names:** trim (the sheet contains `"Bill "` with a trailing space), case-insensitive
+  compare, and apply a config alias map. An unmatched name goes into a visible `⚠ Unmatched` row
+  rather than being silently dropped. The `Jeffrey → Jeff` alias is now **cosmetic only** — `Jeffrey`
+  appears solely in the Divisional Draft columns, which we no longer read (Q5). Keep it anyway; it
+  costs one line and covers the case where it turns up somewhere else.
+- **CSV parsing must be a real RFC 4180 parser, not `text.split('\n')`.** Verified: cell `A16` of
+  both auction tabs contains a **quoted cell with an embedded newline**. A line-splitting parser
+  desynchronizes from that row onward — every band-1 bench row, `DEF`, `Total`, and `Remaining`
+  anchor lands one row off, and it *still parses*, producing a plausible board with wrong rosters.
+  Found by the geometry test, not by reading: `src/data/csv.ts` handles quoted commas, escaped
+  quotes, embedded newlines, and CRLF, and `csv.test.ts` asserts the fixture still contains the
+  hazard so the test cannot quietly stop testing anything.
+- **Prices:** strip `$` and thousands separators; `$10`, `10`, `10.00` all accepted. Blank or
+  unparseable → `$0`, flagged as a warning.
+- **Positions:** uppercase; map `D/ST`, `DST`, `DEF`, `DEFENSE` → `DEF`.
+- **DEF rows carry no price and no player** and must not count toward spend or auction slots.
+- Blank rows, spacer columns, and trailing empties are ignored.
+
+### 5.6 The existing `AUCTION DISPLAY` tab
+
+Already computes, per manager: `Spent`, `Remaining $`, `Remaining %`, `Pos. Needed`, `Max Bid`,
+and `QB/RB/WR/TE/K` counts — 12 managers in 2 bands of 6, plus league totals (`Spent $2,411`,
+`Total $ 2400`, `Remaining -$11`). Note those totals are from the **uncapped 2025** state, hence the
+negative league remainder; the tab has not been reset for 2026.
+
+Its layout is a **different geometry from the auction tabs** (2 bands of 6, 36 rows), so it needs its
+own small parser if we use it as a cross-check — a reason to keep it strictly a development tool
+rather than a runtime dependency.
+
+**We read the auction tab, not this one** (D6), because this tab has no player-level data — so no
+roster view and no sales ticker — and because its formulas are buggy (§5.7). It is, however, an
+excellent **development cross-check**: parse both and assert agreement where the formulas are
+sound. Its column choices also directly informed §7.2.
+
+### 5.7 The sheet's formulas — verified against the 2026 tab
+
+**Good news: `Max Bid` is confirmed correct, and it matches our formula exactly.** Verified against
+live partial data:
+
+| Manager | Needs | Remaining | Sheet `Max Bid` | `remaining − needs + 1` |
+|---|---|---|---|---|
+| Kevin | 11 | $123 | **$113** | 123 − 11 + 1 = 113 ✓ |
+| Corky | 11 | $135 | **$125** | 135 − 11 + 1 = 125 ✓ |
+| Ryan | 15 | $200 | **$186** | 200 − 15 + 1 = 186 ✓ |
+| Nick | 14 | $190 | **$177** | 190 − 14 + 1 = 177 ✓ |
+
+`Needs` is also confirmed as `15 − draftedCount` (Kevin: 4 drafted → 11), independently confirming
+the 15-auction-slot model.
+
+**Full-tab verification (2026-08-24).** The template of §5.3 and the derived formulas of §6 were run
+against both `/export` fixtures, all 24 manager blocks:
+
+- **Template: zero violations.** Every `Pos` header, starter label (`QB RB RB WR WR TE K`), `DEF`,
+  `Total`, `Remaining`, and stats label landed on its predicted cell in both tabs. The geometry
+  claim of §5.3 is not an inference — it is checked.
+- **2026: all 12 managers agree on all four numbers** — `spent`, `remaining`, `needs`, `maxBid`.
+- **2025: `spent` agrees for all 12**; the disagreements are exactly the known uncapped-year
+  artifacts, which is the reassuring outcome.
+
+**Column semantics worth stating, since the labels are ambiguous:** the `Total` row holds **total
+dollars spent**, not the budget, and `Remaining` holds `budget − spent`. Reading `Total` as "budget"
+would invert the whole board.
+
+Two prior-year defects are **now fixed by the maintainer** for 2026: the `$200` cap is enforced
+(2025's `$194`–`$206` spends were legal *that year only*), and `Remaining` derives from `$200`
+throughout. The old `Remaining %` breakage and the `Max Bid = Remaining + 1` full-roster edge case
+were artifacts of the uncapped 2025 tab.
+
+One more 2025-only quirk, found during verification and worth *not* fixing: `Remaining` is floored at
+`$0` for the overspenders, and for Marc (`$198` spent → `$4`) and Nick (`$194` → `$7`) it is off by
+one or two from `200 − spent` in a way that isn't internally consistent. Old sloppy formulas, legal
+that year, invisible in 2026. It is precisely why D6 recomputes and the debug overlay shows both
+numbers side by side.
+
+**We still recompute (D6)** — not out of distrust, but because:
+
+- The app needs per-player data anyway for the roster view and ticker, so the totals come free.
+- A snapshot mid-recalculation could show a stale formula value; our numbers are always internally
+  consistent with the picks we parsed.
+- Historical tabs (2018–2025) retain the old behavior, and `?year=` must render them sanely.
+- Agreement between the sheet's figures and ours is a **free continuous correctness check** — shown
+  in the debug overlay, so any future formula change gets noticed immediately rather than silently
+  contradicting the board.
+
+The one place we deliberately differ: at `Needs = 0` we render **`FULL`** rather than a dollar
+figure, since no bid is possible.
+
+### 5.8 Rejected: "Publish to web"
+
+Google's only timing statement is that the published copy *"might take a few minutes"* to update —
+fatal for a few-seconds target. (The widely repeated "~5 minutes" figure has no authoritative
+source.) It also creates a second, search-indexable public surface and a separate publish state to
+manage, while buying nothing: `/export` already works on a merely link-shared sheet.
+
+### 5.9 State of the `2026 Auction` tab
+
+The tab was duplicated from 2025 and has since been **cleared and partially populated** by the
+maintainer. Current snapshot:
+
+- 12 manager blocks intact, template geometry unchanged from 2025, `$200` cap enforced, all
+  `Remaining` values consistent.
+- A handful of keepers entered — Kevin 4 players / `$77`, Corky 4 / `$65`, Nick 1 / `$10`; the
+  other nine managers at `$0`.
+- **Keepers will be filled in progressively**, so the tab will be partially populated for a while
+  and complete before draft night. The display must look correct at every point along that path.
+
+This snapshot is valuable beyond bookkeeping: it is the **first real partial-roster fixture** the
+project has. Prior seasons are all completed drafts, so this and hand-truncated variants of it are
+the primary test material. It is also what exposed the gviz row-collapsing behavior of §5.0, since
+the empty-row count is what differs between a partial and a completed tab.
+
+A **"draft looks complete / not started"** heuristic still earns its place in the status bar — if a
+duplicated-but-uncleared tab is ever pointed at on draft night, that must be obvious in the first
+second rather than at kickoff.
+
+### 5.10 Considered: replacing the sheet with our own data store
+
+Worth taking seriously, since the maintainer owns the sheet and can restructure it freely. The grid
+is a wide 4-across layout rather than a pick log, so it needs a purpose-written parser — though now
+that the template is known to be fixed and uniform (§5.3), that parser is short and boring.
+
+**Recommendation: keep the Google Sheet (D7).** Not out of inertia — it wins on the merits:
+
+| | Google Sheet (chosen) | Text/JSON file in the repo | Custom app + free-tier DB |
+|---|---|---|---|
+| Entering a pick live | Type in a cell. Instant. | `git commit` + push per pick, then an Actions build **and up to 10 min of Pages CDN cache** | Type in a form |
+| League follows along | **Already how they do it** — live, on phones, no new URL | No | Only via our display |
+| Concurrent editing | Free and battle-tested | Merge conflicts | Depends |
+| Revision history | Built in, free | Git log | Must build |
+| Infra to maintain | None | None | A service that can be down |
+| Cost | $0 | $0 | $0 *if* free tier holds |
+| Risk if it fails mid-draft | Google is up | Deploy latency is fatal | Untested on draft night |
+| Parsing difficulty | **Modest, and unit-tested** | Trivial | Trivial |
+
+The decisive points:
+
+1. **Committing a file per pick is disqualifying.** Pages' fixed `max-age=600` and up to 10 minutes
+   of propagation (§10) mean data-in-the-bundle can lag ten minutes. The whole product is
+   "updates within a few seconds."
+2. **"Others follow along in the sheet" is a real feature, already working.** Replacing the sheet
+   means either taking that away or maintaining two systems that can disagree — and a display that
+   contradicts the sheet is worse than no display.
+3. **Parsing difficulty is a one-time, fully testable cost.** ~100 lines of template walking behind
+   unit tests against real fixtures. It does not recur, and it cannot fail on draft night in a way
+   tests didn't catch.
+4. Draft night is a **single-shot, unrepeatable event**. The correct bias is toward the boring
+   system the league has used for eight seasons.
+
+**Optional sheet improvement, if parsing ever becomes a maintenance burden:** add a machine-readable
+`FEED` tab that flattens the grid to one row per pick (`Manager | Pos | Player | Price`). With a
+fixed template this is a pure-formula tab — no Apps Script needed. **Still not recommended now:** it
+is a second representation that can silently disagree with the first, in exchange for saving ~100
+tested lines. Revisit only if the grid layout changes substantially.
+
+**Sheet changes actually worth requesting:** exactly one — a new `SETTINGS` tab holding this season's
+nomination order (§7.5). Note it is a **new tab, not an edit to the auction grid**, so the verified
+template of §5.3 is untouched and the change cannot affect what the league sees. Otherwise leaving
+the live document alone is a feature.
+
+### 5.11 Change log / durable sales history
+
+The ticker works by diffing polls (§7.3), which is free and needs nothing from the sheet — but it
+starts empty on page load and dies with the tab. Since the projector will be open from the start
+(confirmed), that is sufficient for v1.
+
+**A durable change log is achievable for free**, and is the natural upgrade:
+
+- An **Apps Script `onEdit` trigger** on the sheet appends `[timestamp, manager, player, position,
+  price]` to a hidden `LOG` tab. Consumer-account quota is 90 min/day of total trigger runtime
+  against a few hundred sub-second runs — not close to a limit. No hosting, no cost.
+- Simple `onEdit` triggers fire on **user edits only**, not formula recalcs — which is exactly
+  right, since picks are typed by hand.
+- The display then reads `LOG` like any other tab, and gains: a ticker that survives reload,
+  true sale timestamps, `$`-per-minute draft pace, biggest sale of the night, and a post-draft
+  replay.
+- Caveats to design around: a bulk paste of keepers arrives as one event over a range, and
+  correcting a typo logs a second entry — so `LOG` is an append-only *event* stream, not state.
+  The auction tab stays the source of truth for current values.
+
+**Scoped as a phase-8 enhancement (D8), not a v1 dependency.** It adds a script to a live league
+document, and that risk isn't worth taking in the week before a draft.
+
+Rejected for history: a free-tier hosted database (Firebase RTDB and similar). It would give true
+push updates and timestamps, but it adds a second system that can disagree with the sheet, plus a
+service that has never been exercised on draft night — for a feature the poll-diff already covers.
+
+---
+
+## 6. Derived values
+
+Per manager, with `budget = 200`, `minBid = 1`, `auctionSlots = 15` (DEF excluded):
+
+```
+picks           = rows with a player name and a price (DEF row excluded)
+spent           = Σ price
+remaining       = budget − spent      // 2026 caps at $200; historical tabs can go negative,
+                                      // so never floor at 0 — render the truth
+slotsFilled     = picks.length
+needs           = auctionSlots − slotsFilled          // verified against the sheet (§5.7)
+maxBid          = needs <= 0 ? null                   // roster full → render "FULL", not a number
+                             : max(minBid, remaining − (needs − 1) × minBid)
+                             = max(1, remaining − needs + 1)   // ✓ matches sheet on live data
+pctRemaining    = remaining / budget                  // computed correctly, unlike the sheet
+avgPerSlot      = needs > 0 ? remaining / needs : 0
+positionCounts  = { QB, RB, WR, TE, K } over picks    // DEF is not an auction slot; ignored (Q5)
+```
+
+`maxBid` is *the* number this display exists to publish, and the one people get wrong in their
+heads. It gets the largest, boldest type on each row.
+
+League-wide, for the header:
+
+```
+leagueSpent      = Σ spent
+leagueRemaining  = Σ remaining          // dollars still chasing players
+slotsFilled / (12 × 15)
+avgPerRemainingSlot = leagueRemaining / Σ needs        // market pace
+```
+
+Validation states surfaced visually, never hidden: `remaining < 0` (overspent),
+`slotsFilled > 15` (over-rostered), unmatched manager names, unparseable prices.
+
+**Not validated: position counts.** Roster construction is unrestricted for bench slots, and while
+the league does have some positional caps, they are **not encoded in the sheet** (Q9). The display
+therefore reports position counts as facts and never flags one as "too many" — inventing a rule the
+league doesn't enforce would be worse than saying nothing.
+
+---
+
+## 7. UI design
+
+### 7.1 Target display — 1920 × 1080 primary, resolution-adaptive
+
+**The projector is 1920 × 1080 (16:9)** (Q7). It is worth being precise about what that does and
+does not buy, because the intuitive reading is wrong.
+
+**More pixels is not bigger text.** Legibility across a room depends on the *physical* height of a
+glyph, which is `(type size ÷ vertical resolution) × image height`. Going from 1024 × 768 to
+1920 × 1080 on the same wall makes each pixel smaller, not the text bigger. Worse, **16:9 is short**:
+a projector throwing an 84″-wide image gives 63″ of height in 4:3 but only 47″ in 16:9. So for a
+fixed image width, moving to 1080p *costs* about 25% of the vertical space a 12-row table has to
+live in.
+
+The real gain from 1080p is **horizontal**: ~1843 usable px instead of ~983. The design change is to
+spend that width buying back the lost height, by moving the ticker and nomination strip **out of the
+vertical stack and into a side rail**.
+
+**Vertical budget at 1080 px.** Usable height after ~2% safe-area padding is ~1037 px.
+
+```
+                                  stacked (4:3 shape)   table + side rail
+  header: title, totals, status         ~84 px               ~84 px
+  column header row                     ~40 px               ~40 px
+  nomination strip                      ~68 px            → moved to rail
+  sales ticker                          ~68 px            → moved to rail
+  inter-block gaps                      ~48 px               ~16 px
+  ──────────────────────────────────────────────────────────────────────
+  left for 12 manager rows             ~729 px              ~897 px
+  per row                               ~61 px               ~75 px
+  primary type size                     ~38 px               ~47 px
+```
+
+**Physical size, on an 84″-wide image** (the figure to re-measure on site):
+
+| Layout | Type | Share of height | Physical | Legible to ≈ |
+|---|---|---|---|---|
+| Old 1024 × 768 stacked | 28 px | 3.6% of 63″ | 2.3″ | 29 ft |
+| 1080p stacked | 38 px | 3.5% of 47″ | 1.7″ | 21 ft |
+| **1080p table + rail** | **47 px** | **4.4% of 47″** | **2.1″** | **26 ft** |
+| — its `MAX BID` (1.4×) | 66 px | 6.1% of 47″ | 2.9″ | 36 ft |
+
+Using the projection rule of thumb that comfortable reading needs roughly *viewing distance ÷ 150*
+of glyph height. **`MAX BID` clears the whole room; the secondary numbers clear most of it.** These
+figures scale linearly with the projected image, so a 10 ft image makes all of them comfortable —
+which is exactly why the on-site scale control below is not optional.
+
+Mechanics:
+
+- One root font-size derived from viewport height (`clamp()` on a `vh` basis) so every size,
+  padding, and gap scales together from a single variable. No per-breakpoint font tables.
+- **Aspect-ratio-aware, not just width-aware.** ≥16:9 gets the side rail; 4:3 and narrower fall back
+  to the stacked layout with the ticker beneath. Driven by an aspect-ratio media query — the same
+  1920 px width means very different things at 16:9 and 4:3.
+- ~2% safe-area padding for projector overscan and keystone cropping.
+- **12 rows always fit; the grid never scrolls.** Row height, type size, and column set step down
+  together until they do.
+- `+` / `−` keys nudge the root scale live, and `?scale=1.15` persists it — because the real room,
+  the real throw distance, and the real bulb decide what is actually readable, and that can only be
+  discovered on site. **Budget time for this in the phase 7 rehearsal**; the table above is
+  arithmetic, not a measurement.
+- Projectors are dimmer and lower-contrast than the laptop the design is built on: use bold weights
+  over thin ones, avoid mid-grey text, and keep meaningful color differences large rather than
+  subtle. Verify on the real bulb, not the editor.
+- The layout must still hold up at 1280 × 720, 1024 × 768, and a laptop window, since the projector
+  can change on the day.
+
+### 7.2 Main board
+
+Columns follow the league's own `AUCTION DISPLAY` vocabulary, so the board reads as a bigger
+version of something they already understand.
+
+**At 1920 × 1080 (primary target)** — full column set, ticker and nomination strip in the rail:
+
+```
+┌───────────────────────────────────────────────────────────┬─────────────────────┐
+│ ZWML 2026 AUCTION    $1,412 left · 87/180 · $16/slot ● 2s │  ON THE CLOCK       │
+├─────────┬───────┬──────┬───────┬─────────┬────────────────┤  ▶ Marc             │
+│ MANAGER │ SPENT │ LEFT │ NEEDS │ MAX BID │ QB  RB WR TE K │    Bill             │
+├─────────┼───────┼──────┼───────┼─────────┼────────────────┤    Derrick          │
+│ Kevin   │  $77  │ $123 │  11   │  $113   │  1  2  1  ·  · │    Colin            │
+│ Corky   │  $65  │ $135 │  11   │  $125   │  ·  1  3  ·  · │    Jason  FULL      │
+│ Ryan    │   $0  │ $200 │  15   │  $186   │  ·  ·  ·  ·  · │    Nick             │
+│ Nick    │  $10  │ $190 │  14   │  $177   │  1  ·  ·  ·  · │                     │
+│ …  (12 rows, ~75 px each)                                 │  ───────────────    │
+│                                                           │  JUST SOLD          │
+│                                                           │  Ja'Marr Chase      │
+│                                                           │    $60 → Toby       │
+│                                                           │  Bijan Robinson     │
+│                                                           │    $69 → Jeff       │
+│                                                           │  Puka Nacua         │
+└───────────────────────────────────────────────────────────┴─────────────────────┘
+   ~1300 px                                                    ~530 px
+```
+
+The rail is a real improvement over the stacked ticker, not just a space trick: a **vertical** sales
+list shows 4–5 recent sales legibly instead of one scrolling line, and the nomination order is a
+column of names — its natural shape — instead of a horizontal strip that has to abbreviate.
+
+**At 4:3 or narrower**, the rail collapses beneath the table as a single-line ticker plus a
+horizontal strip, and columns start dropping (below). Same components, same data.
+
+A **table, not cards.** Twelve managers sharing a baseline down each column is what makes them
+comparable at a glance; cards force the eye to hunt for the same number in twelve places. **One
+table of 12, not two of 6** — splitting would double the row height, but two sets of column
+baselines destroys the at-a-glance comparison that is the entire point.
+
+**Column priority.** Each column declares a priority; the layout drops from the bottom up until the
+board fits. At 1080p in the rail layout **nothing drops** — the priority system now exists for
+phones and laptops (Q8), and as insurance if the projector changes on the day.
+
+| Priority | Column | Rationale |
+|---|---|---|
+| 1 | `MANAGER` | Identity — meaningless without it |
+| 1 | `MAX BID` | **The reason the display exists** |
+| 2 | `LEFT` | The number people track continuously |
+| 3 | `NEEDS` | Needed to sanity-check max bid |
+| 4 | Position counts | Answers "what do they still need" |
+| 5 | `SPENT` | **Fully redundant** — `$200 − LEFT`. First to go. |
+| 6 | `$/SLOT` pace | Nice-to-have. Off by default — see below. |
+
+Rough widths at 1080p, summing to ~1300 px: `MANAGER` 210, `SPENT` 120, `LEFT` 130, `NEEDS` 105,
+`MAX BID` 185, five position columns at 86, remainder as gutters.
+
+**Per-row `$/SLOT` is built but off by default.** It fits at 1080p, and it is `LEFT ÷ NEEDS` — two
+columns already on the row — so a ninth number competes for attention while telling the room nothing
+new. The league-wide figure stays in the header totals, where pace actually reads as meaningful. A
+key toggles the column on if draft night proves otherwise.
+
+- **MAX BID** — largest type on the row, right-aligned for digit alignment. `FULL` when `needs = 0`.
+- **LEFT** — second most prominent. Renders negative values honestly (`−$6` in red) for historical
+  years, rather than floored at `$0` as the old sheet did.
+- **Position counts** — fixed-width columns so they read as a matrix. **Zero renders as a dim `·`,
+  not `0`**, so unfilled needs pop out instead of drowning in a wall of zeros. `DEF` is omitted
+  entirely: it is drafted before the auction and costs nothing, so it is irrelevant while bidding
+  (Q5). Counts are never flagged as "too many" (§6).
+- Row states: **out of money** (`maxBid = $1`) dimmed; **roster full** dimmed with `FULL`;
+  **top max bid** subtly accented so the room knows who can still swing; **invalid** (overspent /
+  over-rostered) flagged in warning color.
+- Default sort: **max bid descending** — the room's real question is who can outbid whom.
+  Toggleable to config order or name.
+
+### 7.3 Recent-sales ticker — derived by diffing, not by timestamp
+
+**The sheet records no timestamps and no global pick order.** Players sit in fixed roster slots
+within each manager's block, so there is no way to reconstruct "the last five sales" from a single
+snapshot.
+
+The ticker is therefore built from **successive polls**: when a player name appears in a block that
+was empty on the previous poll, that is a new sale → push
+`{ player, price, manager, position }` onto a capped in-memory queue. Consequences worth stating
+plainly:
+
+- Works exactly when it matters (live, during the draft) and is genuinely real-time.
+- Starts **empty on page load** and fills as the draft proceeds. **Confirmed acceptable** — the
+  projector will be open before the auction starts.
+- **This is actually the desired behavior for keepers.** Keepers are entered in the days before the
+  draft, so they are already present at page load and correctly *do not* appear as sales. The
+  ticker shows live auction results only, with no special-casing needed.
+- A page reload mid-draft loses ticker history unless the sale log is persisted — which §7.5 does
+  anyway for the nomination pointer, so the ticker gets reload-survival for free. §5.11's optional
+  change log remains the fix for durable *cross-device* history.
+- A price edited after the fact produces an update, not a duplicate sale (match on
+  manager + slot, not on player name).
+- The queue is **capped** (8 entries); no unbounded array over a 4-hour session.
+
+Bottom band, newest first, `Player $Price → Manager`, new entry animating in from the left with a
+brief highlight, player name color-coded by position. Doubles as live confirmation that the sheet
+connection is working.
+
+### 7.4 Roster view
+
+Second full-screen view, toggled by keyboard: every manager as a column, their 15 auction players
+grouped by position with prices, plus empty placeholder rows for unfilled slots. Useful in the
+endgame when the question shifts from "who has money" to "who still needs a tight end."
+Auto-returns to the main board after ~30 s idle so the projector never gets stranded.
+
+**Scope, per Q5: the Defensive Draft and Divisional Draft are excluded from the display entirely.**
+Both happen *before* the auction and are not touched during it, so showing them would spend scarce
+projector pixels on data that never changes. Cols `Y`/`Z` are ignored by the parser — which also
+disposes of the `Jeffrey`/`Jeff` alias problem for everything except a cosmetic config entry.
+
+### 7.5 Nomination order — fully automatic
+
+**Confirmed wanted (Q10).** During bidding the second-most-asked question after "what's their max
+bid" is "who's up next," and the answer currently lives in someone's head.
+
+The league's rules (Q11–Q13) turn out to be exactly the ones that make this derivable rather than
+guessable:
+
+| Rule | Consequence for the display |
+|---|---|
+| The order is **fixed for the season**, not dynamic | Read it once at startup; never recompute |
+| Nominations rotate **strictly** through that order | The pointer advances by one, deterministically |
+| **Every nomination ends in a sale** | `nominations == sales`, so sales alone drive the pointer |
+| A manager with a **full roster can no longer nominate** | Skip any manager at 15 picks when advancing |
+
+So the strip needs no operator input in the normal case.
+
+**Display:** at 1080p the order is a **vertical list at the top of the side rail** (§7.2) — current
+nominator accented, the next few below it, managers who are full struck through since they are
+permanently out of the rotation. A column of names is the shape this data actually wants, and the
+rail costs the table no columns. Below 16:9 it collapses to the slim horizontal strip —
+**ON THE CLOCK · ON DECK · then** — with the full order available in the roster view.
+
+#### Deriving the pointer
+
+```
+advance(pointer):                       // called once per observed sale
+  do  pointer = (pointer + 1) mod order.length
+  while manager(order[pointer]).isFull  // skip full rosters
+  // guard: if every manager is full, the auction is over — render "COMPLETE"
+```
+
+The pointer is maintained **incrementally by the diff engine** (§7.3), which already detects each
+sale. That sidesteps the one genuinely hard problem: fullness must be evaluated *at the time of each
+nomination*, and a single snapshot cannot tell you when a manager crossed 15 — only that they have.
+Watching the sales happen gives it exactly, for free.
+
+**Keepers are not sales.** They are entered in the days before the draft, so the pointer must start
+from the roster state at auction start, not from zero picks. The first successful poll establishes
+that baseline — the projector is open before bidding starts (§5.11) — and it is the same baseline the
+ticker already relies on for not treating keepers as sales.
+
+**Surviving a mid-draft reload.** The pointer is a pure function of `(order, baseline, saleLog)`, so
+persisting those three to `localStorage` on each change makes recovery exact rather than approximate.
+Worth doing: it is a few lines, it costs nothing, and it also fixes the ticker's "reload loses
+history" weakness noted in §7.3. Keyed by year so a `?year=` test run cannot poison live state.
+
+**Escape hatches, because draft night is unrepeatable:**
+
+- `N` advances, `Shift+N` retreats. The manual offset persists alongside the pointer.
+- A **corrected or deleted pick** in the sheet shows up as a negative or batch diff. Never
+  hand-patch the pointer for these — **recompute from the sale log**, which is why the log is the
+  stored state rather than the pointer alone.
+- If the derived nominator ever disagrees with the room, the room is right. The strip is a
+  convenience, and it must be overridable in one keystroke without touching anything else.
+
+**Endgame behavior worth getting right:** as managers fill up, the rotation shrinks. When one manager
+alone has slots left, they nominate every remaining player — so ON DECK should read `—` rather than
+repeating their name, which would look like a bug.
+
+#### Where the order lives
+
+**Recommendation: a dedicated `SETTINGS` tab, with a config fallback.**
+
+Confirmed no longer usable: cell `A1` of the auction tab holds
+`"Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Nick > Rob "` — a
+historical artifact naming `Rob`, who drafted on Jason's behalf in a past year. The parser ignores it.
+
+| Option | Verdict |
+|---|---|
+| Hard-code in `league.ts` | Works, but a typo found at 7pm needs a rebuild **plus up to 10 min of Pages CDN propagation** (§10) |
+| Cells **in the auction tab** | **Avoid.** That grid's geometry is verified cell-by-cell (§5.3); adding to it risks the thing the parser depends on |
+| **A separate `SETTINGS` tab** | **Chosen.** Editable from a phone, zero redeploy, and structurally isolated from the auction grid |
+
+One column of 12 names in a new tab. The app reads it at startup, validates it against the known
+manager list, and **falls back to `config.nominationOrder`** if the tab is missing, short, or has an
+unrecognized name — so a fumbled edit degrades to the hard-coded copy instead of taking the strip
+down. Keeping both is the point: the sheet copy removes the redeploy risk, the config copy removes
+the single point of failure.
+
+Since the order is fixed for the season, it is read **once at startup**, not every poll.
+
+### 7.6 Best available by position
+
+**Of interest (Q6), scoped as a later phase.** With a player ranking loaded, the board can answer
+"who's the best remaining RB" — the question that most often stalls a live auction.
+
+Source: the maintainer can **export players from Yahoo**. The existing `Top 300` tab (gid
+`1445441490`, 323 rows) is *not usable as-is* — it is stale by roughly three seasons (it still lists
+Austin Ekeler on LAC and Nick Chubb on CLE) and its `Value` column is sparsely filled. Its format,
+`Justin Jefferson (MIN - WR)`, does parse cleanly into name / team / position, so a fresh export in
+the same shape needs no new parser.
+
+Two things this unlocks beyond a "best available" panel:
+
+- **Position inference** for bench rows whose `Pos` cell was left blank (§5.4 step 3).
+- **Name matching** to mark drafted players as gone — which requires fuzzy matching, since the sheet
+  contains hand-typed abbreviations like `Fairbairn` and truncations like `Jameson Willi…`. Match on
+  a normalized surname plus position, surface anything ambiguous in the debug overlay rather than
+  guessing silently, and treat a failed match as "unknown," never as "still available."
+
+**Deliberately last in the build order (§12).** It is the only feature that depends on data outside
+the sheet, and being wrong about who is still available is worse than not offering the feature.
+
+### 7.7 Visual language
+
+- **Dark background.** Projector bulbs wash out dark-on-white and blast the room with a bright
+  rectangle for four hours.
+- High-contrast near-white on near-black; accent colors carry meaning only, never decoration.
+- **Tabular numerals** everywhere so digits don't shimmy as values change.
+- Position colors distinguishable under projector color shift and common color-vision
+  deficiencies; color is always paired with a text label, never the sole signal.
+- Motion minimal and purposeful: a changed value flashes once, briefly. No spinners, no looping
+  animation, nothing that pulls the eye during bidding.
+
+### 7.8 Status and trust
+
+Persistent header indicator, small but always present:
+
+- `● live · 2s` — green, seconds since last successful fetch.
+- `● stale · 47s` — amber past ~3 poll intervals.
+- `● offline · 4m` — red, with the age of the data on screen.
+- `⚠ 3` — warning count, opening the debug overlay.
+- `⚠ draft looks complete` — the §5.9 uncleared-tab heuristic.
+
+Silently showing stale numbers as if fresh is the single most dangerous failure mode for this
+display. The room must always be able to tell.
+
+### 7.9 Keyboard controls
+
+Single keys, no modifiers, so the operator never looks away:
+
+| Key | Action |
+|---|---|
+| `F` | Fullscreen |
+| `R` | Toggle roster view |
+| `S` | Cycle sort |
+| `N` / `Shift+N` | Nudge the nomination pointer forward / back — override only, it advances itself (§7.5) |
+| `+` / `−` | Scale type up/down for the room at hand |
+| `D` | Debug overlay: raw parse, warnings, sheet-vs-computed comparison, fetch timing |
+| `0` | Force immediate refetch |
+
+**Phones and laptops (Q8) get no keyboard.** Anything reachable only by key must also be reachable
+by tap: the roster view and sort get on-screen affordances in the compact layout, while `N`, `+`/`−`,
+and `D` are operator-only and simply absent there.
+
+---
+
+## 8. Failure modes
+
+| Failure | Behavior |
+|---|---|
+| **Wrong tab returned silently** (§5.2) | Anchor assertion fails → refuse to render, show explicit error. Prefer `gid=`. |
+| **Uncleared 2026 tab** (§5.9) | "Draft looks complete" banner in the status bar. |
+| Sheet un-shared / 401 | Full-screen setup instructions naming the exact Google sharing steps. |
+| **No spreadsheet id resolved** (§9.1) | Full-screen setup card: paste the sheet URL. Accepts a URL or bare id, persists it, and starts polling — no redeploy. |
+| **`SHEET_ID_B64` secret missing or stale** | Build still succeeds; board shows the setup card. Recoverable on the projector in seconds via `#sheet=`, without touching CI. |
+| **`#sheet=` value is malformed or hostile** | Rejected by the id pattern; falls through to the next source. `csvUrl()` throws rather than fetching an attacker-shaped URL (§9.1). |
+| Network drops | Last good frame stays up, amber → red with data age, backoff retry, auto-recovers. |
+| Auction tab missing/renamed | Setup message listing the tabs actually found; `gid` is configured, so a rename is harmless. |
+| **Template changed — rows inserted, bands moved** | Not expected (§5.3), but detected: label verification fails and names the exact cell (§5.4). Isolated mismatches warn; a missing `Total` or short manager list refuses to render. |
+| **A cell gains an embedded newline** | Handled by the real CSV parser (§5.5). This already occurs at `A16` and is the reason naive line splitting is banned. |
+| Empty bench rows / blank `Pos` cells | Normal, not an error. A pick requires player **and** price (§5.3). |
+| **Manager overspends the $200 cap** | Now a genuine error in 2026 (Q4) → row flagged in warning color, negative `LEFT` shown honestly. |
+| Manager name typo or new alias | Lands in a visible `⚠ Unmatched` row rather than vanishing. |
+| Sheet formulas disagree with ours | We win (D6); disagreement is logged to the debug overlay. |
+| Laptop sleeps / tab throttled | `visibilitychange` forces an immediate refetch. |
+| Stale bundle after a deploy | See §10 — hashed assets, `vite:preloadError` self-reload, deploy early. |
+| Wedged JS context | Watchdog: no successful poll for N minutes → `location.reload()`, guarded by a `sessionStorage` counter so it can't loop. |
+| **Reload mid-draft** | `(order, baseline, saleLog)` restored from `localStorage`, so the ticker and nomination pointer survive exactly (§7.5). |
+| **A pick is corrected or deleted in the sheet** | Diff shows a negative/batch change → recompute the pointer from the sale log rather than patching it (§7.5). |
+| `SETTINGS` tab missing, short, or misspelled | Falls back to `config.nominationOrder`; an empty order hides the strip instead of blocking the board (§7.5). |
+| **Every manager full** | Rotation is empty → strip renders `COMPLETE` rather than looping or dividing by zero. |
+
+---
+
+## 9. Configuration
+
+League rules live in one committed TypeScript file, no editing UI. **The spreadsheet id is not one
+of them** — see §9.1.
+
+```ts
+export const league = {
+  // No spreadsheetId here, by design (section 9.1). gids are safe to commit:
+  // they identify a tab *within* a workbook and are useless without the id.
+  auctionTabs: [{ year: 2026, gid: '1565415907' }, { year: 2025, gid: '599461641' }],
+  budget: 200,
+  minBid: 1,
+  auctionSlots: 15,                       // 16 rows − 1 free DEF slot
+  starterTemplate: ['QB','RB','RB','WR','WR','TE','K'],
+  benchSlots: 8,
+  positions: ['QB','RB','WR','TE','K'],   // DEF is not an auction slot and is not displayed (Q5)
+
+  // Grid template — verified identical in the 2025 and 2026 tabs (§5.3).
+  // All 0-indexed. Row offsets are relative to each band's manager-name row.
+  bandRows: [1, 22, 43],                  // = sheet rows 2, 23, 44
+  blockStartCols: [1, 7, 13, 19],         // B, H, N, T, stride 6
+  rowOffsets: {
+    header: 1, starters: [2, 8], bench: [9, 16],
+    def: 17, total: 18, remaining: 19,
+  },
+  colOffsets: { pos: 0, player: 1, price: 2, statLabel: 3, statValue: 4 },
+
+  managers: ['Kevin','Corky','Ryan','Toby','Jeff','Marc',
+             'Bill','Derrick','Colin','Jason','Nick','Tony'],
+  aliases: { Jeffrey: 'Jeff' },
+  // Nomination order (§7.5). The SETTINGS tab wins if readable; this is the fallback copy.
+  nominationOrder: [],                    // 12 names in sequence — TODO before draft night (Q14)
+  settingsTabGid: null,                   // set once the SETTINGS tab exists
+  pollIntervalMs: 3000,
+  enforceBudgetCap: true,                 // 2026: over $200 is an error (2025 allowed it)
+  freeDefenseSlot: true,                  // DEF costs nothing and is drafted separately
+}
+```
+
+Display preferences live separately in `config/display.ts` — column priority order, the aspect-ratio
+breakpoints, ticker length, and the default root scale — so layout tuning on draft night never risks
+touching league rules.
+
+The template constants are **exact coordinates**, and the parser verifies every one of them against
+its expected label on each poll (§5.4). If the maintainer ever restructures the tab, the repair is
+an edit to this block rather than a parser change.
+
+### 9.1 Where the spreadsheet id lives — and what that does and does not protect
+
+**Requirement:** the spreadsheet location must not be stored in the git repository.
+
+`config/sheetLocation.ts` resolves it at runtime, first hit wins:
+
+| # | Source | Notes |
+|---|---|---|
+| 1 | `#sheet=<id-or-url>` fragment | **Recommended override.** A fragment is *never sent to any server*, so unlike `?sheet=` it cannot land in GitHub's access logs. Consumed once, then persisted and stripped from the address bar. |
+| 2 | `?sheet=<id-or-url>` query | Accepted for convenience; prefer the fragment. |
+| 3 | `localStorage['zwml:sheetId']` | Remembered from a previous visit, so the operator types it at most once per browser. |
+| 4 | Build-time default | Base64 in `VITE_SHEET_ID_B64`, injected by CI from the repository secret `SHEET_ID_B64`. **Never in the tree.** |
+| 5 | Nothing | Full-screen setup card: paste the sheet URL. Accepts a full URL or a bare id. |
+
+Source 4 is what preserves the §2 constraint "zero-config startup: open URL, fullscreen, done." A
+prompt-only design would have satisfied the security ask more strictly but put a text-entry step
+between the operator and a working board minutes before a draft — and if the browser profile were
+fresh or storage cleared, that step reappears. The secret gives both properties: clean repo, no
+typing. Sources 1–3 exist as the escape hatch when the secret is missing or wrong.
+
+**What this actually buys.** Being precise here matters, because it would be easy to over-read:
+
+| Exposure | Prevented? |
+|---|---|
+| GitHub code search, repo clone, git history, forks | **Yes.** The id is never committed. This is the stated requirement, and it is fully met. |
+| Someone grepping the deployed JS bundle for the id | **Mostly.** Base64 defeats a search for the literal string; it does not defeat anyone who reads the code around it. |
+| DevTools network tab on the running board | **No.** The request URL is right there. Unavoidable for any browser-only design. |
+| The dozen league members who already have the sheet link | **N/A.** They are supposed to have it. |
+
+So this is **discoverability reduction, not access control** — it raises the cost of stumbling onto
+the sheet from zero to deliberate, and nothing more. Base64 is obfuscation; calling it encryption
+would be wrong. **The only real control over who can read the workbook is the sheet's own sharing
+setting** (currently "anyone with the link"), and no code in this repo can change that. The standing
+note in §3 still applies: everything in that workbook is public to anyone holding the link.
+
+If genuine confidentiality is ever needed, the lever is a private sheet behind an Apps Script web
+app, or a Cloudflare Access gate in front of the Pages site — both out of scope here, and both
+weighed against the fact that this data is read aloud to the room as it is entered.
+
+**Enforcement.** Two things keep this from decaying:
+
+- `csvUrl()` validates the id against `^[A-Za-z0-9_-]{20,64}$` and the gid against `^[0-9]+$`, and
+  throws otherwise. Those are the only interpolated values in any URL the app fetches, so a hostile
+  `#sheet=../../evil` cannot escape the `/spreadsheets/d/<id>/export` path.
+- `no-committed-sheet-id.test.ts` scans **every git-tracked file** for a sheet id — in a URL or
+  assigned to an id-shaped name — and fails the build. A policy without a test is a wish; this one
+  would otherwise die the first time someone hardcodes the id to debug something.
+
+**Local development:** copy `.env.example` to `.env.local` (gitignored) and set
+`VITE_SHEET_ID_B64=$(printf '%s' '<id>' | base64)`. Or just use `#sheet=` and let it persist.
+
+**One-time setup on the repo:** add `SHEET_ID_B64` under Settings → Secrets and variables → Actions.
+If it is missing the build still succeeds and the board shows its setup card — deliberately, so a
+missing secret surfaces as a visible, fixable message rather than a red CI run hours before a draft.
+
+---
+
+## 10. Repo layout, deploy, and testing
+
+```
+zwml_ui/
+├─ docs/DESIGN.md
+├─ docs/data-samples/           # real tab captures; the parser test fixtures
+├─ index.html
+├─ vite.config.ts               # base: './'
+├─ .env.example                 # names VITE_SHEET_ID_B64; holds no value (§9.1)
+├─ src/
+│  ├─ main.tsx
+│  ├─ vite-env.d.ts
+│  ├─ config/{league,sheetLocation}.ts
+│  ├─ data/{csv,sheetClient,tabs,gridParser}.ts
+│  ├─ model/{derive,diff}.ts
+│  ├─ ui/{Board,ManagerRow,Rail,Ticker,NominationList,RosterView,SetupCard,StatusBar,DebugOverlay}.tsx
+│  └─ styles/
+└─ .github/workflows/deploy.yml
+```
+
+### Hosting
+
+Public repo, project site at `https://swankaws.github.io/zwml_ui/`, **GitHub Actions** publishing
+source (Settings → Pages → Source → GitHub Actions — the only setting needed). Actions minutes are
+free and unmetered on public repos. Workflow needs `permissions: { contents: read, pages: write,
+id-token: write }`, an `environment: github-pages`, and `concurrency: { group: pages }`; current
+action majors are `configure-pages@v6`, `upload-pages-artifact@v5`, `deploy-pages@v5`,
+`checkout@v7`, `setup-node@v7`.
+
+- **`base: './'`** in Vite rather than `/zwml_ui/` — relative paths make the same build work on
+  `localhost`, the Pages subpath, and any future custom domain with no rebuild. Leaving `base` at
+  the default `/` is the single most common Pages failure: assets 404 and you get a white screen.
+- Copy `dist/index.html` → `dist/404.html` as cheap insurance. No router, or a hash router — Pages
+  has no rewrite rules and serves `404.html` with a real 404 status.
+- **No private option exists for free.** Pages from a private repo needs Pro, and even then *the
+  site is public* — GitHub states sites are publicly available even when the repo is private.
+  Assume everything in the bundle is readable, which is fine here since there is no key to leak.
+- **Only if we later want a real server-side secret or password gating:** Cloudflare Pages is the
+  one free tier that provides both (free proxy function, `_headers` cache control, Cloudflare
+  Access). ~20-minute migration, identical build output. Netlify's credit model pauses *all*
+  projects when exhausted; Vercel Hobby is restricted to non-commercial use, which a league with
+  buy-ins makes an unnecessary judgment call.
+
+### The stale-bundle hazard
+
+GitHub Pages serves **`cache-control: max-age=600` on everything and this cannot be changed** (no
+`_headers` support), behind Fastly, with up to 10 minutes of propagation after a push. Combined
+with full-site replacement per deploy, a browser holding a cached `index.html` can request hashed
+asset filenames that no longer exist → 404 → white screen. Hashed filenames prevent stale *code*,
+not this.
+
+Mitigations, in order:
+
+1. **Deploy 15+ minutes before the draft, hard-reload the projector browser once, then don't
+   deploy again.** This alone solves it.
+2. Open with a version query: `…/zwml_ui/?v=20260906a`.
+3. Self-heal on asset 404 — worth the five lines, turns a white screen into an auto-recovery:
+   ```js
+   window.addEventListener('vite:preloadError', (e) => {
+     e.preventDefault()
+     if (!sessionStorage.getItem('reloadedOnce')) {
+       sessionStorage.setItem('reloadedOnce', '1')
+       location.reload()
+     }
+   })
+   ```
+4. Optional `version.txt` poll to allow a safe mid-draft hotfix.
+
+**No service worker.** For a connected, ephemeral, live-polled display it is all downside: a
+registered SW outlives the experiment and is the classic cause of "the projector shows yesterday's
+build and nothing fixes it," while offline mode would only show a frozen board anyway. If one ever
+gets registered, ship a one-time unregister-and-clear-caches kill switch.
+
+### Testing
+
+- `gridParser.ts` and `derive.ts` are pure and get real unit tests against **fixtures captured from
+  the live sheet**, already saved in `docs/data-samples/`:
+
+  | Fixture | Exercises |
+  |---|---|
+  | `2026-auction.csv` (63 rows, `/export`) | **Real partial state** — empty starter rows that keep their `Pos` label, empty bench rows with no label at all, `$200` cap, 3 managers with keepers and 9 at zero |
+  | `2025-auction.csv` (63 rows, `/export`) | Completed draft, all 15 slots filled per manager, `"Bill "` trailing space, overspent managers, uncapped-year `Remaining` |
+  | `auction-display.csv` (36 rows) | Cross-check target (§5.6) |
+  | `top300.csv` (323 rows) | Ranking-parse shape only — content is stale, see §7.6 |
+
+  > **All fixtures are `/export` captures** (2026-08-24, re-captured after §5.0). The one gviz
+  > capture is kept as `2026-auction-gviz-collapsed.csv` — 43 rows instead of 63 — purely as a
+  > regression fixture for the fallback path and as evidence for §5.0. **Never test the primary
+  > parser against it**; it is the exact shape that produced rev 2's wrong conclusions.
+
+- **Additional hand-built fixtures required:** a fully empty tab (day-one state), a
+  single-manager-complete tab, a tab with a deliberately corrupted price and an unknown manager
+  name, and a **deliberately restructured tab** (one row inserted) to prove the label verification
+  of §5.4 catches it loudly instead of rendering shifted garbage.
+- The **partial fixture is the most important test in the suite**, because a partially filled roster
+  is the state the display actually runs in for most of the draft.
+- Cross-check parse output against the `AUCTION DISPLAY` tab during development (§5.6).
+- `?mock=1` renders from a fixture with no network, for offline UI work and demos.
+- **Dress rehearsal is mandatory:** real projector, real laptop, real network, before draft night —
+  including pulling the network cable to watch the staleness indicator do its job. Prevent OS
+  interference (`caffeinate -dis` on macOS, notifications off, kiosk/fullscreen). Keep the sheet
+  itself open in a second tab as the fallback display.
+
+---
+
+## 11. Open questions
+
+### Resolved
+
+| # | Question | Answer |
+|---|---|---|
+| Q1 | Is `2026 Auction` an uncleared copy? | Yes, deliberately duplicated; now partially cleared. Keepers being populated, will be complete before draft night. (§5.9) |
+| Q2 | Roster template for 2026 | **Confirmed:** 15 auction slots + 1 free defense. |
+| Q3 | Manager identity | **Jason** is the manager; **Rob** was drafting on his behalf that year. `A1`'s order string is a historical artifact — parser ignores it. `Jeffrey` → `Jeff` alias stands. |
+| Q4 | Over-$200 spends | Legal in **2025 only**; `$200` is a hard cap for 2026 and the sheet is fixed. Overspend is now a genuine error state → flag it. |
+| Q7 | Projector | **1920 × 1080 (16:9)** (corrected in rev 4 from 1024 × 768), with multi-resolution support required. Primary design target; note 16:9 is *shorter*, which drove the side-rail layout (§7.1). |
+| — | Where does the spreadsheet id live? | **Not in the repo.** Runtime resolution with a CI-secret default; base64 is obfuscation only (D14, §9.1). |
+| Q5 | Show Defensive / Divisional Draft? | **No — ignore both.** They happen before the auction and are not touched during it (§7.4). |
+| Q6 | Use a player ranking for "best available"? | **Yes, of interest.** Maintainer can export from Yahoo; the existing `Top 300` tab is ~3 seasons stale and unusable as-is (§7.6). Last in the build order. |
+| Q8 | Phones and laptops, or projector only? | **All three, projector first.** A compact layout is a real secondary deliverable (§7.1, §7.9). |
+| Q9 | Are bench position mixes constrained? | **Any combination.** Some positional caps exist but are **not in the sheet**, so position counts are never flagged as invalid (§6). |
+| Q10 | Show the nomination order? | **Yes** (§7.5). |
+| Q11 | Do nominations rotate strictly? | **Yes** — strictly through a fixed order, but a manager whose **roster is full can no longer nominate** and is skipped. |
+| Q12 | Does every nomination end in a sale? | **Yes.** So `nominations == sales` and the pointer is fully derivable — no operator input needed (§7.5). |
+| Q13 | Where does the order live? | **Fixed for the season.** Chosen: a dedicated `SETTINGS` tab with a `league.ts` fallback — keeps it phone-editable without touching the verified auction grid (§7.5). |
+| — | Sheet vs. own data store | Keep the sheet (D7, §5.10). |
+| — | Change log feasibility | Free via Apps Script `onEdit`; deferred to phase 8 (D8, §5.11). |
+| — | Is the grid geometry stable? | **Yes — fixed and uniform.** An earlier revision wrongly claimed otherwise; that was a `gviz` artifact (§5.0, §5.3). |
+
+### Open
+
+| # | Question | Blocks |
+|---|---|---|
+| **Q14** | What **is** the 2026 nomination order (the 12 names in sequence)? Needed as the `league.ts` fallback copy; the `SETTINGS` tab can be filled in whenever. | Nothing — the strip is built against either source, and an empty order simply hides it (§7.5) |
+
+Nothing blocks implementation. Every design decision is resolved; Q14 is data entry that can happen
+any time before draft night.
+
+---
+
+## 12. Build order
+
+Each phase ends with something demonstrable.
+
+1. ~~**Recapture fixtures via `/export`.**~~ **Done** — all fixtures re-captured 2026-08-24; repo
+   scaffolded with `config/league.ts`, `data/csv.ts`, the Pages workflow, and 24 passing tests that
+   lock in the §5.3 geometry against both fixtures.
+2. **Parser + model with tests.** `gridParser` and `derive` against those fixtures, cross-checked
+   against `AUCTION DISPLAY` and against the sheet's own `Max Bid` / `Needs` values. Correctness
+   lives here; get `maxBid` right once. *Unblocked.*
+3. **Static board at 1920 × 1080.** Full table from the partial fixture, no network. Build the
+   **table + rail** shell and the column-priority system here, not later — both shape the markup.
+   Verify at 1024 × 768 too, so the fallback is exercised from day one rather than discovered broken.
+4. **Live polling.** `sheetClient` on top of `sheetLocation` (§9.1) — including the setup card, since
+   until the CI secret exists that card is the only way to point the app at a sheet. Change
+   detection, status bar, error resilience, watchdog.
+5. **Diff engine + ticker.**
+6. **Roster view + keyboard controls + nomination list.** Automatic (§7.5); it rides on phase 5's
+   diff engine, so build it here rather than earlier. Include the `localStorage` persistence of
+   `(order, baseline, saleLog)` — it is what makes a mid-draft reload survivable, and retrofitting
+   state persistence later is always worse.
+7. **Deploy to Pages** and rehearse on real hardware. Add the `SHEET_ID_B64` secret; **measure actual
+   type legibility from the back of the room** and tune with `+`/`−` — §7.1's sizes are arithmetic,
+   not measurements. *Hard deadline: comfortably before draft night, per the stale-bundle mitigation
+   above.*
+8. **Compact layout for phones and laptops** (Q8) — same components, compact column set, tap
+   affordances replacing keys.
+9. *Later:* best-available-by-position from a fresh Yahoo export (§7.6), market-pace stats, position
+   scarcity, sold animations, and the optional Apps Script change log (§5.11).
+
+---
+
+## 13. Appendix — deliberately out of scope
+
+- **Service worker / offline caching** — §10. Adds a painful failure mode for no real gain.
+- **Writing back to the sheet** — strictly read-only means the app can never corrupt the league's
+  system of record.
+- **A backend** — the moment one exists it costs money and can be down.
+- **Fixing the sheet's formulas** — tempting, but it is the league's document and other people
+  rely on it. We recompute in the app instead (D6) and surface disagreements in the debug overlay.

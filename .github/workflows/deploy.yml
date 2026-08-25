@@ -1,0 +1,54 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let an in-flight deploy finish rather than cancelling it -- a half-deployed
+# Pages site during a draft is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # The spreadsheet id is not in this repository (docs/DESIGN.md 9.1). It is
+      # injected here from a repository secret so the deployed board needs no
+      # setup on draft night. If the secret is unset the build still succeeds and
+      # the board shows its setup screen -- deliberately, so a missing secret is
+      # visible rather than a hard CI failure hours before a draft.
+      - run: npm run build
+        env:
+          VITE_SHEET_ID_B64: ${{ secrets.SHEET_ID_B64 }}
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

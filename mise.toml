@@ -1,0 +1,6 @@
+[tools]
+# Kept in sync with .node-version, which is what CI (actions/setup-node) and
+# nvm/fnm read. mise will stop reading .node-version by default in a future
+# release, so both files exist; src/config/node-version.test.ts asserts they
+# agree. Vite 7 requires Node 20.19+ or 22.12+.
+node = "22.23.2"
