@@ -9,8 +9,16 @@
 
 import { money } from './columns'
 import type { LeagueState } from '../model/derive'
+import type { FeedState } from '../data/sheetClient'
 
-export type FeedState = 'live' | 'stale' | 'dead'
+/*
+ * Re-exported, not re-declared. It was declared here in phase 3 and again in the
+ * client in phase 4, and two identical string unions are worse than one shared type:
+ * they typecheck against each other until someone adds a fourth state to one of them,
+ * at which point the compiler reports the error in the wrong file. The data layer
+ * decides what feed health is; this file only draws it.
+ */
+export type { FeedState }
 
 export interface HeaderProps {
   year: number

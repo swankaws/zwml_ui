@@ -73,7 +73,13 @@ body {
    * Every grid track in this file is min-0 for the same reason.
    */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
+  /*
+   * Two explicit tracks, and the footer's is deliberately left implicit: an explicit
+   * third track would collect a 0.34rem gutter on every board, whether or not there is
+   * ever a notice to put in it. `minmax(0, 1fr)` for the same reason as the columns --
+   * an `auto` minimum lets the stage refuse to shrink and push the footer off-screen.
+   */
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0.34rem;
   /*
    * Every vertical budget in 7.1 assumes the glyph box is the type size. Normal
@@ -604,13 +610,66 @@ body {
   }
 }
 
+/* -------------------------------------------------- footer: notices + badge */
+
+/*
+ * The shell's last row, and usually not there at all.
+ *
+ * `:empty` is doing real work. `Notices` renders nothing when there is nothing to say
+ * and the scale badge waits for a keypress, so in the ordinary case this element has no
+ * child nodes -- and a `display: none` grid item costs no track and no gap. Without it,
+ * every board would pay ~5px of gap for chrome that is almost never visible, and 7.1's
+ * row budget was measured without it.
+ *
+ * Both children live here so they cannot collide. They previously did not: each was
+ * separately `position: fixed` to the bottom-right, which put them in the same place
+ * exactly when the operator is nudging the scale to fix the thing being warned about.
+ */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+  /*
+   * The footer's type does NOT follow the scale multiplier, and this is the rule that
+   * makes an in-flow strip affordable at all.
+   *
+   * `scale` exists to make the *figures* bigger for a dim projector or a far wall. Sized
+   * in plain `em` the chrome grew with them, so at the documented 1.15 ceiling the strip
+   * cost 64px and the rows -- which have about 1.4px of slack at 1.15 -- overflowed by 2.
+   * The gate caught it on the case that combines the two.
+   *
+   * Capping it inverts that: the harder the operator pushes the scale, the smaller a share
+   * of the wall this takes, which is the right direction. Someone reaching for a bigger
+   * MAX BID is telling us the room cannot read the board, and a maintainer's warning is
+   * not what they are straining to see. The `em` term keeps it proportional on the small
+   * screens, where 16px would be shouting.
+   */
+  font-size: clamp(11px, 0.42em, 16px);
+  /*
+   * Cancels most of the shell's 0.34rem row gap and puts back a constant 5px.
+   *
+   * That gap is a `rem`, so it grew with the multiplier as well -- 18px of it at 1.15,
+   * more than half the footer's entire cost. Capping the type without capping the gutter
+   * left the ceiling case passing by exactly the gate's 1px tolerance, which is not
+   * passing. Bounding both makes the footer cost the rows a fixed ~35px at every scale
+   * instead of ~48px and rising.
+   */
+  margin-top: calc(5px - 0.34rem);
+}
+
+.footer:empty {
+  display: none;
+}
+
 /* --------------------------------------------------------------- debug badge */
 
 .scale-badge {
-  position: fixed;
-  right: var(--pad-h);
-  bottom: var(--pad-v);
-  font-size: 0.44em;
+  /* Last, hard against the right edge, and never shrunk by a long warning. */
+  margin-left: auto;
+  flex: 0 0 auto;
+  /* Size inherited from `.footer`, deliberately: see the cap there. A badge that grows
+   * with the multiplier it is reporting would be the one thing pushing the rows over. */
   letter-spacing: 0.1em;
   color: var(--fg-dim);
   background: var(--bg);
@@ -618,4 +677,272 @@ body {
   border: 1px solid var(--rule);
   border-radius: 0.3em;
   pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ notices */
+
+/*
+ * One line, in the flow, at the foot of the shell.
+ *
+ * The first draft was a fixed overlay in the bottom-right corner, on the argument that
+ * with the rail on that corner is reliably blank. It is not, and the layout gate proved
+ * it: four warnings stacked 239px tall against a 78px row, and `noticesCover` reported
+ * the strip painting over four managers' MAX BID and position counts at 1080p with the
+ * rail on, at 1080p with it off, and at 1024x768. That is the failure the overlay was
+ * supposed to avoid -- a warning that hides a manager is worse than no warning.
+ *
+ * In the flow it can only push, which is bounded and measurable, and it pushes only when
+ * there is something to say (see `.footer:empty` above). The cost is one 0.44em line, and
+ * the gate's `rowsOverflowPx` is what says whether the rows can afford it.
+ *
+ * `nowrap` is the whole discipline here: this row may never become two, so the budget is
+ * horizontal and the messages ellipsise (below) rather than growing downward.
+ */
+.notices {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  /* Takes the width the badge does not, and yields it back rather than overflowing. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  /* Size inherited from `.footer`. */
+  line-height: 1.25;
+  pointer-events: none;
+}
+
+.notice,
+.notice-problem {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 0.3em;
+  padding: 0.25em 0.5em;
+  /*
+   * A flex item's default min-width is auto, i.e. min-content, so without this a long
+   * warning refuses to shrink, overflows the strip, and takes the horizontal scrollbar
+   * (and `docOverflow`) with it instead of ellipsising.
+   */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notice {
+  color: var(--stale);
+}
+
+/*
+ * A problem is not a warning: nobody can fix it by waiting, so it gets the alarm colour
+ * and its fix in the same breath. It is still only a strip, because when this renders
+ * there ARE figures on the wall -- `LiveBoard` sends the no-board case to the full-screen
+ * `.standby` instead.
+ */
+.notice-problem {
+  color: var(--warn);
+  border-color: var(--warn);
+  /* Truth before detail: the message survives an ellipsis, the action is what is cut. */
+  flex: 0 1 auto;
+}
+
+/* Never shrinks: a board with fifteen problems must not read like one with two. */
+.notice-more {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+}
+
+/*
+ * Phones get no strip. 0.44em of a phone's root size is unreadable anyway, and the row
+ * it would cost is one of twelve managers -- the console keeps the detail.
+ */
+@media (max-width: 700px) {
+  .notices {
+    display: none;
+  }
+}
+
+/*
+ * On the standby screen there is no board to protect, so the strip stops rationing
+ * itself: it wraps, it is centred with everything else, and it can be read in full. This
+ * is also where a warning is most likely to be the only clue to why there is no board.
+ */
+.standby .notices {
+  justify-content: center;
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  max-width: 70vw;
+  font-size: 0.5em;
+}
+
+.standby .notice,
+.standby .notice-problem {
+  overflow: visible;
+}
+
+/* ------------------------------------------------------ standby / setup (8) */
+
+/*
+ * Instead of a board, never as well as one. There is no state in which this app shows
+ * an empty screen: before the first poll lands, and whenever a problem means there is
+ * nothing honest to draw, this takes the wall.
+ */
+.standby {
+  height: 100vh;
+  padding: var(--pad-v) var(--pad-h);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 0.5em;
+  line-height: 1.15;
+}
+
+.standby h1 {
+  margin: 0;
+  font-size: 1.1em;
+  letter-spacing: 0.02em;
+}
+
+/* The one sentence that matters, at board-number size: it is read from across a room. */
+.standby-message {
+  margin: 0;
+  font-size: 0.86em;
+  max-width: 24em;
+}
+
+.standby[data-problem='unauthorized'] .standby-message,
+.standby[data-problem='notFound'] .standby-message,
+.standby[data-problem='internal'] .standby-message {
+  color: var(--warn);
+}
+
+/* The fix. Dimmer than the problem, but present -- nobody here has a console open. */
+.standby-action {
+  margin: 0;
+  font-size: 0.52em;
+  color: var(--fg-dim);
+  max-width: 34em;
+  letter-spacing: 0.02em;
+}
+
+.setup-form {
+  display: flex;
+  gap: 0.4em;
+  width: min(90vw, 30em);
+  margin: 0.4em 0;
+}
+
+/*
+ * A paste target, so it is sized for a URL rather than for the room: this screen is
+ * used by one person at a keyboard, unlike every other screen in the app.
+ */
+.setup-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.44em;
+  font-weight: 600;
+  padding: 0.6em 0.7em;
+  color: var(--fg);
+  background: var(--bg-row);
+  border: 2px solid var(--rule);
+  border-radius: 0.3em;
+}
+
+.setup-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.setup-button {
+  font: inherit;
+  font-size: 0.44em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 0.6em 1.2em;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: 0.3em;
+  cursor: pointer;
+}
+
+.setup-error {
+  color: var(--warn);
+}
+
+/* --------------------------------------------------- error boundary (8.1) */
+
+/*
+ * A pass-through wrapper. It exists so `tools/verify-layout.mjs` can read the
+ * boundary's state out of `data-boundary` in real Chrome -- the suite has no DOM, so
+ * this attribute is the only way to check the promise that a crashed board still shows
+ * figures.
+ */
+.boundary {
+  display: contents;
+}
+
+/*
+ * The frozen fallback: the last good figures, drawn by the dumbest code in the project.
+ *
+ * Deliberately NOT the board's layout. It has no fit test, no measurement and no
+ * ResizeObserver -- it is what renders after a render already failed, so it uses a plain
+ * table and lets the browser size the columns. Fewer mechanisms, fewer ways to fail
+ * twice.
+ */
+.frozen {
+  height: 100vh;
+  padding: var(--pad-v) var(--pad-h);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.4em;
+  line-height: 1;
+}
+
+.frozen-banner {
+  font-size: 0.44em;
+  letter-spacing: 0.08em;
+  color: var(--bg);
+  background: var(--warn);
+  padding: 0.4em 0.6em;
+  border-radius: 0.2em;
+}
+
+.frozen-empty {
+  align-self: center;
+  justify-self: center;
+  font-size: 0.7em;
+  color: var(--fg-dim);
+  letter-spacing: 0.06em;
+}
+
+.frozen-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8em;
+  /* Same reason as `.rows`: lose pixels off a row rather than a whole manager. */
+  min-height: 0;
+  overflow: hidden;
+}
+
+.frozen-table th {
+  font-size: 0.6em;
+  letter-spacing: 0.14em;
+  color: var(--fg-dim);
+  text-align: right;
+  padding: 0 0.4em 0.3em;
+}
+
+.frozen-table th:first-child,
+.frozen-table td:first-child {
+  text-align: left;
+}
+
+.frozen-table td {
+  text-align: right;
+  padding: 0.1em 0.4em;
+  border-top: 1px solid var(--rule);
+  white-space: nowrap;
 }

@@ -41,8 +41,13 @@ const PROBE = `(() => {
     const r = el.getBoundingClientRect()
     return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
   }
-  const truncated = (el) => el.scrollWidth > el.clientWidth + 1
-  const clipped = (el) => el.scrollHeight > el.clientHeight + 1
+  /*
+   * Null-safe, because not every screen has a board. The frozen fallback (8.1) and the
+   * standby screen have no .rows at all, and an unguarded probe threw there -- which
+   * reported as a harness crash rather than as the layout answer it was asked for.
+   */
+  const truncated = (el) => !!el && el.scrollWidth > el.clientWidth + 1
+  const clipped = (el) => !!el && el.scrollHeight > el.clientHeight + 1
 
   const rows = [...document.querySelectorAll('.rows .row')]
   const cells = [...document.querySelectorAll('.cell')]
@@ -51,6 +56,67 @@ const PROBE = `(() => {
     viewport: { w: window.innerWidth, h: window.innerHeight },
     rootFontPx: parseFloat(getComputedStyle(document.documentElement).fontSize),
     app: box(document.querySelector('.app')),
+    /*
+     * The error boundary's state (8.1). 'frozen' means the plain-text fallback is on
+     * screen; the row count beside it is the promise being checked -- the room keeps the
+     * figures, rather than getting a "something went wrong" card.
+     */
+    boundary: document.querySelector('.boundary')?.dataset.boundary ?? null,
+    frozenRows: document.querySelectorAll('.frozen-table tbody tr').length,
+    frozenBanner: (document.querySelector('.frozen-banner')?.textContent ?? '').trim(),
+    notices: box(document.querySelector('.notices')),
+    noticeCount: document.querySelectorAll('.notice, .notice-problem').length,
+    /*
+     * The strip must stay one line. It is nowrap, so it cannot wrap on its own -- but a
+     * future rule that let it would silently take a manager's row, and nothing else here
+     * would report it.
+     *
+     * Counted as distinct child top edges, not as height / line-height: the first version
+     * of this divided the strip's clientHeight by its line-height and reported a perfectly
+     * flat strip as "1.5 lines", because that ratio measures the children's padding and
+     * borders rather than how many rows they sit in.
+     */
+    noticeRows: (() => {
+      const el = document.querySelector('.notices')
+      if (!el) return null
+      const tops = new Set(
+        [...el.children].map((c) => Math.round(c.getBoundingClientRect().top)),
+      )
+      return tops.size
+    })(),
+    /*
+     * "+N more" is the one item that may not be clipped away: a board with fifteen
+     * problems showing two and no count reads exactly like a board with two problems.
+     */
+    noticeMoreClipped: (() => {
+      const strip = document.querySelector('.notices')
+      const more = document.querySelector('.notice-more')
+      if (!strip || !more) return null
+      const a = strip.getBoundingClientRect()
+      const b = more.getBoundingClientRect()
+      return b.right > a.right + 1 || b.left < a.left - 1 || truncated(more)
+    })(),
+    /*
+     * Notices used to be a fixed overlay, and this is the probe that killed that design:
+     * at three of the matrix resolutions the strip painted over four managers' MAX BID
+     * and position counts. In the flow it should now intersect nothing, and this stays to
+     * keep it that way -- a notice that hides a manager costs the room the same manager
+     * as a notice that pushes one off the screen.
+     */
+    noticesCover: (() => {
+      const a = document.querySelector('.notices')?.getBoundingClientRect()
+      if (!a) return null
+      const hits = []
+      for (const el of document.querySelectorAll('.rows .row .cell, .nominee, .sale-player, .sale-price')) {
+        if ((el.textContent ?? '').trim() === '') continue
+        const b = el.getBoundingClientRect()
+        if (b.width === 0 || b.height === 0) continue
+        const x = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+        const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+        if (x > 1 && y > 1) hits.push({ cls: el.className, text: el.textContent.trim() })
+      }
+      return hits
+    })(),
     header: box(document.querySelector('.header')),
     stage: box(document.querySelector('.stage')),
     tableArea: box(document.querySelector('.table-area')),
@@ -236,7 +302,14 @@ await new Promise((resolve) => {
   const started = Date.now()
   const check = setInterval(async () => {
     const { result } = await call('Runtime.evaluate', {
-      expression: 'document.readyState === "complete" && !!document.querySelector(".rows .row")',
+      /*
+       * A board, a frozen fallback, or a standby screen -- any of the three counts as
+       * loaded. Waiting only for `.rows .row` made the `?crash=1` case sit out the full
+       * 15s timeout and then measure a board that was never going to appear.
+       */
+      expression:
+        'document.readyState === "complete" && ' +
+        '!!document.querySelector(".rows .row, .frozen-table tbody tr, .frozen-empty, .standby")',
       returnByValue: true,
     })
     if (result.value === true || Date.now() - started > 15000) {

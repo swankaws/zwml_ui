@@ -48,9 +48,9 @@ export interface LeagueState {
    * Names appearing in more than one block. Each duplicate costs a row and shrinks
    * `totalSlots`, so it must not pass silently.
    *
-   * NOTE: like `unmatched`, this currently has no on-screen consumer -- both reach
-   * the console only. DESIGN.md 5.5 and 6 promise a visible row for these; that
-   * promise is not kept yet and is tracked as a phase-4 item.
+   * Both this and `unmatched` are rendered by `ui/Notices.tsx`, which is what keeps
+   * DESIGN.md 5.5 and 6's promise that they are *visible*. Through phase 3 they reached
+   * the console only, and nobody reads a console during an auction.
    */
   duplicated: string[]
   leagueSpent: number

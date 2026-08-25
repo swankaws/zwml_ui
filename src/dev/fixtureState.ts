@@ -19,8 +19,7 @@ import raw2025 from '../../docs/data-samples/2025-auction.csv?raw'
 import { parseCsv } from '../data/csv'
 import { parseAuctionGrid } from '../data/gridParser'
 import { deriveLeague, type LeagueState } from '../model/derive'
-import { league } from '../config/league'
-import { parseOrder } from '../config/displaySettings'
+import { resolveNominationOrder } from '../model/order'
 import type { Sale } from '../ui/Rail'
 
 const FIXTURES: Record<string, { year: number; csv: string }> = {
@@ -55,55 +54,27 @@ export function loadFixture(search: string): FixtureState {
 }
 
 /**
- * Nomination order, cheapest usable source first (7.5, 9.2):
+ * Nomination order for a fixture. The real chain -- A1, then the committed copy, both
+ * validated against the roster parsed from *this* tab -- lives in `model/order.ts` and
+ * is shared with the live store, so it is not duplicated here. This adds exactly one
+ * thing on top of it: the `?demoOrder=1` escape hatch.
  *
- *   `?demoOrder=1`          a stand-in for layout work -- roster order, not the league's
- *   A1 of the auction tab   what the maintainer actually curates
- *   `league.nominationOrder`  the committed fallback
+ * (The SETTINGS tab and `?order=` sit above both and are applied by `App`.)
  *
- * The SETTINGS tab and `?order=` sit above all of these and are applied by `App`,
- * so they are not repeated here.
- *
- * A1 is validated against the roster **as parsed from this tab**, not against the
- * committed list, which is the whole point: it lets a manager the config has never
- * heard of appear in the order without a deploy. A stale or fumbled A1 rejects
- * wholesale and falls through to the committed copy -- and it *does* go stale, so
- * this is not theoretical: both committed fixtures still carry an A1 naming `Rob`,
- * who has not played in years.
- *
- * `?demoOrder=1` stays because the rail's vertical budget is the one thing review
- * caught here: the first draft demanded ~1052px against ~1000px available, and the
- * fix was to window it to five nominators and four sales. It must stay verifiable
- * even when no real order resolves.
+ * `?demoOrder=1` stays because the rail's vertical budget is the one thing review caught
+ * here: the first draft demanded ~1052px against ~1000px available, and the fix was to
+ * window it to five nominators and four sales. That has to stay verifiable even when no
+ * real order resolves -- which is the normal state on a past tab, where the committed
+ * order correctly refuses to apply.
  */
 function resolveOrder(
   flag: string | null,
   state: LeagueState,
   hint: string,
 ): { order: readonly string[]; warnings: string[] } {
-  if (flag !== null && flag !== '0') {
-    return { order: state.managers.map((m) => m.name), warnings: [] }
-  }
-
   const roster = state.managers.map((m) => m.name)
-  const fromSheet = parseOrder(hint, roster)
-  if (fromSheet.order) return { order: fromSheet.order, warnings: fromSheet.warnings }
-
-  /*
-   * The committed order is validated too, against this board.
-   *
-   * Skipping that looks harmless -- it is our own list -- and is not. It names the
-   * CURRENT season's managers, so on a past tab it names someone with no row. The
-   * rail then treats a manager it cannot find as "not full", i.e. able to nominate,
-   * and 2025 rendered `Kris` ON THE CLOCK on a draft that finished a year ago, while
-   * the same state reported `draftComplete`. A rotation naming someone who is not on
-   * the board is not a usable rotation; showing none is honest.
-   */
-  const fromConfig = parseOrder(league.nominationOrder.join(' > '), roster)
-  return {
-    order: fromConfig.order ?? [],
-    warnings: [...fromSheet.warnings, ...fromConfig.warnings],
-  }
+  if (flag !== null && flag !== '0') return { order: roster, warnings: [] }
+  return resolveNominationOrder(roster, hint)
 }
 
 /**

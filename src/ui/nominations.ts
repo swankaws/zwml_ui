@@ -15,7 +15,7 @@ export interface NominationEntry {
   name: string
   /** Roster full -- cannot nominate. Rendered struck through, not hidden. */
   full: boolean
-  /** The one nominating right now. */
+  /** The one nominating right now. Always false when the cursor is unknown. */
   onClock: boolean
 }
 
@@ -24,8 +24,17 @@ export interface WindowOptions {
   order: readonly string[]
   /** Full rosters are skipped. Unknown names are treated as able to nominate. */
   isFull: (name: string) => boolean
-  /** Position in `order` to start scanning from -- derived from the sale count. */
-  cursor: number
+  /**
+   * Position in `order` to start scanning from -- derived from the sale sequence.
+   *
+   * `null` means **nobody knows yet**, which is the live board's state until phase 6
+   * replays the rotation (see the note at the foot of this file). It is not the same as
+   * `0`: guessing the first name would put a specific manager on the clock on the
+   * strength of nothing, and being confidently wrong about whose turn it is costs the
+   * room more than admitting we do not know. The window still lists the order from the
+   * top -- the room reads it off by eye, as it always has -- with nobody highlighted.
+   */
+  cursor: number | null
   /** How many nominators to show. Five is what 7.2's vertical budget affords. */
   liveCount?: number
   /**
@@ -50,10 +59,11 @@ export function nominationWindow(options: WindowOptions): NominationEntry[] {
 
   const entries: NominationEntry[] = []
   let live = 0
+  const from = cursor ?? 0
   // At most one full lap: when every roster is full the draft is over, and an
   // unbounded scan for a nominator who does not exist would spin forever.
   for (let step = 0; step < order.length && live < liveCount; step += 1) {
-    const index = (((cursor + step) % order.length) + order.length) % order.length
+    const index = (((from + step) % order.length) + order.length) % order.length
     const name = order[index]
     if (name === undefined) continue
 
@@ -66,7 +76,7 @@ export function nominationWindow(options: WindowOptions): NominationEntry[] {
      */
     if (full && entries.length >= maxEntries) continue
 
-    entries.push({ name, full, onClock: !full && live === 0 })
+    entries.push({ name, full, onClock: cursor !== null && !full && live === 0 })
     if (!full) live += 1
   }
 

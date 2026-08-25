@@ -20,8 +20,8 @@ export interface Sale {
 export interface RailProps {
   managers: ManagerState[]
   order: readonly string[]
-  /** Index into `order` of whoever is nominating. See nominations.ts. */
-  cursor: number
+  /** Index into `order` of whoever is nominating, or `null` if unknown. nominations.ts. */
+  cursor: number | null
   /** Newest first. */
   sales: Sale[]
   liveCount?: number
@@ -47,7 +47,13 @@ export function Rail({ managers, order, cursor, sales, liveCount = 5, saleCount 
        * the wrong cell -- "LAST SOLD" ended up alone at the far right.
        */}
       <section className="rail-nominations">
-        <h2>ON THE CLOCK</h2>
+        {/*
+         * The heading is the claim, so it changes with what we actually know. `ON THE
+         * CLOCK` over a list where nobody is highlighted invites the room to read the
+         * top name as the nominator, which is a guess we have not earned until phase 6
+         * replays the rotation. `NOMINATION ORDER` promises only what is on screen.
+         */}
+        <h2>{cursor === null ? 'NOMINATION ORDER' : 'ON THE CLOCK'}</h2>
         <div className="nomination">
           {/*
            * Three states, not two. An unset order is a configuration gap and says

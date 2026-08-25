@@ -6,7 +6,7 @@
  * without touching anything below this line.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Header, type FeedState } from './Header'
 import { Board } from './Board'
 import { Rail, type Sale } from './Rail'
@@ -19,7 +19,13 @@ export interface AppProps {
   year: number
   state: LeagueState
   order?: readonly string[]
-  cursor?: number
+  /**
+   * Who is nominating, as an index into the order -- or `null` for "not derived yet",
+   * which is where phase 4 leaves it. See the note at the foot of `nominations.ts`:
+   * `saleCount % order.length` is the obvious formula and it is wrong, so the cursor
+   * waits for phase 6's chronological replay rather than being guessed here.
+   */
+  cursor?: number | null
   sales?: Sale[]
   enabledColumns?: ColumnKey[]
   feed?: FeedState
@@ -39,6 +45,15 @@ export interface AppProps {
    * works); the other default would silently truncate every phone in the league.
    */
   columnsFrom?: 'query' | 'sheet'
+  /**
+   * The notices strip (`ui/Notices.tsx`), as a slot rather than props.
+   *
+   * It has to be *inside* this grid: as an overlay it covered four managers' figures at
+   * three of the matrix resolutions (see the header of `Notices.tsx`). A slot keeps the
+   * shell from knowing what a warning is, and keeps `Notices` from knowing it is the
+   * last row of a grid -- the standby screen renders the same element with room to spare.
+   */
+  notices?: ReactNode
 }
 
 /**
@@ -89,13 +104,14 @@ export function App({
   year,
   state,
   order = [],
-  cursor = 0,
+  cursor = null,
   sales = [],
   enabledColumns = [],
   feed,
   feedLabel,
   settings = DEFAULT_SETTINGS,
   columnsFrom = 'sheet',
+  notices = null,
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
@@ -131,8 +147,19 @@ export function App({
           <Rail managers={state.managers} order={nominationOrder} cursor={cursor} sales={sales} />
         )}
       </div>
-      {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}
-      {nudged && <div className="scale-badge">SCALE {scale.toFixed(2)}</div>}
+      {/*
+       * The footer exists only when it has something in it: `Notices` renders nothing when
+       * there is nothing to say and the badge waits for a keypress, so in the ordinary case
+       * this element has no children at all and `.footer:empty` takes it out of the grid --
+       * gap included. That matters because 7.1's row budget has no slack to spend on chrome
+       * that is usually invisible, and the documented `scale: 1.15` ceiling was measured
+       * without it.
+       */}
+      <div className="footer">
+        {notices}
+        {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}
+        {nudged && <div className="scale-badge">SCALE {scale.toFixed(2)}</div>}
+      </div>
     </div>
   )
 }

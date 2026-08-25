@@ -112,4 +112,31 @@ describe('nominationWindow', () => {
   it('returns nothing for a non-positive window', () => {
     expect(nominationWindow({ order: ORDER, cursor: 0, isFull: noneFull, liveCount: 0 })).toEqual([])
   })
+
+  describe('an unknown cursor', () => {
+    it('lists the order from the top with nobody on the clock', () => {
+      // Phase 4 cannot derive whose turn it is, and guessing the first name would put a
+      // specific manager on the clock on the strength of nothing.
+      const window = nominationWindow({ order: ORDER, cursor: null, isFull: noneFull })
+      expect(names(window)).toEqual(['Kevin', 'Corky', 'Ryan', 'Toby', 'Jeff'])
+      expect(window.some((e) => e.onClock)).toBe(false)
+    })
+
+    it('still strikes through and skips full managers', () => {
+      // Not knowing the turn order says nothing about who can still bid: that comes off
+      // the board, and it is the half of the rail that stays trustworthy.
+      const window = nominationWindow({
+        order: ORDER,
+        cursor: null,
+        isFull: (n) => n === 'Kevin',
+        liveCount: 2,
+      })
+      expect(window[0]).toMatchObject({ name: 'Kevin', full: true, onClock: false })
+      expect(window.filter((e) => !e.full)).toHaveLength(2)
+    })
+
+    it('still reports a finished draft rather than a list of crossed-out names', () => {
+      expect(nominationWindow({ order: ORDER, cursor: null, isFull: () => true })).toEqual([])
+    })
+  })
 })

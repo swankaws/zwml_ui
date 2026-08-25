@@ -133,8 +133,9 @@ export const league = {
    *
    * Being the *last* resort does not exempt it from validation. It names this
    * season's managers, so it is wrong for any other season's tab, and it is checked
-   * against the board before use -- see `resolveOrder`. Skipping that check put
-   * `Kris` on the clock on the 2025 board, on a draft that had already finished.
+   * against the board before use -- see `resolveNominationOrder` in `model/order.ts`.
+   * Skipping that check put `Kris` on the clock on the 2025 board, on a draft that
+   * had already finished.
    */
   nominationOrder: [
     'Jeff', 'Toby', 'Tony', 'Derrick', 'Marc', 'Corky',

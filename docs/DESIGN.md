@@ -192,10 +192,24 @@ and a new draft season needs no redeploy.
 | `data/sheetClient.ts` | Fetches a tab by `gid` via `/export?format=csv`. Owns polling, backoff, abort, and change detection. Interface `SheetSource` so the gviz, API-v4, or Apps Script variant drops in. |
 | `data/tabs.ts` | Tab inventory and auction-tab selection (§5.2). |
 | `data/gridParser.ts` | Raw cell grid → `ManagerBlock[]`. Reads the fixed template, then verifies its assumptions against the row labels (§5.4). Collects `ParseWarning[]` instead of throwing. |
+| `data/csv.ts` | RFC 4180 CSV → cell grid. Quoted commas, embedded newlines, `""` escapes — all present in the live sheet. |
+| `data/normalize.ts` | Money, counts and names → numbers and canonical spellings (§5.5). |
+| `config/displaySettings.ts` | The `SETTINGS` tab and the query string → resolved `DisplaySettings`. Owns the precedence in §9.2 and keeps *provenance*, because a sheet-forced column set is fit-tested and a URL-forced one is not. |
 | `model/derive.ts` | `ManagerBlock[]` + config → `ManagerState[]` + `LeagueState`. Pure, unit-tested, no DOM. |
-| `model/diff.ts` | Compares consecutive parses to emit `SaleEvent[]` for the ticker and to flash changed values. |
+| `model/order.ts` | Nomination order: the sheet's, else the committed fallback (§7.5). |
+| `model/diff.ts` | *Phase 5.* Compares consecutive parses to emit `SaleEvent[]` for the ticker and to flash changed values. Until then `LeagueState.sales` is empty and the rail's LAST SOLD list is fixture-only. |
+| `live/boardStore.ts` | The poll loop as a `useSyncExternalStore` store: schedules fetches, classifies failures into a `BoardProblem`, tracks feed age, and hands out a snapshot whose reference changes only when something a viewer could see changed. Lives outside the React tree (§8.1). |
+| `live/watchdog.ts` | Reloads the page when the store reports it is *broken* rather than merely offline, with a `sessionStorage` history so a reload loop cannot become the failure (§8.1). |
 | `ui/*` | Presentational components. Receive derived state, own no fetching. |
-| `ui/StatusBar` | Live/stale indicator, data age, warning count. |
+| `ui/LiveBoard.tsx` | The seam between the store and the phase-3 UI: subscribe, merge the settings layers, choose between the board and standby. The subscription sits *outside* the error boundary on purpose — see §8.1. |
+| `ui/ErrorBoundary.tsx` + `ui/boundaryState.ts` | Catches a render error and swaps in `FrozenBoard`; the transition rules are a pure function so they can be tested without a DOM. |
+| `ui/FrozenBoard.tsx` | Plain-text last-good figures for when the React tree dies. Twelve managers survive a crash (§8.1). |
+| `ui/Standby.tsx` | Instead of a board, never as well as one: what the wall says before the first poll lands, or when nothing honest can be drawn. |
+| `ui/Setup.tsx` | Prompts for the spreadsheet id when nothing else supplies one (§9.1). |
+| `ui/Notices.tsx` | Warnings, unmatched and duplicated names, on the wall rather than only in the console (§5.5, §6). One in-flow line at the foot of the shell — as an overlay it covered managers' figures, which the layout gate measured. |
+| `ui/Header.tsx` | Live/stale indicator, data age, league totals, warning count. |
+| `dev/fixtureState.ts` | Committed CSVs through the real parser and model, for the offline `?fixture=` board the layout gate measures. |
+| `tools/measure.mjs`, `tools/verify-layout.mjs` | The layout gate (§10, Testing). Real Chrome over the DevTools Protocol, because the unit suite has no layout engine. |
 
 ### Update loop
 
@@ -839,6 +853,25 @@ Three things follow, and all three are worth saying out loud:
    identical to the default. They matter at other aspect ratios (see below) and they are what keeps a
    raised `scale` from looking cramped.
 
+**The ceiling is 1.15 for a clean board and 1.10 once a warning is on screen.** Phase 4 put the
+notices strip (§5.5) into the flow at the foot of the shell, so when there is something to warn about
+the twelve rows give up ~35 px. That is affordable at every resolution in the matrix except the very
+top of the scale range, where there was never more than a pixel or two to spare. Measured at
+1920 × 1080 with one warning showing:
+
+| `scale` | Footer | Row height | `MAX BID` | Rows want | Verdict |
+|---|---|---|---|---|---|
+| 1.15 | collapsed | 77 px | 75.6 px | fits exactly | the clean-board ceiling |
+| 1.15 | showing | 74 px | 75.6 px | **+1 px** | over — the 12th row loses its last pixel |
+| **1.10** | **showing** | **74 px** | **72.3 px** | **fits exactly** | **the ceiling to set on the sheet** |
+
+At 1024 × 768 the same 1.15-with-a-warning measures clean, so this is a 1080p limit specifically. Two
+gate cases pin both numbers. The strip's own cost is deliberately *constant* rather than proportional:
+its type is `clamp(11px, 0.42em, 16px)` and it cancels its share of the shell's `rem` gap, so pushing
+the scale up does not inflate the chrome that is stealing from the rows. Sized in plain `em` it cost
+64 px at 1.15 instead of 35 px, and the rows overflowed — which is the same mistake the header made
+below, made a third time, and caught the same way.
+
 **So the largest available lever is not in this codebase.** Every figure in the table above scales
 linearly with the projected image, so moving the projector back — or throwing a 10 ft image instead
 of 7 ft — is worth more than the entire `scale` range. Check the image size before touching a setting.
@@ -1416,6 +1449,26 @@ mid-auction. A white wall stays white until someone gives up on the board entire
 - One test: throw from a cell renderer and assert the board still shows the prior figures and the
   chip. Cheap, and it is the only way this promise stays true after the first refactor.
 
+**Built in phase 4**, with three departures from the list above worth reading before changing any of
+it:
+
+- **There is a retry between "caught" and "frozen".** `ui/boundaryState.ts` is a three-view machine —
+  `ok` → `retrying` → `frozen` — because a one-off measurement race deserves a second chance, and a
+  remount is cheaper than a page reload. Thaws are capped at `MAX_RECOVERIES = 3`: a sheet our parser
+  cannot survive would otherwise crash, freeze, thaw on the next poll and crash again every three
+  seconds, and each thaw clears the store's render-error clock, so the watchdog's window never elapses
+  and the reload that would actually fix it never happens.
+- **The fallback is not the live board plus a chip.** It is `ui/FrozenBoard.tsx`, a plain `<table>` of
+  the last good figures under `DISPLAY ERROR · ZWML {year} · FIGURES BELOW ARE THE LAST GOOD READING`.
+  Re-rendering the board that just threw, with a chip on it, invites the same exception a second time;
+  the point of this screen is to be too simple to fail. Whatever is on it is stale by definition, so
+  the banner says so rather than implying a recovery is under way.
+- **One unit test cannot check this.** The suite runs in node with no DOM (§10), so
+  `boundaryState.test.ts` can prove every transition and *nothing* about what the room sees. The
+  promise — twelve managers and their figures still on the wall — is checked in real Chrome by the two
+  `?crash=1` cases in `tools/verify-layout.mjs`, which measure `boundary=frozen rows=12` at 1920 × 1080
+  and 1024 × 768. Getting there took a fix to the harness itself (§12, phase 4).
+
 ---
 
 ## 9. Configuration
@@ -1649,24 +1702,32 @@ Two implementation notes that are easy to get wrong and were:
 `src/config/displaySettings.ts` is deliberately pure — no fetch, no DOM, no React — so the entire
 precedence chain is unit-tested with no network. Phase 4 supplies the grid; nothing above changes.
 
-**Status as of 2026-08-25: the tab is populated and parses, and nothing fetches it yet.** Those are
-separate facts and it is worth being blunt about the second. The live tab reads:
+**Status as of 2026-08-25: the tab is populated, parses, and is fetched.** Phase 4 wired the second
+request — gid `361377598` is polled at five times the auction tab's interval, since a `rail: off` is
+edited between polls at most and 15 s of lag on it is imperceptible, where a `?rail=off` in the
+address bar is instant for when it is not. The live tab now reads:
 
 ```
  ZWML SETTINGS          <- note the leading space
 order      Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Colin > Kevin > Kris > Jason
-scale      1.15
-columns    manager, left, needs, maxbid
+scale      1.0
 rail       on
 ```
 
 Every row parses exactly as typed. The leading space in A1 is absorbed by design — the anchor check
-trims, lower-cases and collapses runs of whitespace — and `maxbid` in lower case is accepted for the
-same reason. But `settingsTabGid: '361377598'` is currently referenced *only where it is declared*:
-no code path fetches gid `361377598`, so none of those four values reaches the screen today. They
-are read by the layout gate through `?asSheet=1` (§10) and they take effect on the wall when phase 4
-wires the second request. **The `order` row is therefore not yet what puts Kris in the rotation** —
-A1 of the auction tab is (§7.5), and it agrees.
+trims, lower-cases and collapses runs of whitespace — and `maxbid` in lower case would be accepted
+for the same reason.
+
+**The `scale` and `columns` rows are gone, and that is the document's mistake being undone.** The tab
+briefly held `scale: 1.15` and `columns: manager, left, needs, maxbid`, copied character-for-character
+out of the syntax examples above; on 2026-08-25 the maintainer set the scale to 1.0 and deleted the
+`columns` row, which restores `POS` and `SPENT` and hands the column choice back to the priority
+system — the outcome the table above now recommends. The 1.15-with-forced-columns combination stays in
+the layout gate regardless (§10), because the tab is editable *during* the draft and that is the corner
+of the configuration space with the least room left.
+
+**The `order` row is now what puts Kris in the rotation.** A1 of the auction tab still agrees with it
+and remains the fallback (§7.5).
 
 ---
 
@@ -1680,15 +1741,21 @@ zwml_ui/
 ├─ vite.config.ts               # base: './'
 ├─ .env.example                 # names VITE_SHEET_ID_B64; holds no value (§9.1)
 ├─ src/
-│  ├─ main.tsx
+│  ├─ main.tsx                  # three paths: live poll, setup card, ?fixture= board
 │  ├─ vite-env.d.ts
-│  ├─ config/{league,sheetLocation}.ts
-│  ├─ data/{csv,sheetClient,tabs,gridParser}.ts
-│  ├─ model/{derive,diff}.ts
-│  ├─ ui/{Board,ManagerRow,Rail,Ticker,NominationList,RosterView,SetupCard,StatusBar,DebugOverlay}.tsx
-│  └─ styles/
+│  ├─ config/{league,sheetLocation,displaySettings}.ts
+│  ├─ data/{csv,normalize,sheetClient,tabs,gridParser}.ts
+│  ├─ model/{derive,order,diff}.ts          # diff.ts is phase 5
+│  ├─ live/{boardStore,watchdog}.ts         # outside the React tree, on purpose (§8.1)
+│  ├─ dev/fixtureState.ts                   # offline board for the layout gate
+│  └─ ui/{App,Board,Header,Rail,Notices,Standby,Setup,LiveBoard,
+│         ErrorBoundary,FrozenBoard,boundaryState,columns,
+│         nominations,useDisplayScale}.tsx|ts + theme.css
+├─ tools/{measure,verify-layout}.mjs        # the layout gate; real Chrome over CDP
 └─ .github/workflows/deploy.yml
 ```
+
+Tests sit beside their subjects as `*.test.ts`, not in a parallel tree.
 
 ### Hosting
 
@@ -1774,18 +1841,23 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 - The **partial fixture is the most important test in the suite**, because a partially filled roster
   is the state the display actually runs in for most of the draft.
 - Cross-check parse output against the `AUCTION DISPLAY` tab during development (§5.6).
-- `?mock=1` renders from a fixture with no network, for offline UI work and demos.
-- **Layout is verified by measurement, not by looking** — `npm run verify:layout`. Unit tests run in
-  jsdom, which has no layout engine, so nothing in the suite above can see a cropped row or a
-  truncated cell. `tools/measure.mjs` drives headless Chrome over the DevTools Protocol (zero
-  dependencies — CDP over Node 22's global `WebSocket`), sets an exact viewport with
+- `?fixture=2026` (or `2025`) renders from a committed CSV with no network, for offline UI work, demos
+  and the layout gate. It is not the default path — phase 4 made the live poll the default — and
+  `?demoOrder=1` supplies a stand-in nomination order.
+- **Layout is verified by measurement, not by looking** — `npm run verify:layout`. The unit suite runs
+  in **Node with no DOM at all** (there is no Vitest environment configured, deliberately: nothing in
+  the suite needs one), so it cannot see a cropped row or a truncated cell — and jsdom would not help,
+  since it has no layout engine either. `tools/measure.mjs` drives headless Chrome over the DevTools
+  Protocol (zero dependencies — CDP over Node 22's global `WebSocket`), sets an exact viewport with
   `Emulation.setDeviceMetricsOverride`, and reads the real DOM back: row count, whether the last row
   ends inside the viewport, ellipsised cells, rail clipping, header overflow, rail/table overlap,
-  document overflow, console errors, and the computed type size of the columns that matter.
-  `tools/verify-layout.mjs` runs it across **sixteen cases** — 1080p mid-draft / draft-complete /
-  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900, the three §9.2 escape hatches, the
-  live `SETTINGS` tab at four resolutions, and a phone at the `scale` clamp ceiling — and exits
-  non-zero on any failure.
+  document overflow, console errors, the error boundary's state and the frozen board's row count,
+  whether a notice covers anything, and the computed type size of the columns that matter.
+  `tools/verify-layout.mjs` runs it across **25 cases** — 1080p mid-draft / draft-complete /
+  order-unset, 1024 × 768 ×2, 1280 × 1024, 390 × 844, 1440 × 900, two on-the-clock, the three §9.2
+  escape hatches, the live `SETTINGS` tab at four resolutions, a phone at the `scale` clamp ceiling,
+  three with a warning strip on screen, two with a warning strip at the `scale` ceiling, and two
+  deliberate render crashes — and exits non-zero on any failure.
 
   **The escape-hatch cases are in the matrix on purpose.** `?scale=1.15`, `?rail=off` with a forced
   column set, and a scaled 4:3 only earn their keep if they work on the night, unrehearsed, on the
@@ -1807,11 +1879,17 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
   Those cases pass `?asSheet=1`, and that flag is load-bearing rather than cosmetic: a forced column
   set from the sheet is fit-tested while one from a URL is not (§9.2), so driving them through the
   query string alone would exercise the wrong path and report the sheet's configuration as clean while
-  it truncated. The flag replays query settings down the sheet layer, which is also the only way to
-  rehearse the tab at all before phase 4 wires the fetch. It is removed with the rest of the fixture
-  harness.
+  it truncated. The flag replays query settings down the sheet layer.
 
-  Two probes worth calling out, because both exist to see through a *successful* degradation:
+  **`?asSheet=1` and `?fixture=` were both slated for deletion in phase 4 and both were kept.** The
+  argument for removing them was that they are rehearsal scaffolding made redundant by real provenance,
+  and that is true of the *app* and false of the gate: the gate has to drive a full twelve-manager board
+  against the built bundle with no sheet id and no network, and it has to drive the sheet layer
+  specifically, because that is the layer whose fit test differs. Deleting them would delete the only
+  rehearsal of the configuration the wall will actually run on.
+
+  Probes worth calling out, because each exists to see through a *successful* degradation — the failure
+  mode this harness is really for:
 
   - **`h1Truncated`.** Checking `.header` for overflow is not enough — the h1's own
     `text-overflow: ellipsis` absorbs the overflow, so the strip never reports as overflowing. This
@@ -1822,6 +1900,18 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
     fills its box exactly and the overflow is entirely internal. Note the same property means
     **`docOverflow.y` cannot see a vertical clip at all** (`body` is `overflow: hidden`);
     `lastRowBottom` and these two are the only guards there.
+  - **`noticesCover`.** Added with the notices strip and it immediately failed the strip's own design:
+    a fixed overlay in the "reliably blank" bottom-right corner was painting over four managers' `MAX
+    BID` and position counts at three resolutions (§12, phase 4). Nothing else in the file could see
+    it — the board measured perfectly, because it *was* perfect and simply had something on top of it.
+    A source comment asserting the corner was safe shipped in the same commit as the bug, which is the
+    whole argument for a probe over more careful prose.
+  - **`boundary` and `frozenRows`.** §8.1's promise is that a dead React tree still leaves twelve
+    managers and their figures on the wall. `boundaryState.test.ts` can prove the transitions and
+    nothing more, so `?crash=1` renders a component that throws and the gate reads the wall back.
+    Getting there required null-guarding every probe that dereferences `.rows`, `.header` or `.rail`:
+    with no board on screen the harness had been throwing `Cannot read properties of null`, so the one
+    case that verifies the crash path reported as a *harness* crash and measured nothing at all.
 
   This paid for itself immediately and repeatedly. Screenshots showed the 4:3 layout was broken but
   not why; the harness reported `.app` measuring **1303 px inside a 1024 px viewport**, because a
@@ -1997,6 +2087,67 @@ Each phase ends with something demonstrable.
    half-covered). Then **leave it running overnight against the live sheet**: §2 claims "runs
    unattended ~4 hours" and nothing else in this plan tests it. ~4,800 polls surfaces timer drift,
    listener leaks, and unbounded growth for the price of walking away from a laptop.
+
+   **Built** — `live/boardStore.ts`, `live/watchdog.ts`, `ui/LiveBoard.tsx`, `ui/ErrorBoundary.tsx`
+   with `ui/boundaryState.ts`, `ui/FrozenBoard.tsx`, `ui/Standby.tsx`, `ui/Setup.tsx`,
+   `ui/Notices.tsx`, and `main.tsx` rewritten around three paths: an id resolves → poll, no id → the
+   setup card, `?fixture=` → the offline board the layout gate measures. **406 tests and 25 layout
+   cases green.** The phase-3 components are untouched by going live, which was the point of keeping
+   fetching out of them — `LiveBoard` is the entire seam.
+
+   All four obligations above are met, and the sheet's settings now take effect: `columnsFrom` carries
+   provenance so a sheet-forced column set is fit-tested; `unmatched` and `duplicated` reach the wall
+   through `ui/Notices.tsx`; the A1 order fallback moved into the shared `model/order.ts` with its
+   validation intact, and `dev/fixtureState.ts` now calls the same function rather than its own copy.
+
+   Two things the plan asked for were deliberately **not** done, and both are because the layout gate
+   needs them:
+
+   - **`?asSheet=1` stays.** Real provenance exists now, so the flag is redundant *in the app* — but
+     it is the only way to drive the sheet path's fit test with no network, and five of the
+     highest-value gate cases are exactly that. Deleting it would delete the rehearsal of the
+     configuration the wall will actually run on.
+   - **`?fixture=` stays**, for the same reason: it is no longer the default path, but the gate has to
+     measure a full twelve-manager board against the built bundle with no sheet id and no network.
+
+   Other deliberate deviations, recorded so they are choices rather than drift:
+
+   - **Change detection compares the response body exactly**, rather than hashing it. At ~5 KB a
+     string comparison is cheaper than any hash, and it cannot collide.
+   - **`LIVE` carries no age.** An age on a healthy feed is noise that changes every second on a wall
+     display; the age appears when the feed goes stale, which is when it answers a question.
+   - **The watchdog does not reload a merely-offline board.** Offline is the sheet's problem and a
+     reload cannot fix it, while a reload *does* throw away the last good figures — which are still
+     the truth and still what the room came for. It reloads when the store reports *broken*.
+   - **`r` refetches, not `0`.** `useDisplayScale` already owns `0` for clearing a scale nudge, and a
+     key that quietly does two things does the wrong one at 8pm.
+   - **`sales` is empty on the live path** until phase 5's diff engine exists, so the rail's LAST SOLD
+     list is fixture-only for now. The rail says NOMINATION ORDER rather than ON THE CLOCK, because
+     **`cursor` is `null`** until phase 6 can derive it (the reasoning is three paragraphs up);
+     `?cursor=N` exists so the on-clock styling stays measured in the meantime.
+   - **`setupSnapshot` was deleted** rather than wired up. The no-id case needs a text input and a
+     button, which a snapshot cannot express, so it is `ui/Setup.tsx` and the entry point builds no
+     store at all.
+
+   Two defects the layout gate found in this phase's own code, both worth recording because neither
+   was visible to the unit suite or to any amount of reading:
+
+   - **The notices strip covered four managers' figures.** It was a fixed overlay in the bottom-right
+     corner, on the reasoning that with the rail on that corner is reliably blank. It is not: four
+     warnings stack 239 px tall against a 78 px row, and the new `noticesCover` probe reported it
+     painting over `MAX BID` and position counts at 1080p with the rail on, at 1080p with it off, and
+     at 1024 × 768. A warning that hides a manager is worse than no warning, so the strip is now one
+     in-flow line at the foot of the shell (§7.1 has the cost and the revised ceiling). **The comment
+     in the source asserting that the corner was safe was written in the same commit as the bug** —
+     which is the argument for the probe rather than for more careful prose.
+   - **The `?crash=1` case aborted the harness** instead of measuring it. The probe dereferenced
+     `.rows`, which does not exist once the frozen board is on screen, so the one case that verifies
+     §8.1 reported as a harness crash. Null-guarded; both crash cases now measure twelve managers
+     surviving a dead React tree, which is the promise 8.1 makes and the first time it has been
+     checked in pixels rather than asserted in a unit test.
+
+   ⏳ **Still open: the overnight endurance run.** §2's "runs unattended ~4 hours" is the one claim in
+   this phase that needs calendar time rather than a test. `window.zwml.store.health()` is the hook.
 5. **Diff engine + ticker.**
 6. **Roster view + keyboard controls + nomination list.** Automatic (§7.5); it rides on phase 5's
    diff engine, so build it here rather than earlier. Include the `localStorage` persistence of
