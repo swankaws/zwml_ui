@@ -10,9 +10,20 @@
  *
  *   1. `#sheet=` URL fragment   -- never sent to any server; the recommended form
  *   2. `?sheet=` query string   -- works, but lands in host access logs
- *   3. `localStorage`           -- remembered from a previous visit
- *   4. build-time default       -- base64 in `VITE_SHEET_ID_B64`, from a CI secret
+ *   3. build-time default       -- base64 in `VITE_SHEET_ID_B64`, from a CI secret
+ *   4. `localStorage`           -- remembered, only when there is no CI default
  *   5. nothing                  -- the app shows a setup screen (section 8)
+ *
+ * Storage ranks BELOW the build default deliberately. The CI secret is the
+ * blessed configuration; `localStorage` is a leftover from whoever last used
+ * this browser. If storage outranked it, an id pinned during a rehearsal would
+ * silently override a corrected secret with nothing on screen to explain why,
+ * and the fix would need DevTools on the machine driving the projector.
+ *
+ * An id is NOT persisted at resolve time -- only once a fetch has proved it
+ * works, via `confirmSheetId()`. Otherwise a well-formed typo pasted into
+ * `#sheet=` would stick permanently and suppress the setup card that is
+ * supposed to let the operator correct it.
  */
 
 const STORAGE_KEY = 'zwml:sheetId'
@@ -74,8 +85,8 @@ export function pickSheetId(candidates: {
   const ordered: [SheetIdSource, string | null | undefined][] = [
     ['fragment', candidates.fragment],
     ['query', candidates.query],
-    ['storage', candidates.stored],
     ['build', candidates.buildDefault],
+    ['storage', candidates.stored],
   ]
 
   for (const [source, value] of ordered) {
@@ -127,26 +138,36 @@ export function forgetSheetId(): void {
 }
 
 /**
- * Resolves the id in the browser, remembers it, and removes it from the address
- * bar so a screenshot of the projector's browser chrome does not leak it.
+ * Resolves the id in the browser. Deliberately does NOT persist and does NOT
+ * touch the address bar -- see `confirmSheetId()`.
  */
 export function resolveSheetId(): SheetLocation {
   if (typeof window === 'undefined') {
     return pickSheetId({ buildDefault: decodeBuildDefault(import.meta.env.VITE_SHEET_ID_B64) })
   }
 
-  const location = pickSheetId({
+  return pickSheetId({
     fragment: readParam(window.location.hash, 'sheet'),
     query: readParam(window.location.search, 'sheet'),
     stored: safeStorage()?.getItem(STORAGE_KEY),
     buildDefault: decodeBuildDefault(import.meta.env.VITE_SHEET_ID_B64),
   })
+}
 
-  if (location.id && (location.source === 'fragment' || location.source === 'query')) {
+/**
+ * Call once the FIRST fetch against `location` has succeeded. Only then is the
+ * id worth remembering, and only then is it safe to drop it from the address bar
+ * -- if the fetch had failed, the operator would still need the URL they typed.
+ *
+ * A build-time id is not stored: it arrives on every load anyway, and storing it
+ * would make it outlive a corrected CI secret.
+ */
+export function confirmSheetId(location: SheetLocation): void {
+  if (!location.id || location.source === 'build') return
+  if (location.source === 'fragment' || location.source === 'query') {
     rememberSheetId(location.id)
     scrubUrl()
   }
-  return location
 }
 
 /** Drops `sheet=` from both the query string and the fragment, in place. */

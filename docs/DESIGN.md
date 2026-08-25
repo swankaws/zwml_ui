@@ -1,6 +1,6 @@
 # ZWML Auction Display — Design
 
-**Status:** Draft, rev 4 — display target corrected to 1080p; spreadsheet id removed from the repo
+**Status:** Draft, rev 5 — 1080p target, spreadsheet id out of the repo, session-staleness bug fixed
 **Last updated:** 2026-08-25
 **Blocking questions:** none — Q1–Q13 all resolved. Q14 is data entry (the 12-name order), not a
 design decision.
@@ -10,8 +10,16 @@ design decision.
    numbers. See §7.1 and §7.2.
 2. **The spreadsheet id is no longer stored in this repository** and must never be re-added; it is
    resolved at runtime (§9.1, D14).
+3. **Fixed a real bug found in adversarial review:** persisted session state was keyed by year only,
+   so state written during the dress rehearsal would be restored on draft night and replay every
+   keeper entered in between as a fake sale, putting the wrong name under ON THE CLOCK at the
+   most-watched moment. §7.5 now specifies a staleness window, absorb-don't-replay reconciliation, and
+   an `X` reset key.
+4. Two smaller review fixes: the id-resolution precedence now ranks the CI default **above**
+   `localStorage` and persists only after a successful fetch (§9.1), and the committed-id guard test
+   now catches base64 and unquoted forms it was previously blind to.
 
-**Carried correction from rev 3:** rev 2's claim that the row geometry was dynamic and that band 1
+**Carried correction from earlier revs:** rev 2's claim that the row geometry was dynamic and that band 1
 was structurally irregular was **wrong** — both were artifacts of the `gviz` endpoint, not the sheet.
 See §5.0. The template is fixed and uniform; the primary endpoint is `/export?format=csv&gid=`.
 
@@ -855,10 +863,60 @@ ticker already relies on for not treating keepers as sales.
 **Surviving a mid-draft reload.** The pointer is a pure function of `(order, baseline, saleLog)`, so
 persisting those three to `localStorage` on each change makes recovery exact rather than approximate.
 Worth doing: it is a few lines, it costs nothing, and it also fixes the ticker's "reload loses
-history" weakness noted in §7.3. Keyed by year so a `?year=` test run cannot poison live state.
+history" weakness noted in §7.3.
+
+> ⚠️ **Keying by year is not enough, and assuming it was is a real bug.** An earlier revision's only
+> guard was "keyed by year so a `?year=` test run cannot poison live state." But the year is the
+> *same* during development, during §10's mandatory dress rehearsal, and on draft night. §5.9 says
+> keepers are entered **progressively** in the days beforehand. So: rehearse on Tuesday against the
+> live 2026 tab, enter six more keepers on Wednesday, open the board on Thursday — the restored
+> baseline predates those keepers, the diff engine correctly classifies them as new sales, and the
+> board opens the night with six fake `JUST SOLD` entries and the nomination pointer six managers
+> ahead. The first name under **ON THE CLOCK**, at the most-watched moment of the night, is wrong.
+>
+> Note the blast radius, because it bounds how much this matters: `baseline` feeds only the pointer
+> and the ticker. `SPENT`, `LEFT`, `NEEDS`, and `MAX BID` all derive from the *current* parse (§6),
+> so **no wrong money can reach the wall from this**, and `Shift+N` can walk the pointer back. It is a
+> credibility bug, not a correctness one — but it fires exactly when the room is paying most
+> attention, so it is worth the three cheap guards below.
+
+**Persistence rules.** Store `zwml:session:<year>` as
+`{ savedAt, baselinePickCount, order, baseline, saleLog }`, rewriting `savedAt` on **every successful
+poll**, not just on change — an open tab must never age into staleness while it sits idle during a
+break in the auction.
+
+On load, restore only if **both** hold; otherwise discard `baseline` and `saleLog`, keep `order`, and
+re-baseline from the current poll:
+
+1. **`savedAt` is recent** (~30 min). A genuine mid-draft reload is seconds old, so this keeps all of
+   D13's value. Deliberately *not* a multi-hour TTL: projector-open time plus a four-hour draft would
+   exceed it, and re-baselining at hour four of a live auction loses the sale log outright — worse
+   than the bug it fixes.
+2. **The restored state reconciles with the sheet.** If the current tab holds picks that
+   `baseline + saleLog` cannot account for, **absorb them into the baseline silently** — emit no
+   `SaleEvent`s and do not advance the pointer. This is the check that actually closes the hole,
+   since it holds regardless of clock skew or how long the tab was shut.
+
+Re-baselining before the auction starts is *exactly right* — nobody is full yet, so the pointer is
+simply `sales mod 12` from there and the log rebuilds correctly. Re-baselining mid-draft is the
+dangerous case, which is what rule 1's short window and the `savedAt`-per-poll refresh prevent.
+
+**Make a stale restore visible rather than silent.** The status bar (§7.8) shows a
+`resynced · N absorbed` chip for ~30 s after any discard-or-absorb, and the `D` overlay (§7.9) always
+shows `baseline <local time> · N picks · M logged sales`. This is what turns "the board named the
+wrong manager" into "the baseline is from last night" — without it the operator has no way to tell a
+stale baseline from a bug in the rotation.
+
+**Deliberately rejected:** holding the pointer and ticker inactive until the operator presses a
+"start auction" key. It would close the hole, but it breaks §2's zero-config startup and §7.5's "needs
+no operator input in the normal case," and it converts a one-keystroke-recoverable error into an
+unrecoverable one — forget the key and there is no ticker and no pointer all night.
 
 **Escape hatches, because draft night is unrepeatable:**
 
+- `X` clears `zwml:session:*` and re-baselines from the next poll (§7.9). Not `Shift+R`: `R` toggles
+  the roster view, and a slipped modifier mid-draft should not wipe state. Not a URL parameter
+  either — a `?reset=1` left in the address bar would re-clear on every watchdog `location.reload()`.
 - `N` advances, `Shift+N` retreats. The manual offset persists alongside the pointer.
 - A **corrected or deleted pick** in the sheet shows up as a negative or batch diff. Never
   hand-patch the pointer for these — **recompute from the sale log**, which is why the log is the
@@ -949,8 +1007,9 @@ Single keys, no modifiers, so the operator never looks away:
 | `S` | Cycle sort |
 | `N` / `Shift+N` | Nudge the nomination pointer forward / back — override only, it advances itself (§7.5) |
 | `+` / `−` | Scale type up/down for the room at hand |
-| `D` | Debug overlay: raw parse, warnings, sheet-vs-computed comparison, fetch timing |
+| `D` | Debug overlay: raw parse, warnings, sheet-vs-computed comparison, fetch timing, **baseline age and pick count** (§7.5) |
 | `0` | Force immediate refetch |
+| `X` | **Clear persisted session state and re-baseline from the next poll** (§7.5) — the recovery for a stale ticker or a wrong nominator |
 
 **Phones and laptops (Q8) get no keyboard.** Anything reachable only by key must also be reachable
 by tap: the roster view and sort get on-screen affordances in the compact layout, while `N`, `+`/`−`,
@@ -980,6 +1039,7 @@ and `D` are operator-only and simply absent there.
 | Stale bundle after a deploy | See §10 — hashed assets, `vite:preloadError` self-reload, deploy early. |
 | Wedged JS context | Watchdog: no successful poll for N minutes → `location.reload()`, guarded by a `sessionStorage` counter so it can't loop. |
 | **Reload mid-draft** | `(order, baseline, saleLog)` restored from `localStorage`, so the ticker and nomination pointer survive exactly (§7.5). |
+| **Session state left over from a rehearsal or a prior day** (§7.5) | Restore is refused if `savedAt` is older than ~30 min; unaccounted picks are **absorbed into the baseline, never replayed as sales**. Status bar shows `resynced · N absorbed`. `X` forces it manually. |
 | **A pick is corrected or deleted in the sheet** | Diff shows a negative/batch change → recompute the pointer from the sale log rather than patching it (§7.5). |
 | `SETTINGS` tab missing, short, or misspelled | Falls back to `config.nominationOrder`; an empty order hides the strip instead of blocking the board (§7.5). |
 | **Every manager full** | Rotation is empty → strip renders `COMPLETE` rather than looping or dividing by zero. |
@@ -1041,11 +1101,24 @@ an edit to this block rather than a parser change.
 
 | # | Source | Notes |
 |---|---|---|
-| 1 | `#sheet=<id-or-url>` fragment | **Recommended override.** A fragment is *never sent to any server*, so unlike `?sheet=` it cannot land in GitHub's access logs. Consumed once, then persisted and stripped from the address bar. |
+| 1 | `#sheet=<id-or-url>` fragment | **Recommended override.** A fragment is *never sent to any server*, so unlike `?sheet=` it cannot land in GitHub's access logs. Stripped from the address bar once a fetch succeeds. |
 | 2 | `?sheet=<id-or-url>` query | Accepted for convenience; prefer the fragment. |
-| 3 | `localStorage['zwml:sheetId']` | Remembered from a previous visit, so the operator types it at most once per browser. |
-| 4 | Build-time default | Base64 in `VITE_SHEET_ID_B64`, injected by CI from the repository secret `SHEET_ID_B64`. **Never in the tree.** |
+| 3 | Build-time default | Base64 in `VITE_SHEET_ID_B64`, injected by CI from the repository secret `SHEET_ID_B64`. **Never in the tree.** |
+| 4 | `localStorage['zwml:sheetId']` | Remembered from a previous visit, so the operator types it at most once per browser — but only consulted when there is no CI default. |
 | 5 | Nothing | Full-screen setup card: paste the sheet URL. Accepts a full URL or a bare id. |
+
+Two ordering choices in that table are deliberate and were both wrong in the first draft:
+
+- **Storage ranks *below* the build default.** The CI secret is the blessed configuration; storage is
+  a leftover from whoever last used this browser. If storage won, an id pinned during a rehearsal
+  would silently override a *corrected* secret, with nothing on screen to explain why — and the fix
+  would need DevTools on the machine driving the projector. Nothing is lost by demoting it: if a
+  build default exists, the operator never needed to type anything anyway.
+- **An id is persisted only after a fetch proves it works** (`confirmSheetId()`, not
+  `resolveSheetId()`). Otherwise a well-formed typo pasted into `#sheet=` sticks permanently and
+  suppresses the very setup card meant to let the operator fix it. For the same reason the address
+  bar is scrubbed on success, not on read — if the fetch fails, the operator still needs the URL they
+  just typed.
 
 Source 4 is what preserves the §2 constraint "zero-config startup: open URL, fullscreen, done." A
 prompt-only design would have satisfied the security ask more strictly but put a text-entry step
@@ -1077,9 +1150,13 @@ weighed against the fact that this data is read aloud to the room as it is enter
 - `csvUrl()` validates the id against `^[A-Za-z0-9_-]{20,64}$` and the gid against `^[0-9]+$`, and
   throws otherwise. Those are the only interpolated values in any URL the app fetches, so a hostile
   `#sheet=../../evil` cannot escape the `/spreadsheets/d/<id>/export` path.
-- `no-committed-sheet-id.test.ts` scans **every git-tracked file** for a sheet id — in a URL or
-  assigned to an id-shaped name — and fails the build. A policy without a test is a wish; this one
-  would otherwise die the first time someone hardcodes the id to debug something.
+- `no-committed-sheet-id.test.ts` scans **every tracked *and* untracked-but-not-ignored file** for a
+  sheet id and fails the build. A policy without a test is a wish; this one would otherwise die the
+  first time someone hardcodes the id to debug something. It catches four forms: inside a Sheets URL,
+  assigned to an id-shaped name (**quotes optional** — `.env` lines have none), **base64-encoded**,
+  and base64 of a full URL. The base64 pass matters most: without it the guard was blind to exactly
+  the encoding this section recommends, which was verified by probe — a committed
+  `VITE_SHEET_ID_B64=<b64>` line walked straight past the first version of the test.
 
 **Local development:** copy `.env.example` to `.env.local` (gitignored) and set
 `VITE_SHEET_ID_B64=$(printf '%s' '<id>' | base64)`. Or just use `#sheet=` and let it persist.
@@ -1205,7 +1282,7 @@ gets registered, ship a one-time unregister-and-clear-caches kill switch.
 | Q2 | Roster template for 2026 | **Confirmed:** 15 auction slots + 1 free defense. |
 | Q3 | Manager identity | **Jason** is the manager; **Rob** was drafting on his behalf that year. `A1`'s order string is a historical artifact — parser ignores it. `Jeffrey` → `Jeff` alias stands. |
 | Q4 | Over-$200 spends | Legal in **2025 only**; `$200` is a hard cap for 2026 and the sheet is fixed. Overspend is now a genuine error state → flag it. |
-| Q7 | Projector | **1920 × 1080 (16:9)** (corrected in rev 4 from 1024 × 768), with multi-resolution support required. Primary design target; note 16:9 is *shorter*, which drove the side-rail layout (§7.1). |
+| Q7 | Projector | **1920 × 1080 (16:9)** (corrected in rev 5 from 1024 × 768), with multi-resolution support required. Primary design target; note 16:9 is *shorter*, which drove the side-rail layout (§7.1). |
 | — | Where does the spreadsheet id live? | **Not in the repo.** Runtime resolution with a CI-secret default; base64 is obfuscation only (D14, §9.1). |
 | Q5 | Show Defensive / Divisional Draft? | **No — ignore both.** They happen before the auction and are not touched during it (§7.4). |
 | Q6 | Use a player ranking for "best available"? | **Yes, of interest.** Maintainer can export from Yahoo; the existing `Top 300` tab is ~3 seasons stale and unusable as-is (§7.6). Last in the build order. |
@@ -1250,7 +1327,13 @@ Each phase ends with something demonstrable.
 6. **Roster view + keyboard controls + nomination list.** Automatic (§7.5); it rides on phase 5's
    diff engine, so build it here rather than earlier. Include the `localStorage` persistence of
    `(order, baseline, saleLog)` — it is what makes a mid-draft reload survivable, and retrofitting
-   state persistence later is always worse.
+   state persistence later is always worse. **Build the staleness guards in the same pass, not as a
+   follow-up** (§7.5): `savedAt` refreshed per poll, the ~30 min restore window, absorb-don't-replay
+   reconciliation, the `X` reset, and the baseline readout. Two unit tests, both cheap: seed a session
+   whose baseline is the 9-pick `2026-auction.csv` stamped two days old, feed a fuller-keeper fixture,
+   and assert **zero** `SaleEvent`s and zero pointer advances; then repeat with `savedAt` seconds old
+   and assert the sales *do* come through. Without these the rehearsal in phase 7 actively plants the
+   bug it is supposed to catch.
 7. **Deploy to Pages** and rehearse on real hardware. Add the `SHEET_ID_B64` secret; **measure actual
    type legibility from the back of the room** and tune with `+`/`−` — §7.1's sizes are arithmetic,
    not measurements. *Hard deadline: comfortably before draft night, per the stale-bundle mitigation

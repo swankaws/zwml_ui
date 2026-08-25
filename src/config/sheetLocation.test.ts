@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  confirmSheetId,
   csvUrl,
   decodeBuildDefault,
   extractSheetId,
@@ -73,22 +74,24 @@ describe('pickSheetId precedence', () => {
     ).toEqual({ id: FAKE, source: 'fragment' })
   })
 
-  it('prefers the query string over storage', () => {
+  it('prefers the query string over the build default', () => {
     expect(pickSheetId({ query: FAKE, stored: other, buildDefault: other })).toEqual({
       id: FAKE,
       source: 'query',
     })
   })
 
-  it('prefers storage over the build default', () => {
-    expect(pickSheetId({ stored: FAKE, buildDefault: other })).toEqual({
+  // The CI secret is the blessed config; storage is a leftover from whoever last
+  // used this browser. A rehearsal id must not silently outlive a fixed secret.
+  it('prefers the build default over storage', () => {
+    expect(pickSheetId({ stored: other, buildDefault: FAKE })).toEqual({
       id: FAKE,
-      source: 'storage',
+      source: 'build',
     })
   })
 
-  it('falls back to the build default', () => {
-    expect(pickSheetId({ buildDefault: FAKE })).toEqual({ id: FAKE, source: 'build' })
+  it('falls back to storage only when there is no build default', () => {
+    expect(pickSheetId({ stored: FAKE })).toEqual({ id: FAKE, source: 'storage' })
   })
 
   it('reports none when every source is absent', () => {
@@ -102,6 +105,58 @@ describe('pickSheetId precedence', () => {
     })
   })
 })
+
+describe('confirmSheetId', () => {
+  // Persisting only after a successful fetch is what keeps a well-formed typo
+  // from sticking forever and suppressing the setup card.
+  it('does not persist a build-time id', () => {
+    const calls: string[] = []
+    withFakeStorage(calls, () => confirmSheetId({ id: FAKE, source: 'build' }))
+    expect(calls).toEqual([])
+  })
+
+  it('persists an id that came from the URL', () => {
+    const calls: string[] = []
+    withFakeStorage(calls, () => confirmSheetId({ id: FAKE, source: 'fragment' }))
+    expect(calls).toEqual([`set:${FAKE}`])
+  })
+
+  it('does nothing when no id resolved', () => {
+    const calls: string[] = []
+    withFakeStorage(calls, () => confirmSheetId({ id: null, source: 'none' }))
+    expect(calls).toEqual([])
+  })
+})
+
+/** Minimal `window` stand-in so persistence is testable without jsdom. */
+function withFakeStorage(calls: string[], fn: () => void): void {
+  const store: Record<string, string> = {}
+  const fake = {
+    localStorage: {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        calls.push(`set:${v}`)
+        store[k] = v
+      },
+      removeItem: (k: string) => {
+        calls.push('remove')
+        delete store[k]
+      },
+    },
+    location: { href: 'https://example.test/', hash: '', search: '' },
+    history: { replaceState: () => {} },
+  }
+  const g = globalThis as unknown as { window?: unknown }
+  const had = 'window' in g
+  const prev = g.window
+  g.window = fake
+  try {
+    fn()
+  } finally {
+    if (had) g.window = prev
+    else delete g.window
+  }
+}
 
 describe('decodeBuildDefault', () => {
   it('decodes a base64 id', () => {

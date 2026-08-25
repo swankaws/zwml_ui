@@ -20,9 +20,23 @@ const ALLOWED_PLACEHOLDERS = new Set([
 /** A spreadsheet id sitting in a Google Sheets URL. */
 const IN_URL = /\/spreadsheets\/d\/([A-Za-z0-9_-]{20,64})/g
 
-/** A long key literal assigned to something that names a sheet id. */
+/**
+ * A long key assigned to something that names a sheet id. Quotes are optional
+ * on purpose -- `.env`-style `SHEET_ID=<id>` has none.
+ */
 const IN_ASSIGNMENT =
-  /(?:sheet[_-]?id|spreadsheet[_-]?id|SHEET_ID)\s*[:=]\s*['"`]([A-Za-z0-9_-]{20,64})['"`]/gi
+  /(?:sheet[_-]?id|spreadsheet[_-]?id)(?:_b64)?\s*[:=]\s*['"`]?([A-Za-z0-9_-]{20,64})['"`]?/gi
+
+/**
+ * Base64-looking runs, so the id cannot hide in the very encoding section 9.1
+ * recommends. Without this the guard is blind to exactly the form the docs
+ * tell people to use -- verified: a committed `VITE_SHEET_ID_B64=<b64>` line
+ * slipped past the first version of this test.
+ */
+const BASE64_RUN = /[A-Za-z0-9+/]{24,}={0,2}/g
+
+/** True if `text` decodes to something that looks like a bare spreadsheet id. */
+const BARE_ID = /^[A-Za-z0-9_-]{20,64}$/
 
 const SKIP_DIRS = ['node_modules/', 'dist/']
 const MAX_BYTES = 2 * 1024 * 1024
@@ -60,13 +74,38 @@ describe('no committed spreadsheet id', () => {
         continue // deleted, binary, or unreadable -- not our concern
       }
 
+      const report = (id: string | undefined, index: number, note = '') => {
+        if (!id || ALLOWED_PLACEHOLDERS.has(id)) return
+        const line = text.slice(0, index).split('\n').length
+        offenders.push(`${file}:${line} -> ${id}${note}`)
+      }
+
       for (const pattern of [IN_URL, IN_ASSIGNMENT]) {
         pattern.lastIndex = 0
         for (const match of text.matchAll(pattern)) {
-          const id = match[1]
-          if (!id || ALLOWED_PLACEHOLDERS.has(id)) continue
-          const line = text.slice(0, match.index).split('\n').length
-          offenders.push(`${file}:${line} -> ${id}`)
+          report(match[1], match.index)
+        }
+      }
+
+      // Second pass: decode base64 runs and re-apply the same patterns.
+      BASE64_RUN.lastIndex = 0
+      for (const match of text.matchAll(BASE64_RUN)) {
+        let decoded: string
+        try {
+          decoded = Buffer.from(match[0], 'base64').toString('utf8')
+        } catch {
+          continue
+        }
+        // Reject binary noise; a real id decodes to printable ASCII.
+        if (!/^[\x20-\x7e]+$/.test(decoded)) continue
+
+        if (BARE_ID.test(decoded)) {
+          report(decoded, match.index, ' (base64-encoded)')
+          continue
+        }
+        IN_URL.lastIndex = 0
+        for (const inner of decoded.matchAll(IN_URL)) {
+          report(inner[1], match.index, ' (base64-encoded URL)')
         }
       }
     }

@@ -79,3 +79,11 @@ deliberately *not* representative — see DESIGN.md section 5.0.
 - Deploy **at least 15 minutes early**, hard-reload the projector once, then stop
   deploying. Pages serves `index.html` with a fixed 10-minute cache.
 - Keep the sheet open in a second tab as a fallback display.
+- If the ticker shows sales that already happened, or **ON THE CLOCK** names the
+  wrong manager, press **`X`** — that clears leftover session state (usually from
+  a rehearsal run) and re-baselines from the current sheet. `Shift+N` nudges the
+  pointer back one if it is just off by a step. See DESIGN.md §7.5.
+- The money columns never depend on session state, so they stay correct even
+  when the ticker or nominator is confused.
+- Press **`D`** for the debug overlay: baseline age, parse warnings, and a
+  sheet-vs-computed comparison.
