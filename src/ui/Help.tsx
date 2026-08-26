@@ -21,6 +21,15 @@ export interface HelpProps {
   open: boolean
   /** Tapping the backdrop closes it, since a phone has no `Esc`. */
   onClose?: () => void
+  theme?: 'dark' | 'light'
+  /**
+   * The theme toggle lives HERE rather than beside the title.
+   *
+   * Two buttons in the header pushed the title into an ellipsis at 1024x768 (7.1's silent
+   * truncation), and this is the better home regardless: light-or-dark is decided once while the
+   * projector is being set up, not reached for during bidding.
+   */
+  onToggleTheme?: () => void
 }
 
 interface Shortcut {
@@ -31,17 +40,19 @@ interface Shortcut {
 }
 
 const SHORTCUTS: readonly Shortcut[] = [
-  { keys: '?', what: 'This list', note: 'or H · Esc, or tap outside, to close' },
+  { keys: '?', what: 'This list', note: 'Esc, or tap outside, to close' },
   { keys: 'R', what: 'Roster view', note: 'every squad; returns here by itself after 45s' },
+  { keys: 'H', what: 'Sale history', note: 'every sale of the night, and who nominated it' },
   { keys: 'N', what: 'Nominator forward', note: 'sticks for the rest of the night' },
   { keys: '⇧N', what: 'Nominator back' },
   { keys: 'X', what: 'Reset ticker and nominator', note: 're-reads the sheet as the new baseline' },
   { keys: '+ −', what: 'Type bigger / smaller' },
   { keys: '0', what: 'Forget the type change', note: 'hands the size back to the SETTINGS tab' },
+  { keys: 'T', what: 'Light / dark', note: 'for a projector that washes out one of them' },
   { keys: 'G', what: 'Read the sheet now', note: 'it polls every 3s anyway' },
 ]
 
-export function Help({ open, onClose }: HelpProps) {
+export function Help({ open, onClose, theme = 'dark', onToggleTheme }: HelpProps) {
   if (!open) return null
 
   return (
@@ -74,8 +85,17 @@ export function Help({ open, onClose }: HelpProps) {
           Wrong name on the clock? Press <kbd>N</kbd> until it is right. The correction sticks for
           the rest of the draft.
         </p>
-        {/* A phone reaches this overlay by tapping `?`, so it needs to know keys are not the only way. */}
-        <p className="help-foot help-touch">On a phone, use the buttons in the header.</p>
+
+        {onToggleTheme && (
+          <div className="help-actions">
+            <button type="button" className="help-action" onClick={onToggleTheme}>
+              {theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+            </button>
+            <span className="help-note">
+              If the projector washes one out, use the other. Also <kbd>T</kbd>.
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -22,14 +22,16 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-export type View = 'board' | 'roster'
+export type View = 'board' | 'roster' | 'history'
 
 export const IDLE_RETURN_MS = 45_000
+
+const VIEWS: readonly View[] = ['board', 'roster', 'history']
 
 /** `?view=roster` pins the view, which is how the layout gate measures it. */
 export function viewFromQuery(search: string): View | null {
   const raw = new URLSearchParams(search.replace(/^\?/, '')).get('view')
-  return raw === 'roster' ? 'roster' : raw === 'board' ? 'board' : null
+  return VIEWS.find((view) => view === raw) ?? null
 }
 
 export interface ViewControl {
@@ -40,6 +42,8 @@ export interface ViewControl {
    * roster view was unreachable on a phone.
    */
   toggle: () => void
+  /** Jump straight to a view, for the touch controls, which have no cycle to walk. */
+  show: (next: View) => void
 }
 
 export function useView(search = typeof window === 'undefined' ? '' : window.location.search): ViewControl {
@@ -68,8 +72,15 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
       viewRef.current = next
       setView(next)
       window.clearTimeout(idle)
-      // Only the roster view returns on its own. The board is where it returns TO.
-      if (next === 'roster') idle = window.setTimeout(() => show('board'), IDLE_RETURN_MS)
+      // The board is what everything returns TO, so only the other views run the clock.
+      if (next !== 'board') idle = window.setTimeout(() => show('board'), IDLE_RETURN_MS)
+    }
+
+    /** Any interaction restarts the clock -- see `onKey` for why this matters for history. */
+    const bump = () => {
+      if (viewRef.current === 'board') return
+      window.clearTimeout(idle)
+      idle = window.setTimeout(() => show('board'), IDLE_RETURN_MS)
     }
 
     const onKey = (event: KeyboardEvent) => {
@@ -77,6 +88,12 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
 
       if (event.key === 'r' || event.key === 'R') {
         show(viewRef.current === 'roster' ? 'board' : 'roster')
+        event.preventDefault()
+        return
+      }
+
+      if (event.key === 'h' || event.key === 'H') {
+        show(viewRef.current === 'history' ? 'board' : 'history')
         event.preventDefault()
         return
       }
@@ -96,8 +113,18 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
 
     showRef.current = show
     window.addEventListener('keydown', onKey)
+    /*
+     * Scrolling and touching count as being present. The history view is the one screen that is
+     * READ rather than glanced at, and it is the one screen that scrolls -- so a keypress-only idle
+     * timer would pull it away from someone halfway down the list, which is worse than the hazard
+     * the timer exists for.
+     */
+    window.addEventListener('wheel', bump, { passive: true })
+    window.addEventListener('touchmove', bump, { passive: true })
     return () => {
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('wheel', bump)
+      window.removeEventListener('touchmove', bump)
       window.clearTimeout(idle)
     }
   }, [pinned])
@@ -105,6 +132,7 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
   return {
     view,
     toggle: () => showRef.current(viewRef.current === 'roster' ? 'board' : 'roster'),
+    show: (next: View) => showRef.current(next),
   }
 }
 
@@ -131,7 +159,8 @@ export function useHelp(search = typeof window === 'undefined' ? '' : window.loc
     if (pinned) return
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.key === '?' || event.key === 'h' || event.key === 'H') {
+      // `?` only. `h` went to the history view, and one key doing two things reads as a bug.
+      if (event.key === '?' || event.key === '/') {
         setOpen((was) => !was)
         event.preventDefault()
       } else if (event.key === 'Escape') {

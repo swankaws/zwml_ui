@@ -101,6 +101,49 @@ export function derivePointer(input: PointerInput): number | null {
   return applyOffset(order, index, offset, isFull)
 }
 
+/**
+ * Who NOMINATED each sale, by sequence — for the history view (7.4).
+ *
+ * Falls out of the same replay `derivePointer` already does, which is the only reason it is
+ * answerable at all: the sheet records the BUYER of every pick and nothing about who put the player
+ * up. The nominator of sale *k* is simply where the rotation stood before sale *k* was credited.
+ *
+ * Two honest limits, and they are the reason this returns `null` rather than guessing:
+ *
+ *   - It is only ever as right as `order`. A placeholder rotation makes every name here wrong in
+ *     the same way it makes ON THE CLOCK wrong.
+ *   - It ignores the operator's `offset`. That offset is a correction to where the pointer is NOW,
+ *     applied because the replay drifted from the room; it says nothing about which manager
+ *     nominated a player an hour ago. Retro-applying it would silently rewrite history to match a
+ *     late correction.
+ *
+ * Keyed by `seq` rather than positional, so the caller cannot mis-align it with a log that has had
+ * a retraction removed from the middle.
+ */
+export function nominatorBySeq(input: Omit<PointerInput, 'offset'>): Map<number, string> {
+  const { order, baselineCounts, log } = input
+  const nominators = new Map<number, string>()
+  if (order.length === 0) return nominators
+
+  const counts = new Map<string, number>(Object.entries(baselineCounts))
+  const isFull = (name: string) => (counts.get(name) ?? 0) >= league.auctionSlots
+
+  let index = firstEligible(order, 0, isFull)
+  if (index === null) return nominators
+
+  for (const sale of [...log].sort((a, b) => a.seq - b.seq)) {
+    const nominator = order[index]
+    if (nominator !== undefined) nominators.set(sale.seq, nominator)
+
+    counts.set(sale.manager, (counts.get(sale.manager) ?? 0) + 1)
+    const next = firstEligible(order, index + 1, isFull)
+    if (next === null) break
+    index = next
+  }
+
+  return nominators
+}
+
 /** Roster sizes at the baseline, from the same slot map the diff engine baselines on. */
 export function countsFromSlots(slots: Readonly<Record<string, { manager: string }>>): Record<string, number> {
   const counts: Record<string, number> = {}

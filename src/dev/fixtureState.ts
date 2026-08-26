@@ -35,12 +35,17 @@ export interface FixtureState {
   warnings: string[]
 }
 
-/** `?sales=N`, clamped. Defaults to six so no existing layout case changes. */
+/**
+ * `?sales=N`, clamped. Defaults to six so no existing layout case changes.
+ *
+ * The ceiling is the whole board -- twelve managers x fifteen slots -- because the history view
+ * needs to be measured FULL, and 180 is the most sales a draft can ever produce.
+ */
 function saleCount(params: URLSearchParams): number {
   const raw = params.get('sales')
   if (raw === null) return 6
   const parsed = Number.parseInt(raw, 10)
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(parsed, 60)) : 6
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(parsed, 180)) : 6
 }
 
 export function loadFixture(search: string): FixtureState {

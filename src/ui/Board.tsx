@@ -7,7 +7,7 @@
  * at-a-glance comparison that is the entire point.
  */
 
-import { POSITION_COLUMNS, cellValue, type Column } from './columns'
+import { POSITION_COLUMNS, cellValue, pressureLevel, type Column } from './columns'
 import type { ManagerState } from '../model/derive'
 import { league } from '../config/league'
 
@@ -75,6 +75,9 @@ export function Board({ managers, columns }: BoardProps) {
                 key={column.key}
                 className={`cell cell-${column.key}`}
                 data-align={column.align}
+                /* How close this figure is to the edge (7.7). `'none'` on most cells, most of
+                   the night -- see `pressureLevel`. */
+                data-pressure={pressureLevel(column.key, m)}
               >
                 {column.key === 'positions' ? (
                   <div className="positions">

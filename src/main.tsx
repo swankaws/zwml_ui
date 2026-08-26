@@ -243,6 +243,13 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
       order={fixture.order}
       cursor={readCursor()}
       sales={fixture.sales}
+      /*
+       * A pointer basis, so the history view's NOMINATED BY column renders real names in the layout
+       * gate rather than a column of dashes whose width nobody has measured. Empty baseline counts
+       * and the fixture's own stand-in sales are enough -- `nominatorBySeq` only needs an order and
+       * a log. `?cursor=` still pins the on-clock highlight; see the note in `App`.
+       */
+      pointer={{ baselineCounts: {}, log: fixture.sales, offset: 0 }}
       settings={settings}
       columnsFrom={columnsFrom}
       feedLabel="FIXTURE"

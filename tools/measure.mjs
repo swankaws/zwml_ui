@@ -252,7 +252,7 @@ const PROBE = `(() => {
      * which is why h1Truncated below matters more here than anywhere.
      */
     helpOpen: (() => {
-      const el = document.querySelector('.help-open')
+      const el = document.querySelector('.title-controls')
       if (!el) return { rendered: false, visible: false }
       const r = el.getBoundingClientRect()
       return { rendered: true, visible: r.width > 0 && r.height > 0 }
@@ -271,6 +271,39 @@ const PROBE = `(() => {
           : null,
         labels: shown.map((b) => (b.textContent ?? '').trim()),
       }
+    })(),
+    /*
+     * The sale history (7.3). It is the one view that may scroll, so "does it overflow" is not the
+     * question here -- the questions are whether every sale is present, whether the table can
+     * actually be scrolled to reach them, and whether any row is wider than the screen.
+     */
+    historyRows: document.querySelectorAll('.history-row:not(.history-labels)').length,
+    /*
+     * Can the rest of the list be REACHED -- by the table scrolling on a desktop, or by the whole
+     * page scrolling on a phone, where the shell is content-height and the document scrolls instead.
+     * Asking only about the table reported the phone as broken when it was working correctly.
+     */
+    historyScrolls: (() => {
+      const el = document.querySelector('.history-table')
+      if (!el) return null
+      const inner = el.scrollHeight > el.clientHeight
+      const page =
+        document.documentElement.scrollHeight > window.innerHeight ||
+        document.body.scrollHeight > window.innerHeight
+      return inner || page
+    })(),
+    historyClipped: (() => {
+      const table = document.querySelector('.history-table')
+      if (!table) return null
+      const bounds = table.getBoundingClientRect()
+      for (const row of document.querySelectorAll('.history-row')) {
+        const r = row.getBoundingClientRect()
+        if (r.right > bounds.right + 1 || r.left < bounds.left - 1) return true
+      }
+      for (const name of document.querySelectorAll('.history-player')) {
+        if (truncated(name)) return true
+      }
+      return false
     })(),
     header: box(document.querySelector('.header')),
     stage: box(document.querySelector('.stage')),
@@ -349,9 +382,29 @@ const PROBE = `(() => {
       const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
       return overlapX > 1 && overlapY > 1 ? { x: Math.round(overlapX), y: Math.round(overlapY) } : false
     })(),
+    /*
+     * Overflow of whichever element is actually scrolling.
+     *
+     * This used to ask documentElement alone, and on mobile that is the wrong element: the phone
+     * rules put overflow-y:auto on BODY, so body becomes the scroll container and
+     * documentElement.scrollHeight stays pinned at the viewport. Measured, the phone history view
+     * had 4797px of content in an 844px window and this probe reported ZERO overflow -- so the gate
+     * was blind to mobile page scrolling in both directions, including the horizontal kind the
+     * maintainer explicitly ruled out. Taking the max of the two covers either scroller.
+     */
     docOverflow: {
-      x: Math.round(document.documentElement.scrollWidth - window.innerWidth),
-      y: Math.round(document.documentElement.scrollHeight - window.innerHeight),
+      x: Math.round(
+        Math.max(
+          document.documentElement.scrollWidth - window.innerWidth,
+          document.body.scrollWidth - window.innerWidth,
+        ),
+      ),
+      y: Math.round(
+        Math.max(
+          document.documentElement.scrollHeight - window.innerHeight,
+          document.body.scrollHeight - window.innerHeight,
+        ),
+      ),
     },
     /* Physical legibility (7.1): glyph px for the numbers that matter most. */
     typePx: Object.fromEntries(

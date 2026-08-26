@@ -13,10 +13,12 @@ import { Rail } from './Rail'
 import { REFERENCE_TYPE_PX, selectColumns, type ColumnKey } from './columns'
 import { useDisplayScale } from './useDisplayScale'
 import { Roster } from './Roster'
+import { History } from './History'
 import { Help } from './Help'
 import { useHelp, useView } from './useView'
+import { useTheme } from './useTheme'
 import { sortByMaxBid, type LeagueState } from '../model/derive'
-import { derivePointer, type PointerBasis } from '../model/pointer'
+import { derivePointer, nominatorBySeq, type PointerBasis } from '../model/pointer'
 import type { SaleEvent } from '../model/diff'
 import { DEFAULT_SETTINGS, type DisplaySettings } from '../config/displaySettings'
 
@@ -129,8 +131,16 @@ export function App({
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
-  const { view, toggle: toggleView } = useView()
+  const { view, toggle: toggleView, show: showView } = useView()
   const { open: helpOpen, toggle: toggleHelp } = useHelp()
+  const { theme, toggle: toggleTheme } = useTheme(settings.theme)
+  /*
+   * `?sort=oldest` exists only so the layout gate can measure the flipped order, which has no
+   * keyboard route and a button the harness would otherwise have to click.
+   */
+  const oldestFirstPinned =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search.replace(/^\?/, '')).get('sort') === 'oldest'
 
   // Before the first measurement, assume the projector rather than assume nothing:
   // a width of 0 would drop every optional column for one frame and flash.
@@ -146,8 +156,17 @@ export function App({
 
   // The sheet's order wins over the committed fallback copy (7.5).
   const nominationOrder = settings.order ?? order
-  // Against `nominationOrder`, for the reason in `pointer`'s doc comment above.
-  const onClock = pointer ? derivePointer({ order: nominationOrder, ...pointer }) : cursor
+  /*
+   * An explicit `cursor` wins over the derived pointer.
+   *
+   * Both exist because they answer different needs: `?cursor=N` pins the on-clock highlight so the
+   * layout gate can measure it, while `pointer` is the real replay. Precedence used to run the other
+   * way, which meant the fixture path could not supply a pointer basis at all without breaking the
+   * `?cursor=` cases -- and that in turn left the history view's NOMINATED BY column rendering
+   * nothing but dashes in every gate case, so its width was never measured.
+   */
+  const onClock =
+    cursor !== null ? cursor : pointer ? derivePointer({ order: nominationOrder, ...pointer }) : null
 
   return (
     <div className="app">
@@ -157,21 +176,50 @@ export function App({
         feed={feed}
         feedLabel={feedLabel}
         /*
-         * Touch controls, mobile-only by CSS. A phone has no keyboard, so every key-only action
-         * is simply unavailable there -- which is how the roster view came to be unreachable on a
-         * phone entirely (7.9 requires a tap route for anything reachable only by key).
+         * Both controls beside the title, on any display with a keyboard. Each is also a key (`?`
+         * and `T`), and each is here because a key nobody knows about is a key that does not
+         * exist -- the standby screen advertises them and it is on screen for about two seconds.
+         *
+         * The theme toggle is a TOGGLE, not a setup step, which is why it is visible rather than
+         * buried in the overlay. Room lights come on and go off during an evening draft, a bulb
+         * shifts as it warms, and a phone in sunlight wants the opposite of a phone indoors -- so
+         * whichever palette is easier to read can change while the board is up.
+         *
+         * They fit because the header gives up the word AUCTION below 1600px (see `.title-word`).
+         * That was the honest trade: the header sits within ~10px of its limit at 1024x768, and the
+         * first attempt at a second button pushed the TITLE into "ZWML 202..." -- 7.1's silent
+         * truncation, caught by `h1Truncated`. Spending a word nobody needs beats hiding a control.
          */
         help={
-          <button
-            type="button"
-            className="help-open"
-            onClick={toggleHelp}
-            aria-label="Keyboard shortcuts"
-            title="Keyboard shortcuts"
-          >
-            ?
-          </button>
+          <span className="title-controls">
+            <button
+              type="button"
+              className="title-button"
+              onClick={toggleHelp}
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+            >
+              ?
+            </button>
+            <button
+              type="button"
+              className="title-button"
+              onClick={toggleTheme}
+              aria-label={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+              title={theme === 'light' ? 'Dark mode (T)' : 'Light mode (T)'}
+            >
+              {theme === 'light' ? '◐' : '◑'}
+            </button>
+          </span>
         }
+        /*
+         * Touch controls, mobile-only by CSS. A phone has no keyboard, so every key-only action is
+         * simply unavailable there (7.9 requires a tap route for anything reachable only by key).
+         *
+         * There is no `?` here on purpose. It used to be, and it was a button that opened a KEYBOARD
+         * reference on a device with no keyboard -- eight lines of things the reader cannot do. What
+         * a phone actually needs are the two actions it cannot otherwise reach.
+         */
         action={
           <div className="touch-controls">
             <button type="button" className="touch-button" onClick={toggleView}>
@@ -180,10 +228,17 @@ export function App({
             <button
               type="button"
               className="touch-button"
-              onClick={toggleHelp}
-              aria-label="Keyboard shortcuts"
+              onClick={() => showView(view === 'history' ? 'board' : 'history')}
             >
-              ?
+              {view === 'history' ? 'BOARD' : 'SALES'}
+            </button>
+            <button
+              type="button"
+              className="touch-button"
+              onClick={toggleTheme}
+              aria-label={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+            >
+              {theme === 'light' ? 'DARK' : 'LIGHT'}
             </button>
           </div>
         }
@@ -194,7 +249,22 @@ export function App({
        * the room the header's SPENT/CHASING/SLOTS totals and the notices strip -- the two
        * things that say whether what is on the wall can be trusted at all (7.8).
        */}
-      {view === 'roster' ? (
+      {view === 'history' ? (
+        <div className="stage" data-rail="off">
+          <History
+            sales={sales}
+            /*
+             * Recovered from the same replay the pointer uses, because the sheet records only the
+             * BUYER of each pick. It is exactly as trustworthy as the configured order -- with a
+             * placeholder rotation every name in that column is wrong the same way ON THE CLOCK is.
+             */
+            nominators={
+              pointer ? nominatorBySeq({ order: nominationOrder, ...pointer }) : new Map()
+            }
+            initialOldestFirst={oldestFirstPinned}
+          />
+        </div>
+      ) : view === 'roster' ? (
         <div className="stage" data-rail="off" ref={tableRef}>
           <Roster managers={state.managers} />
         </div>
@@ -221,7 +291,7 @@ export function App({
        * that is usually invisible, and the documented `scale: 1.15` ceiling was measured
        * without it.
        */}
-      <Help open={helpOpen} onClose={toggleHelp} />
+      <Help open={helpOpen} onClose={toggleHelp} theme={theme} onToggleTheme={toggleTheme} />
       <div className="footer">
         {notices}
         {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}

@@ -38,6 +38,17 @@ export interface DisplaySettings {
   perSlot: boolean
   /** Nomination order (§7.5). `null` = fall back to `league.nominationOrder`. */
   order: readonly string[] | null
+  /**
+   * Which palette. `null` = dark, which is what §7.7 argues for and what every measurement in
+   * this project was taken against.
+   *
+   * It is settable because §7.7's argument is a prediction, not a measurement: "projector bulbs
+   * wash out dark-on-white" is true of some rooms and some bulbs, and the projector is not
+   * available until the day before the draft. A dim or low-contrast bulb can make light-on-dark
+   * the harder read, and finding that out at 7pm with no way to change it would be the expensive
+   * version of being wrong.
+   */
+  theme: 'dark' | 'light' | null
 }
 
 export const DEFAULT_SETTINGS: DisplaySettings = {
@@ -46,6 +57,7 @@ export const DEFAULT_SETTINGS: DisplaySettings = {
   rail: true,
   perSlot: false,
   order: null,
+  theme: null,
 }
 
 /**
@@ -170,6 +182,13 @@ export function parseSettingsGrid(
         break
       }
 
+      case 'theme': {
+        const value = raw.trim().toLowerCase()
+        if (value === 'light' || value === 'dark') settings.theme = value
+        else warnings.push(`SETTINGS: theme "${raw}" is not light/dark; ignoring.`)
+        break
+      }
+
       case 'order': {
         const result = parseOrder(raw, roster)
         warnings.push(...result.warnings)
@@ -199,7 +218,7 @@ export function settingsFromQuery(
 ): ParseResult {
   const params = new URLSearchParams(search.replace(/^\?/, ''))
   const rows: string[][] = [[SETTINGS_ANCHOR]]
-  for (const key of ['scale', 'columns', 'rail', 'perslot', 'order']) {
+  for (const key of ['scale', 'columns', 'rail', 'perslot', 'order', 'theme']) {
     const value = params.get(key)
     if (value !== null) rows.push([key, value])
   }

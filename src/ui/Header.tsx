@@ -61,7 +61,19 @@ export function Header({
     <header className="header">
       {/* One flex item, so the `?` travels with the title rather than being spaced away from it. */}
       <div className="title">
-        <h1>ZWML {year} AUCTION</h1>
+        {/*
+          * The word AUCTION is spendable, and below 1600px it is spent.
+          *
+          * The header is a single nowrap strip sized from `vw`, and at 1024x768 it sits within
+          * ~10px of its limit -- so the two title controls did not fit and the h1 absorbed the
+          * overflow into "ZWML 202...", which is 7.1's silent truncation. `ZWML 2026` says
+          * everything the room needs; a hidden control does not. Rendered and hidden by CSS rather
+          * than branched in JS so there is no width to measure and no frame where it is wrong.
+          */}
+        <h1>
+          ZWML {year}
+          <span className="title-word"> AUCTION</span>
+        </h1>
         {help}
       </div>
       <div className="totals">

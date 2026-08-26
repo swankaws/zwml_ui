@@ -203,18 +203,34 @@ const CASES = [
     allowConsole: /render error|deliberate render error|above error|Error Boundary|uncaught/i,
   },
   /*
+   * The sale history (7.3), which is the one screen allowed to scroll on a projector. `?fixture=2025`
+   * gives it 180 sales -- a completed draft -- which is the only content in the repo that fills it.
+   * `?sort=oldest` measures the flipped order, which has no keyboard route.
+   */
+  { size: '1920x1080', query: '?fixture=2025&view=history&sales=180', label: 'history on the projector', history: 180 },
+  { size: '1024x768', query: '?fixture=2025&view=history&sales=180', label: 'history at 4:3', history: 180 },
+  { size: '390x844', query: '?fixture=2025&view=history&sales=180', label: 'history on a phone', history: 180, allowVerticalScroll: true },
+  {
+    size: '1920x1080',
+    query: '?fixture=2025&view=history&sales=180&sort=oldest',
+    label: 'history oldest first',
+    history: 180,
+  },
+  /* Empty, which is what it looks like for the first minutes of every draft. */
+  { size: '1920x1080', query: '?fixture=2026&view=history&sales=0', label: 'history empty', history: 0 },
+  /*
    * The keyboard reference (7.9), at the two extremes of the matrix and at the scale ceiling.
    * It is an overlay, so it cannot push the board around -- what it CAN do is outgrow the screen,
    * which is what `helpClipped` checks. `?view=help` pins it open.
    */
-  { size: '1920x1080', query: '?fixture=2026&view=help', label: 'help on the projector', help: 8 },
-  { size: '1024x768', query: '?fixture=2026&view=help', label: 'help at 4:3', help: 8 },
-  { size: '390x844', query: '?fixture=2026&view=help', label: 'help on a phone', help: 8 },
+  { size: '1920x1080', query: '?fixture=2026&view=help', label: 'help on the projector', help: 10 },
+  { size: '1024x768', query: '?fixture=2026&view=help', label: 'help at 4:3', help: 10 },
+  { size: '390x844', query: '?fixture=2026&view=help', label: 'help on a phone', help: 10 },
   {
     size: '1920x1080',
     query: '?fixture=2026&view=help&scale=1.15',
     label: 'help at the ceiling',
-    help: 8,
+    help: 10,
   },
   /*
    * The roster view (7.4). `?fixture=2025` on purpose: that draft is COMPLETE, so every
@@ -324,7 +340,20 @@ for (const testCase of CASES) {
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
 
-  if (testCase.help !== undefined) {
+  if (testCase.history !== undefined) {
+    /*
+     * Every sale present and nothing truncated. This view SCROLLS on purpose, so vertical overflow
+     * inside the table is expected -- what must not happen is a row wider than the screen, or a
+     * player name clipped when there is a whole screen of width to spend.
+     */
+    if (m.historyRows !== testCase.history) {
+      problems.push(`history lists ${m.historyRows} sales, expected ${testCase.history}`)
+    }
+    if (m.historyClipped) problems.push('a history row is wider than the view')
+    if (testCase.history > 0 && !m.historyScrolls) {
+      problems.push('the history table cannot scroll, so later sales are unreachable')
+    }
+  } else if (testCase.help !== undefined) {
     // The card must be complete and on screen. The board behind it is not this case's business.
     if (m.helpRows !== testCase.help) {
       problems.push(`help lists ${m.helpRows} shortcuts, expected ${testCase.help}`)

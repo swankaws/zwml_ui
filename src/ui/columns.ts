@@ -11,6 +11,7 @@
  */
 
 import type { ManagerState } from '../model/derive'
+import { league } from '../config/league'
 
 export type ColumnKey = 'manager' | 'spent' | 'left' | 'needs' | 'maxBid' | 'positions' | 'perSlot'
 
@@ -213,6 +214,58 @@ function fits(columns: Column[], width: number, minUnitPx: number, typePx: numbe
 
 /** The five position sub-columns, in the order the sheet uses. */
 export const POSITION_COLUMNS = ['QB', 'RB', 'WR', 'TE', 'K'] as const
+
+/**
+ * How much pressure a figure is under, as a step rather than a continuum (7.7).
+ *
+ * `'none'` for most of the board, most of the night: a colour that appears on half the rows tells
+ * the room nothing, which is the same argument `distinguishingTopBid` makes about the leader
+ * highlight. These thresholds are chosen so that at the open -- twelve managers at $200 with
+ * fifteen needs -- every cell is `'none'`, and colour arrives only as the field separates.
+ *
+ * Steps, not a smooth gradient, and deliberately: a projector shifts colour and dims unevenly, so
+ * a continuous ramp reads as "some vague shade of amber" from 25 feet. Three named states are
+ * distinguishable; sixty are not.
+ *
+ * `MAX BID` is the reason this exists. At `$1` a manager cannot outbid anybody, which is the single
+ * most useful thing the board can tell a bidder, and until now it was conveyed by dimming the whole
+ * row -- the same treatment as a FULL roster, which means something completely different.
+ */
+export type Pressure = 'none' | 'low' | 'critical'
+
+export function pressureLevel(column: ColumnKey, m: ManagerState): Pressure {
+  switch (column) {
+    case 'maxBid':
+      // FULL is its own row state and already styled; it is not "under pressure", it is finished.
+      if (m.maxBid === null) return 'none'
+      // At the minimum bid there is nothing left to outbid anyone with.
+      if (m.maxBid <= league.minBid) return 'critical'
+      return m.maxBid <= MAX_BID_LOW ? 'low' : 'none'
+
+    case 'left':
+      // Negative is already carried by `.negative` and the invalid row marker, so this only has to
+      // describe money that is real but nearly gone.
+      if (m.remaining < 0) return 'none'
+      if (m.remaining <= league.budget * LEFT_CRITICAL) return 'critical'
+      return m.remaining <= league.budget * LEFT_LOW ? 'low' : 'none'
+
+    default:
+      /*
+       * NEEDS is deliberately not coloured. A low NEEDS is not a warning -- it means a manager is
+       * nearly done, which is neither good nor bad and is already visible in the number itself. The
+       * genuinely interesting case is high NEEDS against low LEFT, and that is a relationship
+       * between two cells, which a per-cell colour cannot express. `$/SLOT` is the column that
+       * already answers it.
+       */
+      return 'none'
+  }
+}
+
+/** $5 or less: technically able to bid, practically out of the running for anyone worth having. */
+const MAX_BID_LOW = 5
+/** Fractions of the budget. 10% of $200 is $20; a quarter is $50. */
+const LEFT_CRITICAL = 0.1
+const LEFT_LOW = 0.25
 
 export function cellValue(column: ColumnKey, m: ManagerState): string {
   switch (column) {

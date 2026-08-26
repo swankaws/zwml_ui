@@ -1379,10 +1379,6 @@ kbd {
   display: none;
 }
 
-.help-touch {
-  display: none;
-}
-
 @media (max-width: 700px) {
   .touch-controls {
     display: flex;
@@ -1414,10 +1410,6 @@ kbd {
   .touch-button:active {
     background: var(--rule);
   }
-
-  .help-touch {
-    display: block;
-  }
 }
 
 /* The `?` beside the title: permanent, quiet, and desktop-only (a phone has its own). */
@@ -1428,30 +1420,323 @@ kbd {
   min-width: 0;
 }
 
-.help-open {
+/*
+ * Dropped below 1600px so the title controls fit. See the note in `Header.tsx`: the alternative was
+ * hiding the theme toggle, and a word the room does not need is cheaper than a control it does.
+ */
+@media (max-width: 1600px) {
+  .title-word {
+    display: none;
+  }
+}
+
+.title-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
   flex: 0 0 auto;
-  width: 1.5em;
-  height: 1.5em;
+}
+
+.title-button {
+  flex: 0 0 auto;
   padding: 0;
   border: 1px solid var(--rule);
   border-radius: 50%;
   background: transparent;
   color: var(--fg-dim);
   font: inherit;
-  font-size: 0.6em;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
+  /*
+   * Capped in PX, not sized in em, and the layout gate is why.
+   *
+   * The header sizes from `vw` (see its note), so an em-sized button grows with it -- and at
+   * 1024x768 and 1280x1024 the header was already within ~10px of its limit. Two em-sized buttons
+   * pushed it over and the TITLE absorbed the overflow into "ZWML 202...", which is precisely the
+   * silent failure 7.1 records and the reason `h1Truncated` exists as its own probe.
+   *
+   * Capping inverts it: the narrower the screen, the smaller a share of the strip these take. Same
+   * trade the footer makes -- chrome that cannot pay for itself does not get to take the room's
+   * pixels.
+   */
+  font-size: clamp(9px, 0.5em, 14px);
+  width: 1.6em;
+  height: 1.6em;
 }
 
-.help-open:hover,
-.help-open:focus-visible {
+.title-button:hover,
+.title-button:focus-visible {
   color: var(--fg);
   border-color: var(--fg-dim);
 }
 
+/* A phone has its own controls in the header, sized for fingers rather than a cursor. */
 @media (max-width: 700px) {
-  .help-open {
+  /*
+ * Dropped below 1600px so the title controls fit. See the note in `Header.tsx`: the alternative was
+ * hiding the theme toggle, and a word the room does not need is cheaper than a control it does.
+ */
+@media (max-width: 1600px) {
+  .title-word {
+    display: none;
+  }
+}
+
+.title-controls {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------- light mode (7.7) */
+
+/*
+ * The alternative palette, for a projector that turns out to wash out light-on-dark.
+ *
+ * 7.7 argues for dark and this does not overturn that -- dark stays the default and is what every
+ * measurement in this project was taken against. This exists because 7.7's argument is a prediction
+ * made on a laptop about a projector nobody has seen, and the escape hatch has to exist BEFORE the
+ * room fills up. `T` toggles it; see `useTheme.ts` for the four sources.
+ *
+ * Not an inversion. Straight inversion of a palette tuned for a glowing dark screen gives muddy
+ * mid-greys and accents that vanish: on white, a colour needs to be DARKER and more saturated to
+ * carry the same weight, so every accent here is re-picked rather than flipped. The position hues
+ * keep their identity -- QB violet, RB amber, WR blue, TE green, K orange -- because the room will
+ * have learned them, but each drops in lightness to hold contrast against a near-white row.
+ */
+:root[data-theme='light'] {
+  --bg: #f4f6f9;
+  --bg-row: #ffffff;
+  --bg-row-alt: #e9eef4;
+  --fg: #0a0f14;
+  --fg-dim: #5b6a7a;
+  --rule: #c3cedb;
+
+  --accent: #0a7a3c;
+  --warn: #c0261f;
+  --live: #0a7a3c;
+  --stale: #a3560a;
+  --dead: #c0261f;
+
+  --pos-qb: #6b28c9;
+  --pos-rb: #9a5300;
+  --pos-wr: #0a5fa8;
+  --pos-te: #0a7a3c;
+  --pos-k: #b23c14;
+  --pos-none: var(--fg);
+}
+
+/*
+ * A light board is a large bright rectangle, which is exactly what 7.7 warns about -- so the type
+ * gets a shade heavier to hold its weight against it. Dark-on-light reads thinner than
+ * light-on-dark at the same weight, an artifact of how a projector blooms.
+ */
+:root[data-theme='light'] body {
+  font-weight: 800;
+}
+
+/* ------------------------------------------- pressure highlighting (7.2, 7.7) */
+
+/*
+ * Meaning only, never decoration, and quiet by default: `pressureLevel` returns `'none'` for most
+ * cells for most of the night, so these rules almost never fire early on. See that function for
+ * why the thresholds are steps rather than a smooth ramp -- a projector shifts colour unevenly, and
+ * a continuous gradient reads as "some shade of amber" from 25 feet while three named states stay
+ * distinguishable.
+ *
+ * The number is always the primary signal (`$1` is self-evident), so colour is reinforcement here
+ * rather than the sole carrier, which is what 7.7 requires.
+ */
+.cell[data-pressure='low'] {
+  color: var(--stale);
+}
+
+.cell[data-pressure='critical'] {
+  color: var(--warn);
+}
+
+/*
+ * MAX BID at $1 outranks the dimmed row it sits in.
+ *
+ * A broke row is dimmed, and dimming used to be the ONLY signal -- the same treatment a FULL roster
+ * gets, which means something completely different. "Cannot outbid anyone" is the most actionable
+ * fact on the board for whoever is bidding, so it gets the warning colour and full opacity even
+ * though its row is receding.
+ */
+.row[data-state='broke'] .cell-maxBid[data-pressure='critical'] {
+  color: var(--warn);
+  opacity: 1;
+}
+
+/* The leader's accent must not be overridden by a pressure rule it cannot be in. */
+.row[data-state='leader'] .cell-maxBid[data-pressure='none'] {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------- sale history (7.3) */
+
+/*
+ * The ONE screen allowed to scroll on a desktop or a projector.
+ *
+ * Everywhere else in this file, `overflow: hidden` and a fitted row count are load-bearing -- the
+ * board's twelve rows never scroll, because a wall has no scrollbar and nobody is standing at it.
+ * This view is the deliberate exception: a hundred and eighty sales cannot be paged without someone
+ * driving the pager, and truncating the list is exactly what the rail already does. It is opened by
+ * a person who is holding the keyboard, and it returns to the board by itself.
+ *
+ * Type sized from height and capped like the roster view, and for the same reason: this is a
+ * reference screen pinned against its own budget, so honouring `--scale` could only cost rows.
+ */
+.history {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.5em;
+  font-size: min(0.52em, 2.1vh);
+}
+
+.history-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--rule);
+}
+
+.history-count {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.history-total {
+  color: var(--fg-dim);
+}
+
+/* Pushed to the far end: it is a control, not a figure, and it must not sit among the numbers. */
+.history-sort {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 0.25em 0.6em;
+  border: 1px solid var(--rule);
+  border-radius: 0.3em;
+  background: var(--bg-row-alt);
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.history-sort:hover,
+.history-sort:focus-visible {
+  color: var(--fg);
+}
+
+.history-table {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.history-row {
+  display: grid;
+  /* #, nominator, player, pos, price, buyer. The player takes whatever is spare. */
+  grid-template-columns: 3em 8em minmax(0, 1fr) 3em 5em 8em;
+  align-items: baseline;
+  gap: 0.8em;
+  padding: 0.28em 0.2em;
+  line-height: 1.15;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Sticky, so the columns stay named however far down the night someone scrolls. */
+.history-labels {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  color: var(--fg-dim);
+  font-size: 0.82em;
+  letter-spacing: 0.1em;
+  border-bottom: 2px solid var(--rule);
+}
+
+.history-index,
+.history-nominator {
+  color: var(--fg-dim);
+}
+
+.history-player {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 800;
+}
+
+.history-player[data-position='QB'] { color: var(--pos-qb); }
+.history-player[data-position='RB'] { color: var(--pos-rb); }
+.history-player[data-position='WR'] { color: var(--pos-wr); }
+.history-player[data-position='TE'] { color: var(--pos-te); }
+.history-player[data-position='K'] { color: var(--pos-k); }
+
+.history-pos {
+  font-size: 0.85em;
+  color: var(--fg-dim);
+}
+
+.history-price {
+  text-align: right;
+  font-weight: 800;
+}
+
+.help-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+  margin-top: 0.9em;
+}
+
+.help-action {
+  flex: 0 0 auto;
+  padding: 0.35em 0.8em;
+  border: 1px solid var(--rule);
+  border-radius: 0.3em;
+  background: var(--bg-row-alt);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.help-action:hover,
+.help-action:focus-visible {
+  border-color: var(--fg-dim);
+}
+
+.history-empty {
+  margin: 0;
+  align-self: start;
+  color: var(--fg-dim);
+  font-weight: 400;
+}
+
+/* A phone gets the same list, minus the two columns it has no width for. */
+@media (max-width: 700px) {
+  .history {
+    font-size: 0.8em;
+  }
+  .history-row {
+    grid-template-columns: 2.2em minmax(0, 1fr) 3.6em 5em;
+    gap: 0.5em;
+  }
+  /* Nominator and POS go first: the player, the price and the buyer are the audit. */
+  .history-nominator,
+  .history-pos,
+  .history-labels > span:nth-child(2),
+  .history-labels > span:nth-child(4) {
     display: none;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countsFromSlots, derivePointer } from './pointer'
+import { countsFromSlots, derivePointer, nominatorBySeq } from './pointer'
 import { league } from '../config/league'
 import type { SaleEvent } from './diff'
 
@@ -148,5 +148,59 @@ describe('countsFromSlots', () => {
 
   it('is empty for an empty sheet', () => {
     expect(countsFromSlots({})).toEqual({})
+  })
+})
+
+describe('nominatorBySeq (the history view)', () => {
+  it('is empty with no order, because the nominator is then unknowable', () => {
+    const log = [sale(1, 'Alice')]
+    expect(nominatorBySeq({ order: [], baselineCounts: {}, log }).size).toBe(0)
+  })
+
+  it('walks the rotation, one nomination per sale', () => {
+    const log = [sale(1, 'Cara'), sale(2, 'Cara'), sale(3, 'Cara')]
+    const nominators = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    expect([...nominators.values()]).toEqual(['Alice', 'Bob', 'Cara'])
+  })
+
+  it('names the NOMINATOR, not the buyer', () => {
+    /*
+     * The distinction the whole column exists for. Anyone may outbid whoever put the player up, and
+     * the sheet records only the buyer -- so a history that showed `manager` under "nominated by"
+     * would be confidently wrong on most rows.
+     */
+    const log = [sale(1, 'Cara')]
+    const nominators = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    expect(nominators.get(1)).toBe('Alice')
+    expect(nominators.get(1)).not.toBe(log[0]!.manager)
+  })
+
+  it('keys by seq, so a retraction cannot shift every later name', () => {
+    // Positional alignment would misattribute the whole night after one deleted pick.
+    const log = [sale(1, 'Alice'), sale(3, 'Bob')]
+    const nominators = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    expect(nominators.get(1)).toBe('Alice')
+    expect(nominators.get(3)).toBe('Bob')
+    expect(nominators.has(2)).toBe(false)
+  })
+
+  it('skips a manager whose roster filled mid-draft', () => {
+    const counts = { Bob: league.auctionSlots - 1 }
+    const log = [sale(1, 'Bob'), sale(2, 'Cara')]
+    const nominators = nominatorBySeq({ order: ORDER, baselineCounts: counts, log })
+    // Alice nominates first; Bob's own purchase fills him, so Cara nominates second.
+    expect([...nominators.values()]).toEqual(['Alice', 'Cara'])
+  })
+
+  it('replays out of order safely', () => {
+    const log = [sale(2, 'Bob'), sale(1, 'Alice')]
+    const nominators = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    expect(nominators.get(1)).toBe('Alice')
+    expect(nominators.get(2)).toBe('Bob')
+  })
+
+  it('stops rather than looping once every roster is full', () => {
+    const counts = Object.fromEntries(ORDER.map((n) => [n, league.auctionSlots]))
+    expect(nominatorBySeq({ order: ORDER, baselineCounts: counts, log: [sale(1, 'Alice')] }).size).toBe(0)
   })
 })
