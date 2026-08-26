@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NO_REVISIONS, bumpRevisions } from './revisions'
+import { NO_REVISIONS, bumpRevisions, highestSeq, newSaleSeqs } from './revisions'
 import type { LeagueState, ManagerState } from './derive'
 
 function manager(name: string, over: Partial<ManagerState> = {}): ManagerState {
@@ -132,5 +132,43 @@ describe('bumpRevisions', () => {
     const before = field()
     const after = field({ Fay: { spent: 5 } })
     expect(bumpRevisions({ Alice: 7 }, before, after)).toEqual({ Alice: 7, Fay: 1 })
+  })
+})
+
+describe('newSaleSeqs and highestSeq', () => {
+  const sales = (...seqs: number[]) => seqs.map((seq) => ({ seq }))
+
+  it('finds the highest sequence, not the first element', () => {
+    // The rail is newest-first, but a retraction can leave the array out of step with the sequence.
+    expect(highestSeq(sales(9, 4, 2))).toBe(9)
+    expect(highestSeq(sales(2, 9, 4))).toBe(9)
+    expect(highestSeq([])).toBeNull()
+  })
+
+  it('treats nothing as new on the first look', () => {
+    /*
+     * The first paint of a session, and every frame after a watchdog reload. All four visible entries
+     * mount then, so a plain mount animation would flash the whole ticker and announce four sales that
+     * did not just happen.
+     */
+    expect(newSaleSeqs(sales(3, 2, 1), null).size).toBe(0)
+  })
+
+  it('flashes only the sales above what was last seen', () => {
+    expect([...newSaleSeqs(sales(5, 4, 3), 3)]).toEqual([5, 4])
+  })
+
+  it('flashes nothing when the log has not moved', () => {
+    // The age tick re-renders once a second; none of those are new sales.
+    expect(newSaleSeqs(sales(5, 4, 3), 5).size).toBe(0)
+  })
+
+  it('flashes nothing when a retraction leaves the top sequence lower than before', () => {
+    // Going backwards is not an arrival. The row flash covers the manager whose money changed.
+    expect(newSaleSeqs(sales(4, 3), 5).size).toBe(0)
+  })
+
+  it('handles the very first sale of the night', () => {
+    expect([...newSaleSeqs(sales(1), 0)]).toEqual([1])
   })
 })

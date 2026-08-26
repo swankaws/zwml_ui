@@ -44,6 +44,8 @@ export interface AppProps {
   sales?: readonly SaleEvent[]
   /** Per-manager change counters, for the once-only flash (7.7). See `model/revisions.ts`. */
   revisions?: Readonly<Record<string, number>>
+  /** Measurement only: makes the rail's washes visible to the layout gate. See `Rail`. */
+  demoFlash?: boolean
   enabledColumns?: ColumnKey[]
   feed?: FeedState
   feedLabel?: string
@@ -125,6 +127,7 @@ export function App({
   pointer = null,
   sales = [],
   revisions = {},
+  demoFlash = false,
   enabledColumns = [],
   feed,
   feedLabel,
@@ -286,7 +289,13 @@ export function App({
          * to be dimmer or further away than 7.1 assumed.
          */}
         {settings.rail && (
-          <Rail managers={state.managers} order={nominationOrder} cursor={onClock} sales={sales} />
+          <Rail
+            managers={state.managers}
+            order={nominationOrder}
+            cursor={onClock}
+            sales={sales}
+            demoFlash={demoFlash}
+          />
         )}
       </div>
       )}

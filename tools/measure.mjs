@@ -315,6 +315,8 @@ const PROBE = `(() => {
      * positioned pseudo-element, and the row geometry below is what proves it.
      */
     flashRows: document.querySelectorAll('.rows .row[data-flash]').length,
+    flashSales: document.querySelectorAll('.sale[data-flash]').length,
+    flashNominee: document.querySelectorAll('.nominee[data-flash]').length,
     rowCount: rows.length,
     firstRow: box(rows[0]),
     lastRow: box(rows[rows.length - 1]),

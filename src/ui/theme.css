@@ -1802,11 +1802,19 @@ kbd {
   }
 }
 
-.row {
+/*
+ * Three places wash, and they share one rule: a manager's row, a new LAST SOLD entry, and whoever
+ * just came ON THE CLOCK. Same gradient, same duration, so a glance reads them as the same event.
+ */
+.row,
+.sale,
+.nominee {
   position: relative;
 }
 
-.row[data-flash]::after {
+.row[data-flash]::after,
+.sale[data-flash]::after,
+.nominee[data-flash]::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -1843,11 +1851,34 @@ kbd {
 }
 
 /*
+ * The rail's two washes are narrower than a table row, so the gradient is stretched across more of
+ * them -- the same left-weighted shape reads as a thin sliver at rail width otherwise.
+ *
+ * `inset: 0`, and NOT the negative inset this first had. Bleeding the overlay a few pixels past the
+ * element looked slightly better and broke a real assertion: an absolutely positioned child outside
+ * the content box inflates the parent's `scrollWidth`, so `railClipped` reported every nominee as
+ * truncated -- the probe was right, and decoration does not get to weaken it.
+ */
+.sale[data-flash]::after,
+.nominee[data-flash]::after {
+  inset: 0;
+  border-radius: 0.2em;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--accent) 40%, transparent) 55%,
+    transparent 100%
+  );
+}
+
+/*
  * Honoured, and cheap to honour: the flash is the only motion in the entire app, so respecting the
  * preference costs a single rule and loses nothing but the animation.
  */
 @media (prefers-reduced-motion: reduce) {
-  .row[data-flash]::after {
+  .row[data-flash]::after,
+  .sale[data-flash]::after,
+  .nominee[data-flash]::after {
     animation: none;
     opacity: 0;
   }

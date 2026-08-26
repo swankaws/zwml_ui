@@ -75,3 +75,32 @@ export function bumpRevisions(
   for (const manager of moved) next[manager.name] = (next[manager.name] ?? 0) + 1
   return next
 }
+
+/**
+ * The highest sale sequence in a log, or `null` for an empty one.
+ *
+ * The rail and the history are handed sales newest-first, but "newest" by array position is not the
+ * same as "newest" by sequence once a retraction has removed one from the middle.
+ */
+export function highestSeq(sales: readonly { seq: number }[]): number | null {
+  return sales.length === 0 ? null : sales.reduce((max, s) => Math.max(max, s.seq), 0)
+}
+
+/**
+ * Which sales are new since the caller last looked — the LAST SOLD flash (7.7).
+ *
+ * `seen === null` means nothing has been looked at yet, i.e. the first paint of the session or the
+ * frame after a reload. Nothing is new then, and that is the whole point of the parameter: every
+ * visible entry mounts on a first paint, so a naive mount animation would flash the entire ticker at
+ * page load and again after every watchdog reload — announcing four sales that did not just happen.
+ */
+export function newSaleSeqs(
+  sales: readonly { seq: number }[],
+  seen: number | null,
+): ReadonlySet<number> {
+  if (seen === null) return EMPTY_SEQS
+  const fresh = sales.filter((sale) => sale.seq > seen).map((sale) => sale.seq)
+  return fresh.length === 0 ? EMPTY_SEQS : new Set(fresh)
+}
+
+const EMPTY_SEQS: ReadonlySet<number> = new Set()

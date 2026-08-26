@@ -258,6 +258,8 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * opacity-only on an absolutely-positioned pseudo-element, so it should be provably incapable of
        * shifting a pixel; this is what lets the harness say so rather than assume it.
        */
+      /* `?flash=N` also makes the rail's washes visible, which a static fixture otherwise cannot. */
+      demoFlash={params.get('flash') !== null}
       revisions={Object.fromEntries(
         fixture.state.managers
           .slice(0, Math.max(0, Number.parseInt(params.get('flash') ?? '0', 10) || 0))

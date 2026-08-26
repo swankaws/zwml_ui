@@ -159,3 +159,58 @@ describe('every real name in both tabs', () => {
     expect(abbreviated).toHaveLength(0)
   })
 })
+
+/*
+ * Surname particles. `Amon-Ra St. Brown` shortened to `A. Brown` is indistinguishable from AJ Brown or
+ * Antonio Brown, both of whom this league has drafted -- so the one word carrying the distinction must
+ * not be the first thing spent. A naive split makes `St.` a middle token, and middles go first.
+ */
+describe('a surname with a particle', () => {
+  it('keeps St. attached however the sheet spaces it', () => {
+    for (const name of ['Amon-Ra St. Brown', 'Amon-Ra St.Brown']) {
+      expect(splitName(name).last.replace(/\s+/g, ''), name).toBe('St.Brown')
+      expect(splitName(name).middles, name).toEqual([])
+    }
+  })
+
+  it('never shortens him to a bare Brown', () => {
+    /*
+     * The assertion the maintainer actually asked for: at every budget from the floor to the full
+     * name, the result must not be something a reader would read as a different Brown.
+     */
+    for (let max = 4; max <= 20; max += 1) {
+      const fitted = fitPlayerName('Amon-Ra St. Brown', max)
+      expect(fitted, `max=${max} -> ${fitted}`).not.toBe('A. Brown')
+      expect(fitted, `max=${max} -> ${fitted}`).not.toBe('Amon-Ra Brown')
+    }
+  })
+
+  it('shows the particle at any budget that can hold a surname at all', () => {
+    expect(fitPlayerName('Amon-Ra St. Brown', 17)).toBe('Amon-Ra St. Brown')
+    expect(fitPlayerName('Amon-Ra St. Brown', 13)).toBe('A. St. Brown')
+    expect(fitPlayerName('Amon-Ra St. Brown', 11)).toContain('St.')
+    expect(fitPlayerName('Amon-Ra St. Brown', 9)).toContain('St.')
+  })
+
+  it('reaches initials that still name both halves', () => {
+    // `A SB`, not `A S` -- a particle and its surname are one name, so both letters survive.
+    expect(fitPlayerName('Amon-Ra St. Brown', 5)).toBe('A SB')
+  })
+
+  it('handles the other particles the league pool contains', () => {
+    expect(fitPlayerName('Kyle Van Noy', 11)).toBe('K. Van Noy')
+    expect(splitName('Kyle Van Noy').last).toBe('Van Noy')
+    expect(splitName('Robert De Boer').last).toBe('De Boer')
+  })
+
+  it('does not mistake a joke middle for a particle', () => {
+    // `F'ing` is not a name fragment, and dropping it is exactly right.
+    expect(splitName("JJ F'ing McCarthy").middles).toEqual(["F'ing"])
+    expect(fitPlayerName("JJ F'ing McCarthy", 16)).toBe('JJ McCarthy')
+  })
+
+  it('still drops a suffix before it touches the particle', () => {
+    // The suffix is the least identifying part; the particle is among the most.
+    expect(fitPlayerName('Amon-Ra St. Brown Jr', 13)).toBe('A. St. Brown')
+  })
+})

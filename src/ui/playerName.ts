@@ -30,6 +30,19 @@
 /** Recognized name suffixes. Dropped before the surname is truncated, never after. */
 const SUFFIX = /^(?:jr|sr|i{1,3}|iv|v)\.?$/i
 
+/**
+ * Words that belong to the SURNAME even though a space precedes them.
+ *
+ * `Amon-Ra St. Brown` is the case that forced this, and the maintainer named exactly why it matters:
+ * shortened to `A. Brown` he is indistinguishable from AJ Brown or Antonio Brown, both of whom the
+ * league has drafted. The naive split makes `St.` a middle token, and middles are the first thing this
+ * ladder spends -- so the one word carrying the distinction was the first to go.
+ *
+ * The same applies across the league's usual pool: `Van Noy`, `De Boer`, `Le Ribeus`. Treating these as
+ * part of the surname keeps them through every rung except the initials floor.
+ */
+const PARTICLE = /^(?:st|van|von|de|del|della|di|da|du|la|le|den|der|ter|ten|mac|mc|o)\.?$/i
+
 const ELLIPSIS = '…'
 
 interface Parts {
@@ -57,7 +70,14 @@ export function splitName(name: string): Parts {
   if (tokens.length === 1) return { first: '', middles: [], last: tokens[0]!, suffix }
 
   const first = tokens.shift()!
-  const last = tokens.pop()!
+  let last = tokens.pop()!
+  /*
+   * Absorb trailing particles into the surname, innermost first: `[Amon-Ra] [St.] [Brown]` becomes a
+   * first name of `Amon-Ra` and a surname of `St. Brown`, not a droppable middle of `St.`.
+   */
+  while (tokens.length > 0 && PARTICLE.test(tokens[tokens.length - 1]!)) {
+    last = `${tokens.pop()!} ${last}`
+  }
   return { first, middles: tokens, last, suffix }
 }
 
@@ -68,11 +88,21 @@ export function splitName(name: string): Parts {
  * name rather than a typo, and `C-M` is guessable in a way `CM` is not.
  */
 function surnameInitials(last: string): string {
+  /*
+   * Hyphens are kept because they say "double-barrelled" rather than "typo"; spaces are not, because a
+   * particle and its surname are one name -- `St. Brown` reads better as `SB` than as `S B`.
+   */
   return last
-    .split('-')
-    .map((part) => part.trim()[0] ?? '')
-    .filter((letter) => letter !== '')
-    .join('-')
+    .split(' ')
+    .map((word) =>
+      word
+        .split('-')
+        .map((part) => part.trim()[0] ?? '')
+        .filter((letter) => letter !== '')
+        .join('-'),
+    )
+    .filter((part) => part !== '')
+    .join('')
 }
 
 /** `S` from `Saquon`, `A` from `Amon-Ra`, `J` from `Ja'Marr`. */

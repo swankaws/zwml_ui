@@ -210,11 +210,21 @@ const CASES = [
    * pushing the twelfth off the screen -- and the harness has one recorded case of a mid-flight
    * transform shifting an element 44px and masking the overflow the gate existed to catch.
    */
-  { size: '1920x1080', query: '?fixture=2026&demoOrder=1&flash=3', label: '1080p mid-flash', flash: 3 },
-  { size: '1024x768', query: '?fixture=2026&demoOrder=1&flash=3', label: '4:3 mid-flash', flash: 3 },
   {
     size: '1920x1080',
-    query: '?fixture=2026&demoOrder=1&flash=6&scale=1.15',
+    query: '?fixture=2026&demoOrder=1&cursor=0&flash=3',
+    label: '1080p mid-flash',
+    flash: 3,
+  },
+  {
+    size: '1024x768',
+    query: '?fixture=2026&demoOrder=1&cursor=0&flash=3',
+    label: '4:3 mid-flash',
+    flash: 3,
+  },
+  {
+    size: '1920x1080',
+    query: '?fixture=2026&demoOrder=1&cursor=0&flash=6&scale=1.15',
     label: 'flash at the ceiling',
     flash: 6,
   },
@@ -497,8 +507,17 @@ for (const testCase of CASES) {
     }
   }
 
-  if (testCase.flash !== undefined && m.flashRows !== testCase.flash) {
-    problems.push(`${m.flashRows} rows flashing, expected ${testCase.flash}`)
+  if (testCase.flash !== undefined) {
+    if (m.flashRows !== testCase.flash) {
+      problems.push(`${m.flashRows} rows flashing, expected ${testCase.flash}`)
+    }
+    /*
+     * The rail washes too, and its overlays are inset OUTSIDE their element (`inset: -0.12em -0.3em`)
+     * so they read at rail width -- which is the one version of this that could plausibly overflow.
+     * `railClipped` and the row assertions above are what say it does not.
+     */
+    if (m.flashSales === 0) problems.push('no LAST SOLD entry is washing')
+    if (m.flashNominee === 0) problems.push('the on-clock nominee is not washing')
   }
 
   if (m.docOverflow.x > 0) problems.push(`${m.docOverflow.x}px horizontal overflow`)
