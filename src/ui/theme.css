@@ -1883,3 +1883,110 @@ kbd {
     opacity: 0;
   }
 }
+
+/* --------------------------------------------------------- the finale (7.7) */
+
+/*
+ * A full-screen takeover, and the one moment in the night it is the right answer: every roster is full,
+ * so there is no bidding to interrupt and no MAX BID anyone needs. Every other overlay in this file is
+ * either in the flow or explicitly summoned precisely because the board underneath is load-bearing.
+ *
+ * Sized from viewport height and capped like the other reference screens, so a raised `--scale` cannot
+ * push the card off the wall.
+ */
+.complete {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  text-align: center;
+  font-size: min(1em, 4.4vh);
+}
+
+.complete-card {
+  min-width: 0;
+  max-width: 92%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.complete-kicker {
+  margin: 0 0 0.5em;
+  font-size: 0.42em;
+  letter-spacing: 0.22em;
+  color: var(--fg-dim);
+}
+
+/*
+ * The loudest thing on the wall, deliberately. `clamp` rather than a bare em so it cannot outgrow the
+ * card on a narrow screen -- a headline that wraps mid-word is the one way this could look like a fault
+ * rather than a joke.
+ */
+.complete-headline {
+  margin: 0;
+  font-size: clamp(28px, 1.5em, 150px);
+  line-height: 0.98;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+  text-wrap: balance;
+}
+
+.complete-total {
+  margin: 0.7em 0 0;
+  font-size: 0.46em;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.complete-awards {
+  margin: 1.2em auto 0;
+  display: grid;
+  /* Two up where there is room, one up where there is not. No media query needed. */
+  grid-template-columns: repeat(auto-fit, minmax(min(11em, 100%), 1fr));
+  gap: 0.5em 1.4em;
+  font-size: 0.44em;
+  text-align: left;
+}
+
+.complete-award {
+  min-width: 0;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--rule);
+  border-radius: 0.35em;
+  background: var(--bg-row-alt);
+}
+
+.complete-award dt {
+  margin: 0 0 0.15em;
+  font-size: 0.8em;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+}
+
+.complete-award dd {
+  margin: 0;
+  min-width: 0;
+  display: grid;
+}
+
+.complete-winner {
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.complete-detail {
+  font-size: 0.76em;
+  font-weight: 400;
+  color: var(--fg-dim);
+}
+
+/* A wall with no way back to the board is a broken wall, so the exit is on screen. */
+.complete-exit {
+  margin: 1.4em 0 0;
+  font-size: 0.34em;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}

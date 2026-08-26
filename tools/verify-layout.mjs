@@ -203,6 +203,23 @@ const CASES = [
     allowConsole: /render error|deliberate render error|above error|Error Boundary|uncaught/i,
   },
   /*
+   * The finale (all rosters full). `?fixture=2025` is the only completed draft in the repo, and
+   * `?view=complete` is the only way to reach this screen without waiting for a real draft to end --
+   * it fires on the TRANSITION, so merely loading a finished board deliberately does not show it.
+   *
+   * The awards are derived from the sale data, so the count is not fixed; these assert a floor and that
+   * the card fits. A headline wrapping mid-word is the one way this reads as a fault rather than a joke.
+   */
+  { size: '1920x1080', query: '?fixture=2025&view=complete', label: 'finale on the projector', complete: 3 },
+  { size: '1024x768', query: '?fixture=2025&view=complete', label: 'finale at 4:3', complete: 3 },
+  { size: '390x844', query: '?fixture=2025&view=complete', label: 'finale on a phone', complete: 3 },
+  {
+    size: '1920x1080',
+    query: '?fixture=2025&view=complete&scale=1.15',
+    label: 'finale at the ceiling',
+    complete: 3,
+  },
+  /*
    * The value flash (7.7), which is the only motion in the app.
    *
    * `?flash=N` marks N managers as just-changed. The row assertions below are the point: the overlay
@@ -391,7 +408,15 @@ for (const testCase of CASES) {
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
 
-  if (testCase.history !== undefined) {
+  if (testCase.complete !== undefined) {
+    if (m.completeAwards < testCase.complete) {
+      problems.push(`finale shows ${m.completeAwards} awards, expected at least ${testCase.complete}`)
+    }
+    if (m.completeClipped) problems.push('the finale card does not fit the screen')
+    if (m.completeHeadlineLines !== null && m.completeHeadlineLines > 2) {
+      problems.push(`the finale headline wrapped onto ${m.completeHeadlineLines} lines, expected 2`)
+    }
+  } else if (testCase.history !== undefined) {
     /*
      * Every sale present and nothing truncated. This view SCROLLS on purpose, so vertical overflow
      * inside the table is expected -- what must not happen is a row wider than the screen, or a

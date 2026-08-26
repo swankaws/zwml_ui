@@ -22,11 +22,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-export type View = 'board' | 'roster' | 'history'
+export type View = 'board' | 'roster' | 'history' | 'complete'
 
 export const IDLE_RETURN_MS = 45_000
 
-const VIEWS: readonly View[] = ['board', 'roster', 'history']
+const VIEWS: readonly View[] = ['board', 'roster', 'history', 'complete']
 
 /** `?view=roster` pins the view, which is how the layout gate measures it. */
 export function viewFromQuery(search: string): View | null {
@@ -72,8 +72,15 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
       viewRef.current = next
       setView(next)
       window.clearTimeout(idle)
-      // The board is what everything returns TO, so only the other views run the clock.
-      if (next !== 'board') idle = window.setTimeout(() => show('board'), IDLE_RETURN_MS)
+      /*
+       * The board is what everything returns TO, so only the other views run the clock -- except the
+       * finale, which is exempt. The idle timer exists so a projector is never stranded on a reference
+       * screen while bidding continues; once every roster is full there is no bidding to return to, and
+       * being stranded on the party is the desired outcome.
+       */
+      if (next !== 'board' && next !== 'complete') {
+        idle = window.setTimeout(() => show('board'), IDLE_RETURN_MS)
+      }
     }
 
     /** Any interaction restarts the clock -- see `onKey` for why this matters for history. */
@@ -89,6 +96,12 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
       if (event.key === 'r' || event.key === 'R') {
         show(viewRef.current === 'roster' ? 'board' : 'roster')
         event.preventDefault()
+        return
+      }
+
+      /* The way out of the finale, and harmless everywhere else. */
+      if (event.key === 'Escape' && viewRef.current !== 'board') {
+        show('board')
         return
       }
 

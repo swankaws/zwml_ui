@@ -305,6 +305,33 @@ const PROBE = `(() => {
       }
       return false
     })(),
+    /*
+     * The finale. It takes the whole content row, so what matters is that the card FITS -- a headline
+     * wrapping mid-word or an award pushed off the bottom is the one way this reads as a fault rather
+     * than a joke. Awards are derived, so the count varies by year; the gate asserts a floor, not a
+     * number.
+     */
+    completeAwards: document.querySelectorAll('.complete-award').length,
+    completeClipped: (() => {
+      const card = document.querySelector('.complete-card')
+      if (!card) return null
+      const r = card.getBoundingClientRect()
+      return (
+        clipped(card) ||
+        r.top < -1 ||
+        r.bottom > window.innerHeight + 1 ||
+        r.left < -1 ||
+        r.right > window.innerWidth + 1
+      )
+    })(),
+    /* The headline must never wrap onto more lines than it was written with. */
+    completeHeadlineLines: (() => {
+      const el = document.querySelector('.complete-headline')
+      if (!el) return null
+      const style = getComputedStyle(el)
+      const lh = parseFloat(style.lineHeight) || parseFloat(style.fontSize)
+      return Math.round(el.getBoundingClientRect().height / lh)
+    })(),
     header: box(document.querySelector('.header')),
     stage: box(document.querySelector('.stage')),
     tableArea: box(document.querySelector('.table-area')),

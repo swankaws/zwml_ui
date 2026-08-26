@@ -14,6 +14,7 @@ import { REFERENCE_TYPE_PX, selectColumns, type ColumnKey } from './columns'
 import { useDisplayScale } from './useDisplayScale'
 import { Roster } from './Roster'
 import { History } from './History'
+import { Complete } from './Complete'
 import { Help } from './Help'
 import { useHelp, useView } from './useView'
 import { useTheme } from './useTheme'
@@ -140,6 +141,20 @@ export function App({
   const { view, toggle: toggleView, show: showView } = useView()
   const { open: helpOpen, toggle: toggleHelp } = useHelp()
   const { theme, toggle: toggleTheme } = useTheme(settings.theme)
+
+  /*
+   * The finale fires on the TRANSITION to a full board, not on the state of being full.
+   *
+   * Loading an already-finished draft -- reopening the tab the next morning, or `?fixture=2025` in the
+   * layout gate -- shows a board. Only the moment the last roster fills takes the screen. That is both
+   * truer to what is being celebrated and what keeps every existing 2025 gate case measuring a board.
+   */
+  const wasComplete = useRef<boolean | null>(null)
+  useEffect(() => {
+    const complete = state.draftComplete
+    if (wasComplete.current === false && complete) showView('complete')
+    wasComplete.current = complete
+  }, [state.draftComplete, showView])
   /*
    * `?sort=oldest` exists only so the layout gate can measure the flipped order, which has no
    * keyboard route and a button the harness would otherwise have to click.
@@ -255,7 +270,9 @@ export function App({
        * the room the header's SPENT/CHASING/SLOTS totals and the notices strip -- the two
        * things that say whether what is on the wall can be trusted at all (7.8).
        */}
-      {view === 'history' ? (
+      {view === 'complete' ? (
+        <Complete year={year} state={state} sales={sales} />
+      ) : view === 'history' ? (
         <div className="stage" data-rail="off">
           <History
             sales={sales}
