@@ -1740,3 +1740,22 @@ kbd {
     display: none;
   }
 }
+
+/* --------------------------------------------------------- bonus money (2026) */
+
+/*
+ * Deliberately NOT on the draft board.
+ *
+ * The first version put a `+$25` badge beside the manager's name, on the reasoning that a manager
+ * with more than $200 left would otherwise read as broken arithmetic. The maintainer's call was that
+ * the board does not need it: a bonus is awarded once, it does not change during the auction, and it
+ * is already accounted for in LEFT and MAX BID -- which are the numbers people act on. So the board
+ * stays as dense as it was, and MANAGER keeps every pixel of its width for names.
+ *
+ * The roster view is where it is spelled out, because that is the screen someone opens when they want
+ * to know how a squad and its money got where they are, and it has room to say so plainly.
+ */
+.roster-bonus {
+  color: var(--accent);
+  font-size: 0.86em;
+}

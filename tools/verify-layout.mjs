@@ -203,6 +203,31 @@ const CASES = [
     allowConsole: /render error|deliberate render error|above error|Error Boundary|uncaught/i,
   },
   /*
+   * Bonus money (2026) on every manager at once, asserting the board is UNCHANGED by it.
+   *
+   * The maintainer's call was that the draft board does not show the award at all -- it is granted
+   * once, it does not move during the auction, and it is already inside LEFT and MAX BID, which are
+   * the numbers people act on. So these cases exist to prove a negative: awarding $125 to all twelve
+   * must not shift a column, truncate a name, or cost a row. An earlier draft DID render a badge
+   * beside each name, and MANAGER carries `text-overflow: ellipsis`, so an oversized one would have
+   * truncated a NAME silently -- 7.1's recorded trap. The badge is gone; the guard stays.
+   */
+  { size: '1920x1080', query: '?fixture=2026&demoOrder=1&bonus=125', label: '1080p with bonuses' },
+  { size: '1024x768', query: '?fixture=2026&demoOrder=1&bonus=125', label: '4:3 with bonuses' },
+  { size: '1280x1024', query: '?fixture=2026&demoOrder=1&bonus=125', label: '5:4 with bonuses' },
+  { size: '390x844', query: '?fixture=2026&demoOrder=1&bonus=125', label: 'phone with bonuses' },
+  {
+    size: '1920x1080',
+    query: '?fixture=2026&demoOrder=1&bonus=125&scale=1.15',
+    label: 'bonuses at the ceiling',
+  },
+  {
+    size: '1920x1080',
+    query: '?fixture=2025&view=roster&bonus=125',
+    label: 'roster with bonuses',
+    rosterCols: 6,
+  },
+  /*
    * The sale history (7.3), which is the one screen allowed to scroll on a projector. `?fixture=2025`
    * gives it 180 sales -- a completed draft -- which is the only content in the repo that fills it.
    * `?sort=oldest` measures the flipped order, which has no keyboard route.

@@ -13,7 +13,7 @@ const partial = deriveLeague(fixture('2026-auction.csv').blocks)
 const complete = deriveLeague(fixture('2025-auction.csv').blocks)
 
 /** A block with synthetic picks, for the arithmetic cases the fixtures don't cover. */
-function blockWith(prices: number[], name = 'Kevin'): ManagerBlock & { name: string } {
+function blockWith(prices: number[], name = 'Kevin', bonus = 0): ManagerBlock & { name: string } {
   const picks: Pick[] = prices.map((price, i) => ({
     position: 'RB',
     player: `Player ${i}`,
@@ -29,6 +29,7 @@ function blockWith(prices: number[], name = 'Kevin'): ManagerBlock & { name: str
     row: 1,
     col: 1,
     picks,
+    bonus,
     sheet: { total: null, remaining: null, needs: null, maxBid: null, positionCounts: {} },
   }
 }
@@ -329,5 +330,97 @@ describe('sortByMaxBid', () => {
       deriveManager(blockWith([10], 'Corky')),
     ]
     expect(sortByMaxBid(managers).map((m) => m.name)).toEqual(['Corky', 'Toby'])
+  })
+})
+
+/*
+ * Bonus money (2026): `remaining = budget + bonus - spent`.
+ *
+ * The budget stops being a league constant and becomes per-manager, which is the whole substance of
+ * this change -- every figure below derives from it.
+ */
+describe('bonus money', () => {
+  const BUDGET = league.budget
+
+  it('adds to what is left', () => {
+    const plain = deriveManager(blockWith([50]))
+    const awarded = deriveManager(blockWith([50], 'Kevin', 25))
+    expect(plain.remaining).toBe(BUDGET - 50)
+    expect(awarded.remaining).toBe(BUDGET + 25 - 50)
+  })
+
+  it('raises MAX BID by exactly the bonus, with no change to the formula', () => {
+    /*
+     * The reason bonus is folded into the budget rather than tracked beside it: `maxBid` holds back
+     * $1 per unfilled slot out of `remaining`, so it comes out right for free.
+     */
+    const plain = deriveManager(blockWith([50]))
+    const awarded = deriveManager(blockWith([50], 'Kevin', 25))
+    expect(awarded.maxBid).toBe(plain.maxBid! + 25)
+  })
+
+  it('is reported on the state, so the board can explain the extra money', () => {
+    // A manager showing more than $200 left with nothing explaining it reads as a broken board.
+    expect(deriveManager(blockWith([], 'Kevin', 15)).bonus).toBe(15)
+    expect(deriveManager(blockWith([])).bonus).toBe(0)
+  })
+
+  it('raises the overspend threshold to this manager’s own cap', () => {
+    // $210 spent is over the league's $200 but inside a $200 + $25 budget.
+    const overWithout = deriveManager(blockWith([105, 105]))
+    const fineWith = deriveManager(blockWith([105, 105], 'Kevin', 25))
+    expect(overWithout.overspent).toBe(true)
+    expect(fineWith.overspent).toBe(false)
+    expect(fineWith.remaining).toBe(15)
+  })
+
+  it('still reports an overspend that exceeds budget AND bonus', () => {
+    const state = deriveManager(blockWith([120, 120], 'Kevin', 25))
+    expect(state.remaining).toBe(-15)
+    expect(state.overspent).toBe(true)
+  })
+
+  it('denominates pctRemaining on the manager’s own budget', () => {
+    /*
+     * Against $200 a manager with a bonus would read as having more than 100% of their money left,
+     * which is the kind of figure that makes a room stop trusting the board.
+     */
+    const state = deriveManager(blockWith([], 'Kevin', 50))
+    expect(state.pctRemaining).toBe(1)
+  })
+
+  it('treats a negative bonus as a penalty, symmetrically', () => {
+    const state = deriveManager(blockWith([50], 'Kevin', -20))
+    expect(state.remaining).toBe(BUDGET - 20 - 50)
+    expect(state.maxBid).toBe(deriveManager(blockWith([50])).maxBid! - 20)
+  })
+
+  it('does not touch SPENT: bonus is budget, not a purchase', () => {
+    expect(deriveManager(blockWith([50], 'Kevin', 25)).spent).toBe(50)
+  })
+
+  it('flows into the league totals', () => {
+    const state = deriveLeague([
+      blockWith([10], 'Kevin', 30),
+      blockWith([20], 'Corky', 5),
+      blockWith([30], 'Ryan'),
+    ])
+    expect(state.leagueBonus).toBe(35)
+    // Money still chasing players includes it -- that is what CHASING means.
+    expect(state.leagueRemaining).toBe(3 * BUDGET + 35 - 60)
+    // ...and SPENT does not.
+    expect(state.leagueSpent).toBe(60)
+  })
+
+  it('changes nothing at all when every bonus is zero', () => {
+    /*
+     * The property that made this landable three days before the draft. The live sheet and both
+     * fixtures hold zeros, so until the league runners award anything the board is byte-for-byte the
+     * board it was before this existed.
+     */
+    const withField = deriveLeague([blockWith([10, 20], 'Kevin', 0), blockWith([5], 'Corky', 0)])
+    const withoutField = deriveLeague([blockWith([10, 20], 'Kevin'), blockWith([5], 'Corky')])
+    expect(withField).toEqual(withoutField)
+    expect(withField.leagueBonus).toBe(0)
   })
 })

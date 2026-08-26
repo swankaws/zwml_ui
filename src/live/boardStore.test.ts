@@ -14,6 +14,7 @@ import raw2026 from '../../docs/data-samples/2026-auction.csv?raw'
 import { createBoardStore, initialSnapshot, type BoardStore } from './boardStore'
 import { SheetFetchError, type SheetSource, type TabText } from '../data/sheetClient'
 import { parseCsv } from '../data/csv'
+import { league } from '../config/league'
 import { parseAuctionGrid } from '../data/gridParser'
 import { snapshotSlots } from '../model/diff'
 import type { SessionRecord } from './session'
@@ -809,5 +810,78 @@ describe('surviving a reload', () => {
 
     expect(h.store.getSnapshot().pointer.offset).toBe(0)
     expect(h.store.getSnapshot().sales).toEqual([])
+  })
+})
+
+/*
+ * Bonus money read dynamically (2026).
+ *
+ * It is awarded on draft night, possibly after the board is already up, so it cannot be a
+ * load-time-only value. The poll loop already re-parses any changed body, so this is really a test
+ * that nothing caches it -- and, more importantly, that a bonus edit does NOT look like a sale.
+ */
+describe('bonus money arriving mid-session', () => {
+  /** The live sheet's own layout: `Bonus $` in the stat column at `rowOffsets.bonus`. */
+  function withBonus(csv: string, amount: string): string {
+    const rows = parseCsv(csv).map((row) => [...row])
+    const { bandRows, blockStartCols, rowOffsets, colOffsets } = league.grid
+    const row = bandRows[0]! + rowOffsets.bonus
+    const col = blockStartCols[0]!
+    const line = rows[row] ?? []
+    while (line.length <= col + colOffsets.statValue) line.push('')
+    line[col + colOffsets.statLabel] = 'Bonus $'
+    line[col + colOffsets.statValue] = amount
+    rows[row] = line
+    return toCsv(rows)
+  }
+
+  it('picks up an award entered after the board was already running', async () => {
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    const before = h.store.getSnapshot().state!.managers.find((m) => m.name === 'Kevin')!
+    expect(before.bonus).toBe(0)
+
+    h.answer(GID, { text: withBonus(raw2026, '$25') })
+    await h.advance(INTERVAL)
+
+    const after = h.store.getSnapshot().state!.managers.find((m) => m.name === 'Kevin')!
+    expect(after.bonus).toBe(25)
+    // The whole point: it is spendable, so MAX BID rises by exactly the award.
+    expect(after.remaining).toBe(before.remaining + 25)
+    expect(after.maxBid).toBe(before.maxBid! + 25)
+  })
+
+  it('does not read a bonus edit as a sale', async () => {
+    /*
+     * The failure this guards. Bonus lives in the stat column, which `snapshotSlots` never reads --
+     * but if it had been added as new ROWS below `Remaining` instead, every slot key below the
+     * insertion would have changed and this poll would have emitted eight managers' entire rosters
+     * as brand-new sales. That is why it is in the stat column; this is the assertion that says so.
+     */
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    h.answer(GID, { text: withBonus(raw2026, '$25') })
+    await h.advance(INTERVAL)
+
+    expect(h.store.getSnapshot().sales).toEqual([])
+    expect(h.store.getSnapshot().pointer.log).toEqual([])
+  })
+
+  it('follows a bonus that is later corrected downward', async () => {
+    const h = harness()
+    h.answer(GID, { text: withBonus(raw2026, '$25') })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().state!.managers.find((m) => m.name === 'Kevin')!.bonus).toBe(25)
+
+    h.answer(GID, { text: withBonus(raw2026, '$10') })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().state!.managers.find((m) => m.name === 'Kevin')!.bonus).toBe(10)
   })
 })

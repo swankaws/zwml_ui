@@ -59,6 +59,18 @@ export const league = {
       def: 17,
       total: 18,
       remaining: 19,
+      /*
+       * Bonus money (2026), in the STAT column immediately after `K` -- not a new row below
+       * `Remaining`, which is where it was first proposed.
+       *
+       * The blocks sit on a 21-row stride and already occupy offsets 0-19, so inserting three rows
+       * would have pushed bands 2 and 3 down and made the stride 24. `model/diff.ts` keys every
+       * roster slot as col:row on the ABSOLUTE grid row, so every key below an insertion changes --
+       * and the next poll would read eight managers' whole rosters as brand-new sales, flooding the
+       * ticker and jumping the nomination pointer forward by dozens. Here it costs no rows at all,
+       * so a bonus can be added or edited safely while the board is live.
+       */
+      bonus: 9,
     },
     /** Column offsets relative to a block's start column. */
     colOffsets: {
@@ -70,6 +82,16 @@ export const league = {
     },
     /** Expected stat labels, in order, in the statLabel column. */
     statLabels: ['Needs', 'Max Bid', 'QB', 'RB', 'WR', 'TE', 'K'] as const,
+    /**
+     * Accepted spellings of the bonus label, lowercased. The live sheet says `Bonus $`.
+     *
+     * Deliberately NOT part of `statLabels`: that list is walked positionally from `starters[0]` and
+     * everything after `Max Bid` is treated as a position count. Bonus is neither a count nor a
+     * figure we cross-check -- it is authoritative INPUT, like a price. It is also absent from the
+     * 2025 tab, which must stay silent: that season had no bonus, so a blank cell means zero rather
+     * than a template violation.
+     */
+    bonusLabels: ['bonus $', 'bonus'] as readonly string[],
   },
 
   /**

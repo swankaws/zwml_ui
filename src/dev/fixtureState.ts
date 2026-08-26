@@ -54,7 +54,19 @@ export function loadFixture(search: string): FixtureState {
   const fixture = FIXTURES[requested] ?? FIXTURES['2026']!
 
   const parsed = parseAuctionGrid(parseCsv(fixture.csv))
-  const state = deriveLeague(parsed.blocks)
+  /*
+   * `?bonus=N` awards N to every manager, for the layout gate only.
+   *
+   * The committed fixtures hold zeros -- correctly, they are captures of tabs that had none -- so
+   * without this the bonus badge would never be rendered at any resolution and its width would go
+   * unmeasured. Applying it to ALL twelve is the worst case for the MANAGER column, which is the one
+   * column that may never be dropped.
+   */
+  const bonus = Number.parseInt(params.get('bonus') ?? '', 10)
+  const blocks = Number.isFinite(bonus)
+    ? parsed.blocks.map((block) => ({ ...block, bonus }))
+    : parsed.blocks
+  const state = deriveLeague(blocks)
   const resolved = resolveOrder(params.get('demoOrder'), state, parsed.orderHint)
 
   return {

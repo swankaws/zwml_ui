@@ -24,7 +24,19 @@ export interface ManagerState {
   name: string
   picks: Pick[]
   spent: number
-  /** `budget - spent`. Never floored at 0 -- historical tabs go negative (section 5.7). */
+  /**
+   * Bonus money awarded on draft night, from the sheet. `0` for 2025 and for any manager who has
+   * not been awarded any.
+   *
+   * It is real budget: `remaining = league.budget + bonus - spent`, so MAX BID rises with it and the
+   * $200 cap becomes a $200-plus-bonus cap for that manager. Kept on the state rather than folded
+   * silently into `remaining` so the board can SAY why someone has more money than the others --
+   * a manager showing more than $200 left with nothing explaining it reads as a broken board.
+   */
+  bonus: number
+  /**
+   * `budget + bonus - spent`. Never floored at 0 -- historical tabs go negative (section 5.7).
+   */
   remaining: number
   slotsFilled: number
   needs: number
@@ -54,6 +66,8 @@ export interface LeagueState {
    */
   duplicated: string[]
   leagueSpent: number
+  /** Sum of bonus money awarded (2026). `0` until the league runners award any. */
+  leagueBonus: number
   /** Dollars that can still chase players -- active managers only. See below. */
   leagueRemaining: number
   leagueNeeds: number
@@ -69,8 +83,18 @@ function emptyCounts(): Record<Position, number> {
 }
 
 export function deriveManager(block: ManagerBlock & { name: string }): ManagerState {
-  const { budget, minBid, auctionSlots } = league
+  const { minBid, auctionSlots } = league
   const picks = block.picks
+  /*
+   * The budget is PER MANAGER now, not a league constant.
+   *
+   * Bonus money (2026) is added rather than tracked separately, because every number downstream
+   * wants the combined figure: `maxBid` falls out correctly with no change, the overspend check
+   * becomes a $200-plus-bonus cap for that manager on its own, and `leagueRemaining` picks it up for
+   * free. A negative bonus -- a penalty -- works the same way in reverse.
+   */
+  const bonus = block.bonus
+  const budget = league.budget + bonus
 
   const spent = picks.reduce((sum, p) => sum + p.price, 0)
   const remaining = budget - spent
@@ -101,10 +125,16 @@ export function deriveManager(block: ManagerBlock & { name: string }): ManagerSt
     name: block.name,
     picks,
     spent,
+    bonus,
     remaining,
     slotsFilled,
     needs,
     maxBid,
+    /*
+     * Against this manager's OWN budget, bonus included -- "what share of their money is left",
+     * which is the only reading that stays comparable once budgets differ. Denominating on the
+     * league's $200 would make a manager with a bonus read as having more than 100%.
+     */
     pctRemaining: remaining / budget,
     avgPerSlot: needs > 0 ? remaining / needs : null,
     positionCounts,
@@ -164,6 +194,11 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
   const managers = [...known, ...extra]
 
   const leagueSpent = managers.reduce((sum, m) => sum + m.spent, 0)
+  /*
+   * Total bonus in play, so the header can explain itself. Without it, `CHASING` exceeding
+   * 12 x $200 looks like an arithmetic bug rather than money the league actually awarded.
+   */
+  const leagueBonus = managers.reduce((sum, m) => sum + m.bonus, 0)
   const leagueNeeds = managers.reduce((sum, m) => sum + m.needs, 0)
   const slotsFilled = managers.reduce((sum, m) => sum + m.slotsFilled, 0)
 
@@ -186,6 +221,7 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
     unmatched,
     duplicated,
     leagueSpent,
+    leagueBonus,
     leagueRemaining,
     leagueNeeds,
     slotsFilled,

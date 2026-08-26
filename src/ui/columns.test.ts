@@ -9,6 +9,7 @@ function managerState(overrides: Partial<ManagerState> = {}): ManagerState {
     name: 'Kevin',
     picks: [],
     spent: 0,
+    bonus: 0,
     remaining: 200,
     slotsFilled: 0,
     needs: 15,

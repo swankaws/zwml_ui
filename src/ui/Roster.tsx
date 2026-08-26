@@ -147,6 +147,12 @@ function RosterBlock({ manager, nameChars }: { manager: ManagerState; nameChars:
          * deliberately NOT repeated here: it is the auction board's headline number, and a
          * second copy that lags a poll behind would be worse than no copy.
          */}
+        {/* Spelled out here, where there is room, rather than as a badge. */}
+        {manager.bonus !== 0 && (
+          <span className="roster-bonus">
+            {manager.bonus > 0 ? `+${money(manager.bonus)}` : money(manager.bonus)}
+          </span>
+        )}
         <span className="roster-spent">{money(manager.spent)}</span>
         <span className="roster-left" data-over={manager.overspent}>
           {money(manager.remaining)}

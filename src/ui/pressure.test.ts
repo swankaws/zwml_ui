@@ -8,6 +8,7 @@ function manager(over: Partial<ManagerState> = {}): ManagerState {
     name: 'Kevin',
     picks: [],
     spent: 0,
+    bonus: 0,
     remaining: league.budget,
     slotsFilled: 0,
     needs: league.auctionSlots,

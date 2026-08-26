@@ -316,3 +316,96 @@ describe('degradation, not exceptions', () => {
     expect(parsed.renderable).toBe(false)
   })
 })
+
+/*
+ * Bonus money (2026). It lives in the STAT column at offset 9, immediately after `K` -- not in new
+ * rows below `Remaining`, because inserting rows would move every slot key the diff engine depends
+ * on. See the note on `rowOffsets.bonus`.
+ */
+describe('bonus money', () => {
+  const BAND = league.grid.bandRows[0]!
+  const COL = league.grid.blockStartCols[0]!
+  const LABEL_COL = COL + league.grid.colOffsets.statLabel
+  const VALUE_COL = COL + league.grid.colOffsets.statValue
+  const ROW = BAND + league.grid.rowOffsets.bonus
+
+  function withBonus(label: string, value: string): ReturnType<typeof parseAuctionGrid> {
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    setCell(rows, ROW, LABEL_COL, label)
+    setCell(rows, ROW, VALUE_COL, value)
+    return parseAuctionGrid(rows)
+  }
+
+  it('reads the value the live sheet spells "Bonus $"', () => {
+    const tab = withBonus('Bonus $', '$25')
+    expect(tab.blocks[0]?.bonus).toBe(25)
+    expect(tab.warnings).toEqual([])
+  })
+
+  it('accepts the label without the dollar sign', () => {
+    expect(withBonus('Bonus', '25').blocks[0]?.bonus).toBe(25)
+  })
+
+  it('is case-insensitive, like every other label in this parser', () => {
+    expect(withBonus('BONUS $', '25').blocks[0]?.bonus).toBe(25)
+  })
+
+  it('reads a negative bonus, since a penalty is the same mechanism', () => {
+    expect(withBonus('Bonus $', '-10').blocks[0]?.bonus).toBe(-10)
+  })
+
+  /*
+   * The silence that matters. These rows sit empty all night until the league runners award
+   * anything, and 2025 has no bonus row at all -- a warning per manager per poll would train
+   * whoever is watching to ignore the warning channel on the one night it counts (9.2's argument).
+   */
+  it('treats a blank label as no bonus, silently', () => {
+    const tab = withBonus('', '')
+    expect(tab.blocks[0]?.bonus).toBe(0)
+    expect(tab.warnings).toEqual([])
+  })
+
+  it('reads zero as zero rather than as absent', () => {
+    expect(withBonus('Bonus $', '0').blocks[0]?.bonus).toBe(0)
+  })
+
+  it('warns when the label is something else entirely, because the template has moved', () => {
+    const tab = withBonus('Waivers', '25')
+    expect(tab.blocks[0]?.bonus).toBe(0)
+    expect(tab.warnings.some((w) => w.message.includes('bonus label'))).toBe(true)
+    // Still renderable: a stat-column surprise must not cost the room the auction.
+    expect(tab.renderable).toBe(true)
+  })
+
+  it('counts an unreadable value as $0 and says so', () => {
+    // Zero is the safe reading in this direction: inventing budget would raise MAX BID.
+    const tab = withBonus('Bonus $', 'twenty')
+    expect(tab.blocks[0]?.bonus).toBe(0)
+    expect(tab.warnings.some((w) => w.message.includes('Unreadable bonus'))).toBe(true)
+  })
+
+  it('is zero for every block in both committed fixtures, with no warnings about it', () => {
+    /*
+     * The inert-when-absent property, and the reason this change was safe to land three days before
+     * the draft: until the sheet holds a value, every number on the board is what it was before.
+     */
+    for (const tab of [partial, complete]) {
+      expect(tab.blocks.map((b) => b.bonus)).toEqual(new Array(tab.blocks.length).fill(0))
+      expect(tab.warnings.filter((w) => w.message.toLowerCase().includes('bonus'))).toEqual([])
+    }
+  })
+
+  it('reads each block independently, so one manager can be awarded and others not', () => {
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    const secondCol = league.grid.blockStartCols[1]!
+    setCell(rows, ROW, LABEL_COL, 'Bonus $')
+    setCell(rows, ROW, VALUE_COL, '30')
+    setCell(rows, ROW, secondCol + league.grid.colOffsets.statLabel, 'Bonus $')
+    setCell(rows, ROW, secondCol + league.grid.colOffsets.statValue, '5')
+
+    const blocks = parseAuctionGrid(rows).blocks
+    expect(blocks[0]?.bonus).toBe(30)
+    expect(blocks[1]?.bonus).toBe(5)
+    expect(blocks[2]?.bonus).toBe(0)
+  })
+})

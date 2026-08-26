@@ -39,6 +39,14 @@ export interface SheetFigures {
 export interface ManagerBlock {
   /** Canonical name from config, or `null` if the cell matched no known manager. */
   name: string | null
+  /**
+   * Bonus money awarded on draft night (2026). `0` when the row is absent, as in 2025.
+   *
+   * On the block rather than in `sheet` because it is authoritative INPUT, like a price -- not a
+   * figure the sheet computed that we cross-check against our own. `deriveLeague` adds it to the
+   * budget: `remaining = budget + bonus - spent`.
+   */
+  bonus: number
   /** Exactly what the cell said, for the unmatched-name warning row. */
   rawName: string
   band: number
@@ -242,6 +250,7 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
       row: bandRow,
       col,
       picks,
+      bonus: readBonus(grid, bandRow, col, warnAt),
       sheet: {
         total: readInt(cell(grid, totalRow, col + colOffsets.price)),
         remaining: readInt(cell(grid, remainingRow, col + colOffsets.price)),
@@ -284,5 +293,44 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
     })
 
     return { needs, maxBid, positionCounts }
+  }
+
+  /**
+   * Bonus money from the stat column (2026).
+   *
+   * Three outcomes, and the middle one is the point: the label reads bonus-ish and the value parses,
+   * so we use it; the cell is BLANK, which is 2025 and every pre-award 2026 poll, so it is zero and
+   * silent; or the label says something else entirely, which means the template moved under us and
+   * deserves a warning rather than a silent zero.
+   *
+   * A blank must never warn. The rows exist all night with nothing in them until the league runners
+   * award anything, and a warning per manager per poll would train whoever is watching to ignore the
+   * warning channel on the one night it matters (9.2's argument, applied here).
+   */
+  function readBonus(
+    grid: string[][],
+    bandRow: number,
+    col: number,
+    warnAt: typeof warn,
+  ): number {
+    const row = bandRow + rowOffsets.bonus
+    const label = cell(grid, row, col + colOffsets.statLabel).trim()
+    const raw = cell(grid, row, col + colOffsets.statValue)
+
+    if (label === '') return 0
+    if (!league.grid.bonusLabels.includes(label.toLowerCase())) {
+      warnAt(row, col + colOffsets.statLabel, `Expected the bonus label here, found "${label}"`)
+      return 0
+    }
+
+    const value = readInt(raw)
+    if (value === null) {
+      // Labelled but unreadable. Zero is the safe reading -- inventing budget would raise MAX BID.
+      if (raw.trim() !== '') {
+        warnAt(row, col + colOffsets.statValue, `Unreadable bonus "${raw}" -- counted as $0`)
+      }
+      return 0
+    }
+    return value
   }
 }

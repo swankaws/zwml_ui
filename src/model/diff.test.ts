@@ -22,6 +22,7 @@ function block(over: Partial<ManagerBlock> = {}): ManagerBlock {
     row: 2,
     col: 0,
     picks: [pick()],
+    bonus: 0,
     sheet: { total: null, remaining: null, needs: null, maxBid: null, positionCounts: {} },
     ...over,
   }
