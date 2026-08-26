@@ -250,6 +250,19 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * a log. `?cursor=` still pins the on-clock highlight; see the note in `App`.
        */
       pointer={{ baselineCounts: {}, log: fixture.sales, offset: 0 }}
+      /*
+       * `?flash=N` marks the first N managers as just-changed, for the layout gate.
+       *
+       * The fixture is static, so nothing ever moves and the flash overlay would never be rendered at
+       * any resolution -- unmeasured motion is exactly the mistake the notices strip made. It is
+       * opacity-only on an absolutely-positioned pseudo-element, so it should be provably incapable of
+       * shifting a pixel; this is what lets the harness say so rather than assume it.
+       */
+      revisions={Object.fromEntries(
+        fixture.state.managers
+          .slice(0, Math.max(0, Number.parseInt(params.get('flash') ?? '0', 10) || 0))
+          .map((manager) => [manager.name, 1]),
+      )}
       settings={settings}
       columnsFrom={columnsFrom}
       feedLabel="FIXTURE"

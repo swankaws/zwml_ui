@@ -203,6 +203,22 @@ const CASES = [
     allowConsole: /render error|deliberate render error|above error|Error Boundary|uncaught/i,
   },
   /*
+   * The value flash (7.7), which is the only motion in the app.
+   *
+   * `?flash=N` marks N managers as just-changed. The row assertions below are the point: the overlay
+   * is absolutely positioned and animates opacity only, so it must be incapable of moving a row or
+   * pushing the twelfth off the screen -- and the harness has one recorded case of a mid-flight
+   * transform shifting an element 44px and masking the overflow the gate existed to catch.
+   */
+  { size: '1920x1080', query: '?fixture=2026&demoOrder=1&flash=3', label: '1080p mid-flash', flash: 3 },
+  { size: '1024x768', query: '?fixture=2026&demoOrder=1&flash=3', label: '4:3 mid-flash', flash: 3 },
+  {
+    size: '1920x1080',
+    query: '?fixture=2026&demoOrder=1&flash=6&scale=1.15',
+    label: 'flash at the ceiling',
+    flash: 6,
+  },
+  /*
    * Bonus money (2026) on every manager at once, asserting the board is UNCHANGED by it.
    *
    * The maintainer's call was that the draft board does not show the award at all -- it is granted
@@ -479,6 +495,10 @@ for (const testCase of CASES) {
     if (phone && m.touchButtons.minSide !== null && m.touchButtons.minSide < 44) {
       problems.push(`touch target is ${m.touchButtons.minSide}px, under the 44px minimum`)
     }
+  }
+
+  if (testCase.flash !== undefined && m.flashRows !== testCase.flash) {
+    problems.push(`${m.flashRows} rows flashing, expected ${testCase.flash}`)
   }
 
   if (m.docOverflow.x > 0) problems.push(`${m.docOverflow.x}px horizontal overflow`)

@@ -411,12 +411,12 @@ describe('bonus money', () => {
 })
 
 /*
- * The DEF row (5.3: "position label only, no player and no price"). It sits one row below the last
- * bench row and one above `Total`, so it is an easy miss for someone typing fast down a block -- and
- * a pick landing there is invisible in an expensive way: no ticker entry, no pointer advance, and MAX
- * BID left high by exactly the price that was paid.
+ * The DEF row. Defenses are drafted before the auction and cost nothing (Q5), so a team name here is
+ * expected and must be silent -- it is entered for all twelve managers. A real PRICE is the mistake:
+ * the row sits between the last bench row and `Total`, so an auction pick can land there, and it would
+ * be invisible in an expensive way (no ticker entry, no pointer advance, MAX BID left high).
  */
-describe('a pick typed into the DEF row', () => {
+describe('the free DEF row', () => {
   const BAND = league.grid.bandRows[0]!
   const COL = league.grid.blockStartCols[0]!
   const DEF = BAND + league.grid.rowOffsets.def
@@ -428,34 +428,60 @@ describe('a pick typed into the DEF row', () => {
     return parseAuctionGrid(rows)
   }
 
-  it('is reported rather than swallowed', () => {
+  const defWarnings = (tab: ReturnType<typeof parseAuctionGrid>) =>
+    tab.warnings.filter((w) => w.message.includes('DEF row'))
+
+  it('is silent about a defense entered with no price, for all twelve', () => {
+    /*
+     * The case that matters most: after the defensive draft every block has a team name here. An
+     * earlier version of this check warned on the NAME, which would have put twelve warnings on the
+     * wall on every poll -- the cry-wolf failure 9.2 argues against, introduced by a fix for
+     * something else.
+     */
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    for (const band of league.grid.bandRows) {
+      for (const col of league.grid.blockStartCols) {
+        setCell(rows, band + league.grid.rowOffsets.def, col + league.grid.colOffsets.player, '49ers')
+      }
+    }
+    const tab = parseAuctionGrid(rows)
+    expect(defWarnings(tab)).toEqual([])
+    expect(tab.renderable).toBe(true)
+  })
+
+  it('treats a free defense as free: no pick, no slot, no money', () => {
+    // `collect` walks starters and bench only, so this is already true -- pinned because the ticker,
+    // the nomination pointer and MAX BID all depend on it staying true.
+    const before = parseAuctionGrid(parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8')))
+    const after = withDefEntry('49ers', '')
+    expect(after.blocks[0]?.picks).toEqual(before.blocks[0]?.picks)
+  })
+
+  it.each([['a dash', '-'], ['zero', '$0'], ['nothing', '']])(
+    'stays silent when the price cell holds %s',
+    (_label, price) => {
+      expect(defWarnings(withDefEntry('49ers', price))).toEqual([])
+    },
+  )
+
+  it('warns about a real price, which a free slot cannot have', () => {
     const tab = withDefEntry('Puka Nacua', '$40')
-    expect(tab.warnings.some((w) => w.message.includes('DEF row'))).toBe(true)
+    expect(defWarnings(tab)).toHaveLength(1)
+    expect(defWarnings(tab)[0]?.message).toContain('Puka Nacua')
+    expect(defWarnings(tab)[0]?.message).toContain('bench')
   })
 
-  it('names the player, so the fix is obvious from across the room', () => {
-    const warning = withDefEntry('Puka Nacua', '$40').warnings.find((w) => w.message.includes('DEF'))
-    expect(warning?.message).toContain('Puka Nacua')
-    expect(warning?.message).toContain('bench')
-  })
-
-  it('warns on a price with no name, and on a name with no price', () => {
-    expect(withDefEntry('', '$40').warnings.some((w) => w.message.includes('DEF row'))).toBe(true)
-    expect(withDefEntry('Puka Nacua', '').warnings.some((w) => w.message.includes('DEF row'))).toBe(true)
+  it('warns on a price even with no name beside it', () => {
+    expect(defWarnings(withDefEntry('', '$40'))).toHaveLength(1)
   })
 
   it('stays renderable: the other eleven blocks are still the truth', () => {
-    // Warning, never fatal. Refusing the whole tab would cost the room every correct figure on it.
     expect(withDefEntry('Puka Nacua', '$40').renderable).toBe(true)
   })
 
-  it('does not fire on either committed fixture, in any of the 24 blocks', () => {
-    /*
-     * The property that makes this assert safe to add three days out: a warning that cries wolf on
-     * real data is worse than no warning, because it trains the room to ignore the channel (9.2).
-     */
+  it('does not fire on either committed fixture', () => {
     for (const tab of [partial, complete]) {
-      expect(tab.warnings.filter((w) => w.message.includes('DEF row'))).toEqual([])
+      expect(defWarnings(tab)).toEqual([])
     }
   })
 })

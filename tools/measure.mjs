@@ -309,6 +309,12 @@ const PROBE = `(() => {
     stage: box(document.querySelector('.stage')),
     tableArea: box(document.querySelector('.table-area')),
     rail: box(document.querySelector('.rail')),
+    /*
+     * The once-only value flash (7.7). Two things must hold: the overlay is actually rendered when a
+     * manager has moved, and it cannot shift anything -- it is opacity-only on an absolutely
+     * positioned pseudo-element, and the row geometry below is what proves it.
+     */
+    flashRows: document.querySelectorAll('.rows .row[data-flash]').length,
     rowCount: rows.length,
     firstRow: box(rows[0]),
     lastRow: box(rows[rows.length - 1]),

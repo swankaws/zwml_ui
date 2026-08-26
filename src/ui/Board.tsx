@@ -14,6 +14,12 @@ import { league } from '../config/league'
 export interface BoardProps {
   managers: ManagerState[]
   columns: Column[]
+  /**
+   * Per-manager change counters (`model/revisions.ts`). Used as part of the row `key`, which is what
+   * restarts the flash animation: a CSS animation does not re-fire on an attribute change, so the row
+   * has to be a new element. Absent on the fixture path, where nothing changes.
+   */
+  revisions?: Readonly<Record<string, number>>
 }
 
 /** Which visual state a row is in. Meaning only -- never decoration. */
@@ -39,7 +45,7 @@ function distinguishingTopBid(managers: ManagerState[]): number | null {
   return tied > managers.length / 2 ? null : top
 }
 
-export function Board({ managers, columns }: BoardProps) {
+export function Board({ managers, columns, revisions = {} }: BoardProps) {
   const template = columns.map((c) => `minmax(0, ${c.width}fr)`).join(' ')
   const topMaxBid = distinguishingTopBid(managers)
 
@@ -64,11 +70,21 @@ export function Board({ managers, columns }: BoardProps) {
       <div className="rows">
         {managers.map((m) => (
           <div
-            key={m.name}
+            /*
+             * The revision is part of the key so a change REMOUNTS the row, which is the only reliable
+             * way to restart a CSS animation -- it will not re-fire on an attribute change alone.
+             * Twelve rows is cheap to remount, and the row holds no state to lose.
+             */
+            key={`${m.name}:${revisions[m.name] ?? 0}`}
             className="row"
             style={{ gridTemplateColumns: template }}
             data-state={rowState(m, topMaxBid)}
             data-invalid={m.overspent || m.overRostered}
+            /*
+             * Only once a manager has actually moved. Without this every row would flash on first
+             * paint, and again on every watchdog reload -- announcing a board that merely appeared.
+             */
+            data-flash={(revisions[m.name] ?? 0) > 0 ? '' : undefined}
           >
             {columns.map((column) => (
               <div

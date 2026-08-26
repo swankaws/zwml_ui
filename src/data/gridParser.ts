@@ -184,27 +184,33 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
     }
 
     /*
-     * A pick typed into the DEF row is invisible, and expensively so.
+     * The DEF row holds a free defense, and a PRICE there is the mistake worth catching.
      *
-     * `collect` walks starters and bench only, and the DEF row sits one row below the last bench row
-     * and one above `Total` -- an easy miss for someone typing fast down a block. Nothing else notices:
-     * the Pos cell still says DEF so the check above passes, no `Pick` is produced, so the player is
-     * absent from the ticker, the roster and the history, the nomination pointer never advances for
-     * that sale, and MAX BID stays high by the price that was paid. 5.3 states the invariant -- "DEF
-     * row: position label only, no player and no price" -- and this was the one cell in the block that
-     * did not assert it.
+     * Defenses are drafted before the auction and cost nothing (Q5, `league.freeDefenseSlot`), so a
+     * team name in this row is expected and must be silent -- it is entered for all twelve managers
+     * during the defensive draft. `collect` walks starters and bench only, so a name here is already
+     * invisible to picks, slots, money, the ticker and the nomination pointer, which is exactly right.
      *
-     * A warning, never fatal: the money on screen is still the money the sheet holds for every OTHER
-     * row, so this may not cost the room the board. Verified blank across all 24 blocks of both
-     * committed fixtures, so it cannot cry wolf on real data.
+     * A real price is different. The row sits one below the last bench row and one above `Total`, so
+     * it is an easy miss for someone typing fast down a block -- and an auction pick landing there is
+     * invisible in an expensive way: absent from the ticker, the roster and the history, no pointer
+     * advance, and MAX BID left high by exactly the price paid. A free slot cannot cost money, so any
+     * amount at or above the minimum bid is a misplaced pick rather than a defense.
+     *
+     * Zero and blank are both silent: `$0` is a perfectly reasonable way to write down something free.
+     *
+     * A warning, never fatal -- every other row's money is still the truth. And note the first version
+     * of this check warned on a NAME too, which would have fired for all twelve managers on every poll
+     * the moment the defensive draft was entered: the cry-wolf failure 9.2 argues against, introduced
+     * by a fix for something else.
      */
-    const defPlayer = cell(grid, defRow, col + colOffsets.player)
-    const defPrice = cell(grid, defRow, col + colOffsets.price)
-    if (defPlayer !== '' || defPrice !== '') {
+    const defPrice = readPrice(cell(grid, defRow, col + colOffsets.price))
+    if (defPrice.kind === 'ok' && defPrice.value >= league.minBid) {
+      const defPlayer = cell(grid, defRow, col + colOffsets.player)
       warnAt(
         defRow,
-        col + colOffsets.player,
-        `"${defPlayer || defPrice}" is in the DEF row, so it is NOT counted as a pick -- move it to a bench row`,
+        col + colOffsets.price,
+        `The DEF row is free, but holds a price${defPlayer ? ` for "${defPlayer}"` : ''} -- an auction pick here is NOT counted; move it to a bench row`,
       )
     }
 

@@ -128,6 +128,7 @@ function BoardSurface({ snapshot, search, cursor }: SurfaceProps) {
       cursor={cursor}
       pointer={cursor === null ? snapshot.pointer : null}
       sales={snapshot.sales}
+      revisions={snapshot.revisions}
       settings={settings}
       columnsFrom={columnsPinnedByQuery(search) ? 'query' : 'sheet'}
       feed={snapshot.feed}

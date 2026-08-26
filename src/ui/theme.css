@@ -1759,3 +1759,96 @@ kbd {
   color: var(--accent);
   font-size: 0.86em;
 }
+
+/* ------------------------------------------------------- the value flash (7.7) */
+
+/*
+ * A row flashes ONCE, briefly, when that manager's figures move.
+ *
+ * 7.7 allows exactly this and nothing more: "Motion minimal and purposeful: a changed value flashes
+ * once, briefly. No spinners, no looping animation, nothing that pulls the eye during bidding."
+ *
+ * ONE flash per sale, on the ROW, rather than one per changed cell. A single sale moves that manager's
+ * SPENT, LEFT, NEEDS, MAX BID and a position count -- five cells lighting up separately is a flicker,
+ * not a signal. The row is also the useful unit for a second reason: the board sorts by MAX BID, so a
+ * manager who just bought someone MOVES, and a brief highlight is how the eye finds them again.
+ *
+ * A PSEUDO-ELEMENT that fades, not the row's own background. Animating `background-color` would fight
+ * the odd/even striping and the `data-state` colours, and would have to know what to fade back TO. An
+ * overlay fading to nothing is independent of all of it.
+ *
+ * Opacity only, and absolutely positioned, so this cannot move a single pixel -- which is what keeps
+ * the 47 layout cases honest. A transform here would have been measurable, and the harness already has
+ * one recorded instance of a mid-flight transform shifting an element 44px and masking the very
+ * overflow the gate existed to catch.
+ *
+ * Re-firing is handled in React, not here: the row's `key` includes the revision, so a change mounts a
+ * new element. A CSS animation does not restart on an attribute change, which is why a `data-changed`
+ * boolean would flash a manager's first sale and silently ignore every one after it.
+ */
+/*
+ * Peaks at a TINT, not a wash.
+ *
+ * The first version started at full opacity and the result was pale figures on solid green: the flash
+ * hid the numbers for a second, at precisely the moment someone wants to read them. A flash that
+ * obscures what it is drawing attention to is worse than none.
+ */
+@keyframes zwml-flash {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.row {
+  position: relative;
+}
+
+.row[data-flash]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /*
+   * Over the top, but faint, and a gradient rather than a flat fill.
+   *
+   * Two failed attempts are worth recording. A flat fill at full opacity made the flashed rows briefly
+   * ILLEGIBLE -- pale figures on solid green, hiding the numbers at the exact moment someone wants to
+   * read them. Then `z-index: -1` to put it behind the text made it invisible instead: `.row` is
+   * `position: relative` with no `z-index`, so it is not a stacking context, and the negative layer
+   * dropped below the row's own opaque background rather than sitting between background and text.
+   *
+   * So: above the text, but at a peak the text reads straight through, and strongest at the LEFT edge
+   * where the manager's name is -- which is where the eye needs to land to know who moved. It fades out
+   * across the money columns, so the figures are never tinted at all.
+   */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--accent) 45%, transparent) 22%,
+    transparent 55%
+  );
+  /* `forwards` so it settles at 0 rather than snapping back to visible on the last frame. */
+  animation: zwml-flash 1100ms ease-out 1 forwards;
+}
+
+/*
+ * A manager who has gone over budget flashes in the warning colour instead, so the one flash the room
+ * gets says WHICH way the number moved.
+ */
+.row[data-flash][data-invalid='true']::after {
+  background: var(--warn);
+}
+
+/*
+ * Honoured, and cheap to honour: the flash is the only motion in the entire app, so respecting the
+ * preference costs a single rule and loses nothing but the animation.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .row[data-flash]::after {
+    animation: none;
+    opacity: 0;
+  }
+}

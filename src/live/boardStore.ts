@@ -38,6 +38,7 @@ import {
   type SlotMap,
 } from '../model/diff'
 import { countsFromSlots, type PointerBasis } from '../model/pointer'
+import { NO_REVISIONS, bumpRevisions, type Revisions } from '../model/revisions'
 import { RESYNC_NOTICE_MS, isRestorable, type SessionStore } from './session'
 import type { ManagerBlock } from '../data/gridParser'
 
@@ -74,6 +75,11 @@ export interface BoardSnapshot {
    * into whichever list is rendered. See `model/pointer.ts`.
    */
   pointer: PointerBasis
+  /**
+   * Per-manager change counters, for the once-only flash (7.7). Bumped only when a manager's own
+   * inputs move; see `model/revisions.ts` for why this is a counter and not a boolean.
+   */
+  revisions: Revisions
   /** The SETTINGS-tab layer only. The caller merges the query layer above it. */
   sheetSettings: Partial<DisplaySettings>
   feed: FeedState
@@ -172,6 +178,7 @@ export function initialSnapshot(year: number): BoardSnapshot {
     order: [],
     sales: NO_SALES,
     pointer: { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 },
+    revisions: NO_REVISIONS,
     sheetSettings: {},
     feed: 'stale',
     feedLabel: 'CONNECTING',
@@ -289,6 +296,8 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   let salesView: readonly SaleEvent[] = NO_SALES
   /** The operator's running correction (7.5). Survives every later sale, by design. */
   let cursorOffset = 0
+  /** Replaced only when a manager actually moves, so `===` means "nothing flashed". */
+  let revisions: Revisions = NO_REVISIONS
   /** Replaced wholesale whenever any of its three parts changes, so `===` is meaningful. */
   let pointerBasis: PointerBasis = { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 }
   /**
@@ -370,6 +379,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       order: derived?.order ?? [],
       sales: salesView,
       pointer: pointerBasis,
+      revisions,
       sheetSettings: settings,
       feed,
       feedLabel: label(feed, age),
@@ -507,6 +517,8 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     }
 
     const state = deriveLeague(tab.blocks)
+    // Against the state we are REPLACING, so a flash means "this changed since the last frame".
+    revisions = bumpRevisions(revisions, derived?.state ?? null, state)
     const roster = state.managers.map((m) => m.name)
     const order = resolveNominationOrder(roster, tab.orderHint)
 
@@ -909,6 +921,7 @@ function equivalent(a: BoardSnapshot, b: BoardSnapshot): boolean {
      */
     a.sales === b.sales &&
     a.pointer === b.pointer &&
+    a.revisions === b.revisions &&
     a.sheetSettings === b.sheetSettings &&
     a.feed === b.feed &&
     a.feedLabel === b.feedLabel &&

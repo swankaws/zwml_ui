@@ -42,6 +42,8 @@ export interface AppProps {
    */
   pointer?: PointerBasis | null
   sales?: readonly SaleEvent[]
+  /** Per-manager change counters, for the once-only flash (7.7). See `model/revisions.ts`. */
+  revisions?: Readonly<Record<string, number>>
   enabledColumns?: ColumnKey[]
   feed?: FeedState
   feedLabel?: string
@@ -122,6 +124,7 @@ export function App({
   cursor = null,
   pointer = null,
   sales = [],
+  revisions = {},
   enabledColumns = [],
   feed,
   feedLabel,
@@ -271,7 +274,11 @@ export function App({
       ) : (
       <div className="stage" data-rail={settings.rail ? 'on' : 'off'}>
         <div className="table-area" ref={tableRef}>
-          <Board managers={sortByMaxBid(state.managers)} columns={columns} />
+          <Board
+            managers={sortByMaxBid(state.managers)}
+            columns={columns}
+            revisions={revisions}
+          />
         </div>
         {/*
          * Not merely hidden: dropping it entirely gives the table the rail's width
