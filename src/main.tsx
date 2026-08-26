@@ -118,7 +118,36 @@ function renderLive(root: ReturnType<typeof createRoot>) {
    * setup card, which is on the other path entirely.
    */
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'r' && !event.metaKey && !event.ctrlKey && !event.altKey) store.refetch()
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+
+    // `r` for refetch. Not `0`: `useDisplayScale` owns `0` for clearing a scale nudge.
+    if (event.key === 'r' || event.key === 'R') return store.refetch()
+
+    /*
+     * `N` / `Shift+N` -- correct who is on the clock (7.5, 7.9).
+     *
+     * The board derives this from the sale log and gets it right in the normal case, but
+     * draft night is unrepeatable: a sale entered out of order, a nomination passed over in
+     * the room, a price typed into the wrong block. When the wall and the room disagree the
+     * room is right, so this has to be one keystroke and it has to *stick* -- the store
+     * holds it as a running offset, not a one-shot, or the next sale would undo it and the
+     * operator would be re-correcting all night.
+     *
+     * `event.key` is already case-shifted by Shift, which is why this reads the letter
+     * rather than the modifier: on a US layout Shift+n IS 'N'.
+     */
+    if (event.key === 'n') return store.nudgeCursor(1)
+    if (event.key === 'N') return store.nudgeCursor(-1)
+
+    /*
+     * `X` -- forget the session and re-baseline from the next poll (7.9).
+     *
+     * The recovery when the ticker or the pointer has gone wrong in a way nudging cannot
+     * fix. Deliberately not `Shift+R`, which is one slipped modifier away from the roster
+     * toggle, and deliberately not a URL parameter: a `?reset=1` left in the address bar
+     * would re-clear on every watchdog reload, all night.
+     */
+    if (event.key === 'x' || event.key === 'X') return store.resetSession()
   })
 
   /*

@@ -33,6 +33,16 @@ const shot = arg('shot', null)
  * capture is too coarse to tell a real hairline from a resampling artifact.
  */
 const dpr = Number(arg('dpr', '1'))
+/*
+ * Extra settle time after the page reports itself loaded.
+ *
+ * The default covers fonts and the ResizeObserver's first measurement, which is all the
+ * offline fixture needs. The LIVE board needs more and the difference is not cosmetic: its
+ * first paint is the standby screen, which satisfies the load condition below, so a probe
+ * taken at 400ms measures `Reading the sheet...` and reports a board with zero rows. Anyone
+ * smoke-testing the deployed URL wants to wait out a real round trip to Google.
+ */
+const settle = Number(arg('settle', '400'))
 
 /** Runs in the page. Returns everything worth asserting about the layout. */
 const PROBE = `(() => {
@@ -318,7 +328,7 @@ await new Promise((resolve) => {
     }
   }, 100)
 })
-await new Promise((r) => setTimeout(r, 400))
+await new Promise((r) => setTimeout(r, settle))
 
 const { result, exceptionDetails } = await call('Runtime.evaluate', {
   expression: PROBE,

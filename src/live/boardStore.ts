@@ -29,7 +29,16 @@ import {
   type FeedState,
   type SheetSource,
 } from '../data/sheetClient'
-import type { Sale } from '../ui/Rail'
+import {
+  applyDiff,
+  diffSlots,
+  nextSequence,
+  snapshotSlots,
+  type SaleEvent,
+  type SlotMap,
+} from '../model/diff'
+import { countsFromSlots, type PointerBasis } from '../model/pointer'
+import type { ManagerBlock } from '../data/gridParser'
 
 /**
  * An operator-actionable problem. Distinct from a warning: a warning means "the board
@@ -49,12 +58,21 @@ export interface BoardSnapshot {
   state: LeagueState | null
   order: readonly string[]
   /**
-   * Chronological sales, newest first. **Empty in phase 4, deliberately:** a static
-   * grid carries no chronology, so `LAST SOLD` cannot be honestly filled until the
-   * phase-5 diff engine watches values change. Sorting picks by price and calling them
-   * recent would put a claim on the wall the data does not support.
+   * Sales this session, **newest first** -- the order `LAST SOLD` reads in.
+   *
+   * Empty at page load and filling as the draft proceeds, which is not a limitation but
+   * the specified behavior (7.3): keepers are already in the sheet when the board opens,
+   * so they are the baseline and correctly never appear here.
    */
-  sales: Sale[]
+  sales: readonly SaleEvent[]
+  /**
+   * What the nomination pointer is derived FROM, rather than the pointer itself.
+   *
+   * The order is settled later than this is -- `settings.order` and `?order=` both
+   * override what the store parsed (7.5's four sources) -- and the pointer is an index
+   * into whichever list is rendered. See `model/pointer.ts`.
+   */
+  pointer: PointerBasis
   /** The SETTINGS-tab layer only. The caller merges the query layer above it. */
   sheetSettings: Partial<DisplaySettings>
   feed: FeedState
@@ -89,6 +107,10 @@ export interface BoardStore {
   stop(): void
   /** The `r` key and `visibilitychange`: poll now rather than waiting out the timer. */
   refetch(): void
+  /** `N` / `Shift+N`: correct who is on the clock, persistently (7.5). */
+  nudgeCursor(delta: number): void
+  /** `X`: drop the sale log and the correction, then re-baseline from the next poll. */
+  resetSession(): void
   noteRenderError(): void
   clearRenderError(): void
   /** Read by the watchdog and the endurance harness, neither of which has a snapshot. */
@@ -115,8 +137,17 @@ export interface BoardHealth {
   attempts: number
 }
 
-/** Shared so a snapshot rebuilt for an age tick keeps a stable `sales` reference. */
-const NO_SALES: Sale[] = []
+/**
+ * Shared so a snapshot rebuilt for an age tick keeps a stable `sales` reference.
+ *
+ * This is load-bearing, not tidiness. `LiveBoard` passes the snapshot itself as the error
+ * boundary's `resetKey`, so a freshly allocated array on every publish would churn that
+ * key once a second -- burning all three of `boundaryState`'s recoveries in three seconds
+ * and, worse, repeatedly clearing the store's render-error clock, which disables the one
+ * watchdog condition that reloads a board whose React tree has died (8.1).
+ */
+const NO_SALES: readonly SaleEvent[] = []
+const NO_COUNTS: Readonly<Record<string, number>> = {}
 
 /**
  * Shown before the first fetch returns, so the wall is never blank and never lying.
@@ -132,6 +163,7 @@ export function initialSnapshot(year: number): BoardSnapshot {
     state: null,
     order: [],
     sales: NO_SALES,
+    pointer: { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 },
     sheetSettings: {},
     feed: 'stale',
     feedLabel: 'CONNECTING',
@@ -189,6 +221,26 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   let derived: { state: LeagueState; order: readonly string[]; warnings: string[] } | null = null
   let settings: Partial<DisplaySettings> = {}
   let settingsWarnings: string[] = []
+
+  /*
+   * The sale log and what it is measured against (7.3, 7.5).
+   *
+   * Two distinct snapshots, and conflating them is a bug worth naming: `baseline` is the
+   * sheet as it stood when this session opened and exists only to answer "how many picks
+   * did each manager already have", which is where the rotation starts. `lastSlots` is the
+   * previous poll, and it is what each diff actually compares against, so sales accumulate
+   * one poll at a time. Diffing against the baseline forever would re-emit every sale of
+   * the night on every poll.
+   */
+  let baselineCounts: Readonly<Record<string, number>> = NO_COUNTS
+  let lastSlots: SlotMap | null = null
+  let saleLog: readonly SaleEvent[] = NO_SALES
+  /** `saleLog` reversed, memoized. Rebuilt only when the log changes -- see `NO_SALES`. */
+  let salesView: readonly SaleEvent[] = NO_SALES
+  /** The operator's running correction (7.5). Survives every later sale, by design. */
+  let cursorOffset = 0
+  /** Replaced wholesale whenever any of its three parts changes, so `===` is meaningful. */
+  let pointerBasis: PointerBasis = { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 }
   /** Latest parse/derive throw. One slot, not a list: see `noteInternalError`. */
   let internalWarning: string | null = null
 
@@ -231,7 +283,8 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       year,
       state: derived?.state ?? null,
       order: derived?.order ?? [],
-      sales: NO_SALES,
+      sales: salesView,
+      pointer: pointerBasis,
       sheetSettings: settings,
       feed,
       feedLabel: label(feed, age),
@@ -339,6 +392,58 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     derived = { state, order: order.order, warnings: [...parseWarnings, ...order.warnings] }
     problem = null
     internalWarning = null
+
+    /*
+     * Deliberately AFTER `derived` is assigned. A throw in here is caught by the caller's
+     * parse guard, and `noteInternalError` returns early when a board is already on the
+     * wall -- so a bug in the diff engine costs the room a warning line and this poll's
+     * ticker entry, not the money figures, which came from the parse that already
+     * succeeded. Ordering these the other way around would let a diff bug take the whole
+     * screen.
+     */
+    trackSales(tab.blocks)
+  }
+
+  /**
+   * Fold this poll into the sale log (7.3).
+   *
+   * Only ever reached for a *changed* and *renderable* body: an unchanged response never
+   * gets here (the caller compares text first), and a failed template check returns above,
+   * which is what stops a wrong-tab read from retracting the entire night as deletions.
+   */
+  function trackSales(blocks: readonly ManagerBlock[]) {
+    const slots = snapshotSlots(blocks)
+
+    if (lastSlots === null) {
+      /*
+       * First successful parse of the session: everything in the sheet is the baseline.
+       * That is exactly what makes keepers not sales (7.3) -- they were entered in the days
+       * before the draft, so they are already here on the first poll and never appear as
+       * events. Gated on `lastSlots`, NOT on the poll counter: the first *poll* can succeed
+       * while failing its template check, and baselining a wrong-tab read would make every
+       * real pick look like a sale the moment the right tab came back.
+       */
+      lastSlots = slots
+      baselineCounts = countsFromSlots(slots)
+      setPointerBasis()
+      return
+    }
+
+    const diff = diffSlots(lastSlots, slots, nextSequence(saleLog))
+    lastSlots = slots
+
+    const nextLog = applyDiff(saleLog, diff)
+    if (nextLog === saleLog) return
+
+    saleLog = nextLog
+    // Reversed once here rather than in the render path, so the reference stays stable
+    // across the age tick's re-publishes.
+    salesView = [...nextLog].reverse()
+    setPointerBasis()
+  }
+
+  function setPointerBasis() {
+    pointerBasis = { baselineCounts, log: saleLog, offset: cursorOffset }
   }
 
   /**
@@ -393,6 +498,24 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
             action: 'Check the spreadsheet link, then reload with #sheet=<link>.',
           }
     publish()
+  }
+
+  /**
+   * The `r` key, `visibilitychange`, and `X`'s re-baseline: poll now.
+   *
+   * Resets the backoff as well as the timer. A forced refetch is a human saying "try now",
+   * and making them wait out a 15-second penalty they cannot see, on the one machine nobody
+   * is standing at, is indefensible.
+   */
+  function refetchNow() {
+    if (!running) return
+    failures = 0
+    if (auctionTimer !== null) clearTimer(auctionTimer)
+    auctionTimer = null
+    generation += 1
+    inFlight?.abort()
+    inFlight = null
+    void pollAuction()
   }
 
   function scheduleAuction() {
@@ -507,20 +630,41 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       auctionTimer = settingsTimer = ageTimer = null
     },
 
-    refetch() {
-      if (!running) return
-      /*
-       * Reset the backoff as well as the timer. A forced refetch is a human saying
-       * "try now", and making them wait out a 15-second penalty they cannot see, on
-       * the one machine nobody is standing at, is indefensible.
-       */
-      failures = 0
-      if (auctionTimer !== null) clearTimer(auctionTimer)
-      auctionTimer = null
-      generation += 1
-      inFlight?.abort()
-      inFlight = null
-      void pollAuction()
+    refetch: refetchNow,
+
+    /**
+     * `N` / `Shift+N` (7.5, 7.9). Moves the pointer without touching the sale log.
+     *
+     * "If the derived nominator ever disagrees with the room, the room is right." The log
+     * stays the record of what sold; this is a running correction on top of it, so it holds
+     * for the rest of the night instead of being undone by the next sale.
+     */
+    nudgeCursor(delta: number) {
+      if (!Number.isFinite(delta) || delta === 0) return
+      cursorOffset += Math.trunc(delta)
+      setPointerBasis()
+      publish()
+    },
+
+    /**
+     * `X` (7.9): re-baseline from the next poll and drop the correction.
+     *
+     * The recovery for a pointer or ticker that has gone wrong in a way no number of
+     * nudges will fix. It does NOT clear the money -- that comes from the current parse and
+     * was never in doubt.
+     */
+    resetSession() {
+      lastSlots = null
+      baselineCounts = NO_COUNTS
+      saleLog = NO_SALES
+      salesView = NO_SALES
+      cursorOffset = 0
+      setPointerBasis()
+      publish()
+      // Baselining needs a parse, and an unchanged body will not produce one -- the text
+      // comparison skips it. Force the next response through the parser.
+      lastAuctionText = null
+      refetchNow()
     },
 
     noteRenderError() {
@@ -558,6 +702,14 @@ function equivalent(a: BoardSnapshot, b: BoardSnapshot): boolean {
   return (
     a.state === b.state &&
     a.order === b.order &&
+    /*
+     * By reference, like the three around it: both are replaced wholesale when they change
+     * and never mutated. Comparing them by value would be slower AND wrong in the direction
+     * that matters -- a pointer nudge changes only `offset`, and missing it means the
+     * operator presses `N` and the wall does not move.
+     */
+    a.sales === b.sales &&
+    a.pointer === b.pointer &&
     a.sheetSettings === b.sheetSettings &&
     a.feed === b.feed &&
     a.feedLabel === b.feedLabel &&

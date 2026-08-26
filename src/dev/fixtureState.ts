@@ -20,7 +20,7 @@ import { parseCsv } from '../data/csv'
 import { parseAuctionGrid } from '../data/gridParser'
 import { deriveLeague, type LeagueState } from '../model/derive'
 import { resolveNominationOrder } from '../model/order'
-import type { Sale } from '../ui/Rail'
+import type { SaleEvent } from '../model/diff'
 
 const FIXTURES: Record<string, { year: number; csv: string }> = {
   '2026': { year: 2026, csv: raw2026 },
@@ -30,9 +30,17 @@ const FIXTURES: Record<string, { year: number; csv: string }> = {
 export interface FixtureState {
   year: number
   state: LeagueState
-  sales: Sale[]
+  sales: SaleEvent[]
   order: readonly string[]
   warnings: string[]
+}
+
+/** `?sales=N`, clamped. Defaults to six so no existing layout case changes. */
+function saleCount(params: URLSearchParams): number {
+  const raw = params.get('sales')
+  if (raw === null) return 6
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(parsed, 60)) : 6
 }
 
 export function loadFixture(search: string): FixtureState {
@@ -47,7 +55,7 @@ export function loadFixture(search: string): FixtureState {
   return {
     year: fixture.year,
     state,
-    sales: recentSales(state),
+    sales: recentSales(state, saleCount(params)),
     order: resolved.order,
     warnings: [...parsed.warnings.map((w) => `${w.ref}: ${w.message}`), ...resolved.warnings],
   }
@@ -78,13 +86,49 @@ function resolveOrder(
 }
 
 /**
- * Stand-in for the phase-5 sale feed. A static CSV carries no chronology, so this
- * is the highest-priced picks -- not "recent" in any real sense, just the longest
- * names and widest prices, which is what the rail layout needs to be tested against.
+ * Layout stand-in for the sale feed. A static CSV carries no chronology, so these are not
+ * "recent" in any real sense -- they exist so the rail is measured against real content.
+ *
+ * Sorted by NAME LENGTH, not by price. It used to sort by price, and the effect was that
+ * the longest name in either fixture -- `Jacory Croskey-Merritt`, 22 characters -- had
+ * never once been rendered in the rail across all 25 layout cases, because it never made
+ * the top six by price. The widest string is the whole point of a layout fixture.
+ *
+ * `?sales=N` sizes the list: `?sales=0` is the only way to measure `NO SALES YET`, which
+ * is the state the live board is genuinely in for the first minutes of every draft.
  */
-function recentSales(state: LeagueState): Sale[] {
-  return state.managers
-    .flatMap((m) => m.picks.map((p) => ({ player: p.player, price: p.price, manager: m.name })))
-    .sort((a, b) => b.price - a.price)
-    .slice(0, 6)
+function recentSales(state: LeagueState, count: number): SaleEvent[] {
+  const all = state.managers
+    .flatMap((m, block) =>
+      m.picks.map((p, index) => ({
+        slot: `${block}:${p.row}`,
+        seq: block * 100 + index + 1,
+        player: p.player,
+        price: p.price,
+        manager: m.name,
+        position: p.position,
+      })),
+    )
+    .sort((a, b) => b.player.length - a.player.length || b.price - a.price)
+
+  /*
+   * Widest name PER POSITION first, then the next widest overall.
+   *
+   * Sorting by length alone gave four RBs -- the longest names in both fixtures happen to
+   * be running backs -- so four of the five position colors were never rendered anywhere in
+   * the layout matrix, and neither was the `null` position an unlabeled bench row produces.
+   * Taking one per position first keeps the widest-string property that makes this a layout
+   * fixture while also putting the whole palette on screen, which is what Friday's
+   * projector rehearsal has to judge by eye.
+   */
+  const seen = new Set<string>()
+  const spread = all.filter((sale) => {
+    const key = sale.position ?? 'none'
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  const rest = all.filter((sale) => !spread.includes(sale))
+  return [...spread, ...rest].slice(0, count)
 }

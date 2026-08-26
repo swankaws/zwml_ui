@@ -120,7 +120,13 @@ function BoardSurface({ snapshot, search, cursor }: SurfaceProps) {
       year={snapshot.year}
       state={snapshot.state}
       order={snapshot.order}
+      /*
+       * `?cursor=N` still wins, because it exists so the layout gate can measure the
+       * on-clock styling without a second poll. With no override the live basis is passed
+       * instead and `App` derives the pointer against the order it is about to render.
+       */
       cursor={cursor}
+      pointer={cursor === null ? snapshot.pointer : null}
       sales={snapshot.sales}
       settings={settings}
       columnsFrom={columnsPinnedByQuery(search) ? 'query' : 'sheet'}

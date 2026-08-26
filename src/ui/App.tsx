@@ -9,10 +9,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Header, type FeedState } from './Header'
 import { Board } from './Board'
-import { Rail, type Sale } from './Rail'
+import { Rail } from './Rail'
 import { REFERENCE_TYPE_PX, selectColumns, type ColumnKey } from './columns'
 import { useDisplayScale } from './useDisplayScale'
 import { sortByMaxBid, type LeagueState } from '../model/derive'
+import { derivePointer, type PointerBasis } from '../model/pointer'
+import type { SaleEvent } from '../model/diff'
 import { DEFAULT_SETTINGS, type DisplaySettings } from '../config/displaySettings'
 
 export interface AppProps {
@@ -20,13 +22,21 @@ export interface AppProps {
   state: LeagueState
   order?: readonly string[]
   /**
-   * Who is nominating, as an index into the order -- or `null` for "not derived yet",
-   * which is where phase 4 leaves it. See the note at the foot of `nominations.ts`:
-   * `saleCount % order.length` is the obvious formula and it is wrong, so the cursor
-   * waits for phase 6's chronological replay rather than being guessed here.
+   * Who is nominating, as an index into the order. Used only when `pointer` is absent --
+   * the fixture path's `?cursor=N`, which keeps the on-clock styling in the layout gate.
    */
   cursor?: number | null
-  sales?: Sale[]
+  /**
+   * The live pointer, derived HERE rather than in the store.
+   *
+   * It has to be: the pointer is an index into `nominationOrder` below, and that is
+   * `settings.order ?? order` -- the SETTINGS tab and `?order=` can both replace the list
+   * the store parsed (7.5). A pointer derived against the store's own order would index a
+   * different array than the one being rendered, and the failure is the wrong name under
+   * ON THE CLOCK, which is the single most-watched string on the wall.
+   */
+  pointer?: PointerBasis | null
+  sales?: readonly SaleEvent[]
   enabledColumns?: ColumnKey[]
   feed?: FeedState
   feedLabel?: string
@@ -105,6 +115,7 @@ export function App({
   state,
   order = [],
   cursor = null,
+  pointer = null,
   sales = [],
   enabledColumns = [],
   feed,
@@ -130,6 +141,8 @@ export function App({
 
   // The sheet's order wins over the committed fallback copy (7.5).
   const nominationOrder = settings.order ?? order
+  // Against `nominationOrder`, for the reason in `pointer`'s doc comment above.
+  const onClock = pointer ? derivePointer({ order: nominationOrder, ...pointer }) : cursor
 
   return (
     <div className="app">
@@ -144,7 +157,7 @@ export function App({
          * to be dimmer or further away than 7.1 assumed.
          */}
         {settings.rail && (
-          <Rail managers={state.managers} order={nominationOrder} cursor={cursor} sales={sales} />
+          <Rail managers={state.managers} order={nominationOrder} cursor={onClock} sales={sales} />
         )}
       </div>
       {/*

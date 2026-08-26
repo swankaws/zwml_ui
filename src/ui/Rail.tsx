@@ -10,12 +10,7 @@
 import { nominationWindow } from './nominations'
 import { money } from './columns'
 import type { ManagerState } from '../model/derive'
-
-export interface Sale {
-  player: string
-  price: number
-  manager: string
-}
+import type { SaleEvent } from '../model/diff'
 
 export interface RailProps {
   managers: ManagerState[]
@@ -23,7 +18,7 @@ export interface RailProps {
   /** Index into `order` of whoever is nominating, or `null` if unknown. nominations.ts. */
   cursor: number | null
   /** Newest first. */
-  sales: Sale[]
+  sales: readonly SaleEvent[]
   liveCount?: number
   saleCount?: number
 }
@@ -87,10 +82,26 @@ export function Rail({ managers, order, cursor, sales, liveCount = 5, saleCount 
           {sales.length === 0 ? (
             <span className="empty">NO SALES YET</span>
           ) : (
-            sales.slice(0, saleCount).map((sale, index) => (
-              <div key={`${sale.player}-${index}`}>
-                <div className="sale-player">{sale.player}</div>
+            /*
+             * Keyed by sequence, not by array index. Index keying remounts every visible
+             * entry whenever a sale is prepended, which is invisible today and would make
+             * an entry animation play across the whole list the moment one is added.
+             */
+            sales.slice(0, saleCount).map((sale) => (
+              <div key={sale.seq}>
+                {/*
+                 * Position colors the NAME (7.3) but the LABEL rides on the price line.
+                 * Measured, not chosen: a three-character prefix on the name line overflows
+                 * 1440x900 by 12px, 1280x1024 by 10px and 1080p at the scale ceiling by
+                 * 29px -- three configurations already in the layout matrix -- while the
+                 * same text on the price line overflows nothing anywhere. 7.7 forbids color
+                 * as the sole signal, so the label is not optional.
+                 */}
+                <div className="sale-player" data-position={sale.position ?? 'none'}>
+                  {sale.player}
+                </div>
                 <div className="sale-price">
+                  {sale.position && <span className="sale-pos">{sale.position}</span>}
                   <b>{money(sale.price)}</b> {sale.manager}
                 </div>
               </div>

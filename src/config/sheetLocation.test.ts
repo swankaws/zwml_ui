@@ -169,6 +169,21 @@ describe('decodeBuildDefault', () => {
     )
   })
 
+  /*
+   * The realistic way this secret gets set is `printf %s <id> | base64 | gh secret set`,
+   * and `base64` terminates its output with a newline. So the encoded value arriving from
+   * CI plausibly has trailing whitespace, `atob` rejects it, and the deployed board would
+   * fall back to its setup card on draft night with nothing to explain why. `trim()` in
+   * `decodeBuildDefault` handles it; this pins that so it cannot be refactored away.
+   */
+  it.each([
+    ['a trailing newline', `${btoa(FAKE)}\n`],
+    ['trailing CRLF', `${btoa(FAKE)}\r\n`],
+    ['surrounding spaces', `  ${btoa(FAKE)}  `],
+  ])('tolerates %s on the encoded value', (_label, input) => {
+    expect(decodeBuildDefault(input)).toBe(FAKE)
+  })
+
   it.each([
     ['undefined', undefined],
     ['empty', ''],

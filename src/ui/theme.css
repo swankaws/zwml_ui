@@ -39,6 +39,24 @@
   --stale: #ffb020;
   --dead: #ff5c5c;
 
+  /*
+   * Position palette (7.3). The first position colors in the project -- until phase 5 the
+   * only position rendering was the POS count matrix, which is colored by zero-ness alone.
+   *
+   * Chosen for hue separation rather than prettiness, because 7.7 requires them to survive
+   * projector color shift and common color-vision deficiencies: the red/green pair that
+   * deuteranopia collapses is avoided by keeping RB amber and WR cyan rather than
+   * red-and-green, and no two positions rely on saturation alone to be told apart. Color is
+   * never the only signal -- `.sale-pos` prints the abbreviation beside the price, which is
+   * what 7.7's "always paired with a text label" demands.
+   */
+  --pos-qb: #c792ea;
+  --pos-rb: #ffb020;
+  --pos-wr: #4fc3f7;
+  --pos-te: #37d67a;
+  --pos-k: #ff8a65;
+  --pos-none: var(--fg);
+
   color-scheme: dark;
 }
 
@@ -495,12 +513,36 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--pos-none);
 }
+
+.sale-player[data-position='QB'] { color: var(--pos-qb); }
+.sale-player[data-position='RB'] { color: var(--pos-rb); }
+.sale-player[data-position='WR'] { color: var(--pos-wr); }
+.sale-player[data-position='TE'] { color: var(--pos-te); }
+.sale-player[data-position='K'] { color: var(--pos-k); }
 
 .sale-price {
   display: block;
   padding-left: 0.7em;
   font-size: 0.86em;
+  color: var(--fg-dim);
+}
+
+/*
+ * The position label rides on the PRICE line, not the name line.
+ *
+ * Measured, not preferred: a three-character prefix on the name line overflows the rail at
+ * 1440x900 (+12px), 1280x1024 (+10px) and 1080p at the scale ceiling (+29px) -- three
+ * configurations already in the layout matrix -- because the binding constraint in the rail
+ * is horizontal, at roughly 23 characters per sale line. On the price line, which carries
+ * only `$61 -> Toby`, the same label overflowed nothing at any size.
+ */
+.sale-pos {
+  display: inline-block;
+  min-width: 1.8em;
+  font-size: 0.86em;
+  letter-spacing: 0.04em;
   color: var(--fg-dim);
 }
 
