@@ -86,13 +86,21 @@ export const league = {
    * order denominator in `parseOrder`, and `league.test.ts` pins it against
    * `bandRows x blockStartCols` -- the grid holds exactly 12 blocks.
    *
-   * Verified against the live `2026 Auction` tab on 2026-08-25: rows 2 / 23 / 44
-   * read exactly these twelve names. `Kris` replaced `Nick` for 2026.
+   * Verified against the live `2026 Auction` tab on 2026-08-26: rows 2 / 23 / 44 read exactly
+   * these twelve names, band by band, left to right.
+   *
+   * THREE replacements have landed for 2026 and the board caught the last two rather than
+   * anyone remembering to look: `Kris` for `Nick`, then `Brian` for `Derrick` and `Jimmy` for
+   * `Colin`. The deployed display put `Unrecognized manager "Brian"` on the wall while still
+   * rendering his row and his money correctly -- the sheet is the authority on membership
+   * (`deriveLeague`), so a roster change costs a warning line and never a missing manager.
+   *
+   * `Derrick` and `Colin` moved to `pastManagers`, which is what keeps the 2025 tab quiet.
    */
   managers: [
     'Kevin', 'Corky', 'Ryan', 'Toby',
-    'Jeff', 'Marc', 'Bill', 'Derrick',
-    'Colin', 'Jason', 'Kris', 'Tony',
+    'Jeff', 'Marc', 'Bill', 'Brian',
+    'Jimmy', 'Jason', 'Kris', 'Tony',
   ] as const,
 
   /**
@@ -111,7 +119,7 @@ export const league = {
    * roster length, or league totals. A name on neither list still warns -- which is
    * the point: this enumerates who we know, it does not switch the check off.
    */
-  pastManagers: ['Nick'] as readonly string[],
+  pastManagers: ['Nick', 'Derrick', 'Colin'] as readonly string[],
 
   /**
    * Cosmetic only now: `Jeffrey` appears solely in the Divisional Draft
@@ -128,8 +136,12 @@ export const league = {
    * deploy: `?order=`, the `Settings` tab, and cell A1 of the auction tab. This
    * exists so a total sheet failure still leaves a rotation on the wall.
    *
-   * Transcribed from the live A1 on 2026-08-25, and matching the `Settings` tab's
-   * `order` row read the same day. Slot 11 is `Kris`, who replaced `Nick` for 2026.
+   * ⚠️ NOT THE LEAGUE'S REAL 2026 ROTATION YET. As of 2026-08-26 the maintainer has not set
+   * one, so this holds grid order as a placeholder, matching what A1 and the `Settings` tab
+   * currently say. The rotation is a league decision that cannot be derived from the grid, and
+   * the nomination pointer is only as right as the order it indexes into -- a placeholder means
+   * the board names the wrong nominator with total confidence. `Shift+N` is the in-room
+   * recovery if it is not replaced before draft night.
    *
    * Being the *last* resort does not exempt it from validation. It names this
    * season's managers, so it is wrong for any other season's tab, and it is checked
@@ -138,8 +150,8 @@ export const league = {
    * had already finished.
    */
   nominationOrder: [
-    'Jeff', 'Toby', 'Tony', 'Derrick', 'Marc', 'Corky',
-    'Bill', 'Ryan', 'Colin', 'Kevin', 'Kris', 'Jason',
+    'Kevin', 'Corky', 'Ryan', 'Toby', 'Jeff', 'Marc',
+    'Bill', 'Brian', 'Jimmy', 'Jason', 'Kris', 'Tony',
   ] as string[],
 
   /** The `Settings` tab (9.2). Read from the live workbook's tab list, 2026-08-25. */

@@ -72,7 +72,18 @@ describe('sheet template geometry', () => {
    * did not belong in a test either. Each season now names its own twelve.
    */
   const rosterOf: Record<string, readonly string[]> = {
-    '2026-auction.csv': league.managers,
+    /*
+     * Spelled out rather than pointed at `league.managers`, which is what this used to do and
+     * is the same config-equals-membership coupling the comment above renounces. These CSVs are
+     * CAPTURES of the tab on a particular day -- this one from 2026-08-25 -- and the live tab
+     * has moved on since: `Brian` replaced `Derrick` and `Jimmy` replaced `Colin` on 08-26. A
+     * fixture is a record of what the sheet said, so it names its own twelve.
+     */
+    '2026-auction.csv': [
+      'Kevin', 'Corky', 'Ryan', 'Toby',
+      'Jeff', 'Marc', 'Bill', 'Derrick',
+      'Colin', 'Jason', 'Kris', 'Tony',
+    ],
     '2025-auction.csv': [
       'Kevin', 'Corky', 'Ryan', 'Toby',
       'Jeff', 'Marc', 'Bill', 'Derrick',

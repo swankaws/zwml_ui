@@ -141,7 +141,15 @@ describe('cross-check against the sheet own formulas', () => {
     const remainingDisagreements = complete.managers
       .filter((m) => m.disagreements.some((d) => d.field === 'remaining'))
       .map((m) => m.name)
-    expect(remainingDisagreements).toEqual(['Corky', 'Toby', 'Jeff', 'Marc', 'Derrick', 'Tony'])
+    /*
+     * Sorted, because the assertion is about WHICH managers disagree, not the order the board
+     * happens to render them in. That order is `league.managers` first and everyone else after,
+     * so it moves whenever the committed roster changes -- `Derrick` and `Colin` became past
+     * managers on 2026-08-26 and this list reshuffled without a single number changing.
+     */
+    expect([...remainingDisagreements].sort()).toEqual(
+      ['Corky', 'Derrick', 'Jeff', 'Marc', 'Toby', 'Tony'],
+    )
 
     const marc = complete.managers.find((m) => m.name === 'Marc')
     expect(marc?.spent).toBe(198)
@@ -227,8 +235,14 @@ describe('missing and unmatched blocks', () => {
     expect(state.managers.find((m) => m.name === 'Rob')).toBeDefined()
     // Kevin's cell is what was overwritten, so Kevin is genuinely absent.
     expect(state.managers.find((m) => m.name === 'Kevin')).toBeUndefined()
-    // Unknown names sort after the known roster, so the table does not reshuffle.
-    expect(state.managers.at(-1)?.name).toBe('Rob')
+    /*
+     * Unknown names sort after the known roster, so the table does not reshuffle. Asserted as
+     * that property rather than as "Rob is last": a past manager still in this captured fixture
+     * is also sorted after the current roster, so there is more than one name in the tail.
+     */
+    const names = state.managers.map((m) => m.name)
+    const current: readonly string[] = league.managers
+    expect(names.slice(names.indexOf('Rob') + 1).some((n) => current.includes(n))).toBe(false)
     // And the denominator follows the board rather than the committed list.
     expect(state.totalSlots).toBe(180)
   })
@@ -243,7 +257,20 @@ describe('missing and unmatched blocks', () => {
   })
 
   it('renders managers in config order, not sheet order', () => {
-    expect(partial.managers.map((m) => m.name)).toEqual([...league.managers])
+    /*
+     * The property, not a literal list. This fixture is a capture from 2026-08-25 and the
+     * committed roster has changed twice since, so a hard-coded expectation here breaks on every
+     * roster change while testing nothing extra. What must hold is: everyone the config knows
+     * appears in config order, and anyone it does not know follows them.
+     */
+    const names = partial.managers.map((m) => m.name)
+    const current: readonly string[] = league.managers
+    expect(names.filter((n) => current.includes(n))).toEqual(current.filter((n) => names.includes(n)))
+
+    const firstExtra = names.findIndex((n) => !current.includes(n))
+    if (firstExtra !== -1) {
+      expect(names.slice(firstExtra).some((n) => current.includes(n))).toBe(false)
+    }
   })
 
   it('reports a duplicated name instead of silently deleting a manager', () => {

@@ -169,10 +169,19 @@ describe('parseOrder', () => {
    * rather than the one instance of it, so the next swap is covered too.
    */
   describe('validating against the roster rather than the committed list', () => {
-    const swapped = league.managers.map((n) => (n === 'Colin' ? 'Newcomer' : n))
+    /*
+     * Derived from the committed roster rather than typed out, and that IS the point of this
+     * block. An earlier version spelled the twelve names inline and swapped `Colin`; when
+     * `Brian` and `Jimmy` replaced `Derrick` and `Colin` on 2026-08-26 the literal order named
+     * two managers who no longer existed, so the test failed on the first unknown name it met
+     * and never reached the behaviour it was written to pin. A test about roster changes must
+     * not itself break on one.
+     */
+    const RETIRED = league.managers[league.managers.length - 1]!
+    const swapped: readonly string[] = league.managers.map((n) => (n === RETIRED ? 'Newcomer' : n))
 
     it('accepts a name the committed config does not know, if the sheet has it', () => {
-      const raw = 'Jeff > Toby > Tony > Derrick > Marc > Corky > Bill > Ryan > Newcomer > Kevin > Kris > Jason'
+      const raw = swapped.join(' > ')
 
       // Against the committed roster this is the failure the maintainer would hit.
       expect(parseOrder(raw).order).toBeNull()
@@ -182,14 +191,14 @@ describe('parseOrder', () => {
       const { order, warnings } = parseOrder(raw, swapped)
       expect(order).toHaveLength(12)
       expect(order).toContain('Newcomer')
-      expect(order).not.toContain('Colin')
+      expect(order).not.toContain(RETIRED)
       expect(warnings).toEqual([])
     })
 
     it('still rejects a name that is on neither list, so typos do not slip through', () => {
-      const { order, warnings } = parseOrder('Kevin > Colin > Corky', swapped)
+      const { order, warnings } = parseOrder(`Kevin > ${RETIRED} > Corky`, swapped)
       expect(order).toBeNull()
-      expect(warnings[0]).toContain('Colin')
+      expect(warnings[0]).toContain(RETIRED)
     })
 
     it('counts a short order against the roster it was given, not against 12', () => {
