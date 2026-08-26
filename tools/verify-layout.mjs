@@ -202,6 +202,82 @@ const CASES = [
     expect: 'frozen',
     allowConsole: /render error|deliberate render error|above error|Error Boundary|uncaught/i,
   },
+  /*
+   * The roster view (7.4). `?fixture=2025` on purpose: that draft is COMPLETE, so every
+   * one of the twelve blocks holds all fifteen players. It is the only content in the
+   * repo that exercises this view at full load, and a view that fits nine picks and
+   * clips at fifteen would pass any 2026 case.
+   *
+   * `rosterCols` pins the arrangement declared in `theme.css`, which is the only place that
+   * decides it -- six across at 16:9, four below 3:2, one per row on a phone. The reasoning is
+   * in that file's roster header; this is what stops a later change to it going unnoticed,
+   * since a wrong column count shows up on screen only as names abbreviated a bit early.
+   */
+  {
+    size: '1920x1080',
+    query: '?fixture=2025&view=roster',
+    label: 'roster on the projector',
+    rosterCols: 6,
+  },
+  {
+    size: '1024x768',
+    query: '?fixture=2025&view=roster',
+    label: 'roster at 4:3',
+    rosterCols: 4,
+  },
+  {
+    size: '1280x1024',
+    query: '?fixture=2025&view=roster',
+    label: 'roster at 5:4',
+    rosterCols: 4,
+  },
+  {
+    size: '1440x900',
+    query: '?fixture=2025&view=roster',
+    label: 'roster on a laptop',
+    rosterCols: 6,
+  },
+  /*
+   * The phone, whose roster view is KNOWN PARTIAL and gated as such rather than excluded.
+   *
+   * Twelve full squads cannot be shown legibly on a 390px screen -- two columns needs six
+   * bands, which is ~7px type -- so this crops each block instead, and the assertion below
+   * says exactly that: twelve blocks in two columns, and nothing OVERLAPPING. `allowSlotClip`
+   * is what makes the limitation explicit; deleting the case would have made it invisible,
+   * and asserting zero clipping would have made the suite lie. See the phone block in
+   * theme.css and 7.4.
+   */
+  {
+    size: '390x844',
+    query: '?fixture=2025&view=roster',
+    label: 'roster on a phone',
+    rosterCols: 1,
+    /*
+     * Vertical scrolling is acceptable on a phone and horizontal is not, so this is the one
+     * case that may exceed the viewport downward -- and the `docOverflow.x` assertion below
+     * still applies to it, unchanged. Nothing may be CLIPPED here either: a phone that scrolls
+     * must show all fifteen slots, not the top six.
+     */
+    allowVerticalScroll: true,
+  },
+  /*
+   * The roster view at the scale ceiling, with a warning strip taking its 35px. The board
+   * view's ceiling was measured this way (7.1) and this view has to survive the same
+   * operator reaching for the same key.
+   */
+  {
+    size: '1920x1080',
+    query: '?fixture=2025&view=roster&scale=1.15&order=Nobody',
+    label: 'roster at the ceiling',
+    rosterCols: 6,
+  },
+  /* Mid-draft: mostly empty slots, which is what the room sees for the first hour. */
+  {
+    size: '1920x1080',
+    query: '?fixture=2026&view=roster',
+    label: 'roster mid-draft',
+    rosterCols: 6,
+  },
 ]
 
 function measure(size, query) {
@@ -232,8 +308,36 @@ for (const testCase of CASES) {
   const m = await measure(testCase.size, testCase.query)
   const problems = []
   const frozen = testCase.expect === 'frozen'
+  const roster = testCase.rosterCols !== undefined
 
-  if (frozen) {
+  if (roster) {
+    /*
+     * The board's row and column checks do not apply -- there is no table here. What
+     * replaces them is this view's own promise: twelve squads, all fifteen slots each,
+     * nothing hidden.
+     */
+    if (m.rosterBlocks !== 12) problems.push(`roster shows ${m.rosterBlocks} blocks, expected 12`)
+    if (m.rosterColumns !== testCase.rosterCols) {
+      problems.push(`roster laid out ${m.rosterColumns} columns, expected ${testCase.rosterCols}`)
+    }
+    if (m.rosterMaxSlots !== 15) {
+      problems.push(`fullest roster block shows ${m.rosterMaxSlots} slots, expected 15`)
+    }
+    /*
+     * Bare initials mean the layout failed to be readable, and nothing else here can see it.
+     * Allowed only on the phone, which is documented as partial.
+     */
+    if (m.rosterNames && m.rosterNames.initials > 0) {
+      problems.push(
+        `${m.rosterNames.initials} of ${m.rosterNames.total} names reduced to bare initials`,
+      )
+    }
+    for (const hit of m.rosterClipped ?? []) {
+      // A cropped block is tolerated only where it is documented; a block painted OUTSIDE
+      // the grid never is, because that is the overlap failure and it looks like garbage.
+      problems.push(`roster ${hit.kind} clipped: "${hit.text}"`)
+    }
+  } else if (frozen) {
     /*
      * The board is *supposed* to be gone here, so none of the column and row checks
      * below apply. What replaces them is the promise 8.1 actually makes: the figures
@@ -274,7 +378,9 @@ for (const testCase of CASES) {
   }
 
   if (m.docOverflow.x > 0) problems.push(`${m.docOverflow.x}px horizontal overflow`)
-  if (m.docOverflow.y > 0) problems.push(`${m.docOverflow.y}px vertical overflow`)
+  if (m.docOverflow.y > 0 && !testCase.allowVerticalScroll) {
+    problems.push(`${m.docOverflow.y}px vertical overflow`)
+  }
 
   /*
    * A notice may not cover anything a viewer came to read. The strip is in the flow now,
@@ -305,7 +411,11 @@ for (const testCase of CASES) {
   const status = problems.length === 0 ? 'ok  ' : 'FAIL'
   console.log(
     `${status} ${testCase.size.padEnd(10)} ${testCase.label.padEnd(24)} ` +
-      (frozen
+      (roster
+        ? `blocks=${m.rosterBlocks} cols=${m.rosterColumns} slots=${m.rosterMaxSlots}` +
+          ` type=${m.rosterTypePx}px slack=${-m.rosterOverflowPx}px` +
+          ` abbrev=${m.rosterNames?.abbreviated}/${m.rosterNames?.total}`
+        : frozen
         ? `boundary=${m.boundary} rows=${m.frozenRows}`
         : `cols=${m.columns.length} rowH=${m.firstRow?.h} maxBid=${m.typePx['.cell-maxBid']}px` +
           // Slack, not just pass/fail: the negative number is how much room a future

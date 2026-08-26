@@ -127,6 +127,98 @@ const PROBE = `(() => {
       }
       return hits
     })(),
+    /*
+     * The roster view (7.4). Twelve blocks, always: this view's whole claim is that the
+     * room can see every squad at once, and a block pushed out of an overflow:hidden grid
+     * would look exactly like a manager who does not exist.
+     */
+    rosterBlocks: document.querySelectorAll('.roster-block').length,
+    /* Distinct left edges = columns actually rendered, per the roster grid in theme.css. */
+    rosterColumns: (() => {
+      const blocks = [...document.querySelectorAll('.roster-block')]
+      if (blocks.length === 0) return null
+      return new Set(blocks.map((b) => Math.round(b.getBoundingClientRect().left))).size
+    })(),
+    /* Slot rows in the fullest block, to catch a block whose 15 slots do not fit. */
+    rosterMaxSlots: (() => {
+      const blocks = [...document.querySelectorAll('.roster-block')]
+      if (blocks.length === 0) return null
+      return Math.max(...blocks.map((b) => b.querySelectorAll('.roster-slot').length))
+    })(),
+    /*
+     * Anything the roster view is hiding. Three ways it can go wrong and they are all
+     * silent: a name ellipsised past the abbreviation ladder, a block's slots taller than
+     * the block, or a block painted outside the grid entirely.
+     */
+    rosterClipped: (() => {
+      const grid = document.querySelector('.roster')
+      if (!grid) return null
+      const bounds = grid.getBoundingClientRect()
+      const hits = []
+      for (const el of document.querySelectorAll('.roster-player')) {
+        if (truncated(el)) hits.push({ kind: 'name', text: el.textContent.trim() })
+      }
+      for (const el of document.querySelectorAll('.roster-slots')) {
+        /*
+         * An element whose overflow is visible cannot hide anything -- its content simply
+         * paints outside the box, and on mobile the document scrolls to reach it. Checking the
+         * computed value matters: sub-pixel line-box rounding over fifteen rows made
+         * scrollHeight exceed clientHeight by 2px on the phone, which read as twelve clipped
+         * blocks when nothing was cropped at all.
+         */
+        if (getComputedStyle(el).overflowY === 'visible') continue
+        if (clipped(el)) hits.push({ kind: 'slots', text: '' })
+      }
+      for (const el of document.querySelectorAll('.roster-block')) {
+        const r = el.getBoundingClientRect()
+        if (r.bottom > bounds.bottom + 1 || r.right > bounds.right + 1) {
+          hits.push({ kind: 'block', text: el.textContent.trim().slice(0, 20) })
+        }
+      }
+      return hits
+    })(),
+    /*
+     * How many px the fullest block's slots want beyond what they have. Negative is slack.
+     * The boolean above answers "does it clip"; this answers "by how much", which is the
+     * only question that lets a type size be chosen rather than guessed at.
+     */
+    rosterOverflowPx: (() => {
+      const els = [...document.querySelectorAll('.roster-slots')]
+      if (els.length === 0) return null
+      return Math.max(...els.map((el) => el.scrollHeight - el.clientHeight))
+    })(),
+    /*
+     * Names the abbreviation ladder shortened, and names it reduced to bare INITIALS.
+     *
+     * The ladder is a graceful degradation, which makes it an invisible one: it absorbs any
+     * width shortfall completely, so nothing ellipsises, no overflow probe fires, and the
+     * gate reports a clean layout while the wall shows "J D" 180 times. That is exactly what
+     * happened -- a name budget wrong by 2x passed every case in this file.
+     *
+     * Ground truth is free: each cell carries the unabbreviated name in its title attribute.
+     */
+    rosterNames: (() => {
+      const cells = [...document.querySelectorAll('.roster-player[title]')]
+      if (cells.length === 0) return null
+      let abbreviated = 0
+      let initials = 0
+      for (const cell of cells) {
+        const shown = (cell.textContent ?? '').trim()
+        const full = (cell.getAttribute('title') ?? '').trim()
+        if (shown !== full) abbreviated += 1
+        /*
+         * No lowercase left means nothing survives but initials: "J D", "JC-M". Only counts
+         * when the ladder actually shortened it -- the 2025 tab contains a player entered as
+         * "JSN", which is all-caps, three characters and completely unabbreviated.
+         */
+        if (shown !== full && shown !== '' && shown === shown.toUpperCase()) initials += 1
+      }
+      return { total: cells.length, abbreviated, initials }
+    })(),
+    rosterTypePx: (() => {
+      const el = document.querySelector('.roster-player')
+      return el ? Math.round(parseFloat(getComputedStyle(el).fontSize) * 10) / 10 : null
+    })(),
     header: box(document.querySelector('.header')),
     stage: box(document.querySelector('.stage')),
     tableArea: box(document.querySelector('.table-area')),

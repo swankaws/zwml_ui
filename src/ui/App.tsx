@@ -12,6 +12,8 @@ import { Board } from './Board'
 import { Rail } from './Rail'
 import { REFERENCE_TYPE_PX, selectColumns, type ColumnKey } from './columns'
 import { useDisplayScale } from './useDisplayScale'
+import { Roster } from './Roster'
+import { useView } from './useView'
 import { sortByMaxBid, type LeagueState } from '../model/derive'
 import { derivePointer, type PointerBasis } from '../model/pointer'
 import type { SaleEvent } from '../model/diff'
@@ -126,6 +128,7 @@ export function App({
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
+  const view = useView()
 
   // Before the first measurement, assume the projector rather than assume nothing:
   // a width of 0 would drop every optional column for one frame and flash.
@@ -147,6 +150,17 @@ export function App({
   return (
     <div className="app">
       <Header year={year} league={state} feed={feed} feedLabel={feedLabel} />
+      {/*
+       * The view swaps the CONTENT ROW, keeping the header and the footer. A full-screen
+       * sibling was the alternative and it buys only ~72px at 1080p (+7.4%) while costing
+       * the room the header's SPENT/CHASING/SLOTS totals and the notices strip -- the two
+       * things that say whether what is on the wall can be trusted at all (7.8).
+       */}
+      {view === 'roster' ? (
+        <div className="stage" data-rail="off" ref={tableRef}>
+          <Roster managers={state.managers} />
+        </div>
+      ) : (
       <div className="stage" data-rail={settings.rail ? 'on' : 'off'}>
         <div className="table-area" ref={tableRef}>
           <Board managers={sortByMaxBid(state.managers)} columns={columns} />
@@ -160,6 +174,7 @@ export function App({
           <Rail managers={state.managers} order={nominationOrder} cursor={onClock} sales={sales} />
         )}
       </div>
+      )}
       {/*
        * The footer exists only when it has something in it: `Notices` renders nothing when
        * there is nothing to say and the badge waits for a keypress, so in the ordinary case

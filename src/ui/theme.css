@@ -988,3 +988,216 @@ body {
   border-top: 1px solid var(--rule);
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------- roster view (7.4) */
+
+/*
+ * Twelve manager blocks: six across and two bands at 16:9, four across and three bands below
+ * 3:2, one per row on a phone.
+ *
+ * The arrangement is arithmetic, not taste. Twelve blocks need 12/columns bands, each band
+ * needs ~16.35 lines (fifteen slots at line-height 1 plus a head), and the content row is
+ * ~20.5 root em at every resolution in the matrix -- both the budget and the type derive from
+ * viewport height. So the largest type each arrangement allows is:
+ *
+ *   6 across, 2 bands   0.63 em   29px at 1080p    12 across, 1 band   ~9px. Unusable.
+ *   4 across, 3 bands   0.42 em   20px at 1080p    3 across, 4 bands   ~15px.
+ *
+ * At 16:9 six across wins outright: 25px type, and 307px blocks hold `S. Barkley`. Below 3:2
+ * it inverts, and that judgement is worth recording -- six columns at 1280x1024 is 213px per
+ * block, which after the position marker and the price leaves about SEVEN characters, and 174
+ * of 180 names came out as bare initials. Bigger type showing `J D` is worse than smaller type
+ * showing `Jahmyr Gibbs`, because the whole question this view answers is *which players*
+ * somebody has. The fallback screens therefore trade type size for full names.
+ *
+ * That trade is only acceptable because the real projector is 16:9 (Q7 revised, 1080p): 4:3 and
+ * 5:4 are fallbacks where this view is a walk-up reference, while the auction board -- still
+ * full size -- stays the thing read from across the room.
+ */
+.roster {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 0.5em 0.7em;
+  /*
+   * Sized from viewport HEIGHT and deliberately NOT following `--scale`.
+   *
+   * This view is pinned against its vertical budget by construction, so there is no headroom
+   * for the operator to grow into and honouring `+` could only crop every block -- measured, it
+   * overflowed by 94px at `scale=1.15`. Capping it is the same trade the footer makes: chrome
+   * that cannot pay for itself does not get to take the room's rows.
+   *
+   * 2.35vh is measured: the 4:3 and 5:4 cases fit with zero slack at ~2.39vh, so this sits just
+   * under the tightest of them.
+   */
+  font-size: min(0.6em, 2.35vh);
+  overflow: hidden;
+}
+
+.roster-block {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.15em;
+  overflow: hidden;
+}
+
+.roster-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 0.45em;
+  padding-bottom: 0.12em;
+  border-bottom: 1px solid var(--rule);
+}
+
+.roster-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A full roster is out of the bidding, so its block recedes rather than competing. */
+.roster-block[data-full='true'] .roster-name {
+  color: var(--fg-dim);
+}
+
+.roster-spent {
+  color: var(--fg-dim);
+}
+
+.roster-left[data-over='true'] {
+  color: var(--warn);
+}
+
+.roster-slots {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.roster-slot {
+  display: grid;
+  grid-template-columns: 1.9em minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.35em;
+  /*
+   * 1, not `normal`. The same trap `.app` records at the top of this file: normal line-height
+   * adds ~20%, and here that is the difference between fifteen slots fitting a block and the
+   * last three being cropped. The layout gate caught it on all seven roster cases at once.
+   */
+  line-height: 1;
+}
+
+.roster-pos {
+  font-size: 0.78em;
+  letter-spacing: 0.03em;
+  color: var(--fg-dim);
+}
+
+.roster-pos[data-position='QB'] { color: var(--pos-qb); }
+.roster-pos[data-position='RB'] { color: var(--pos-rb); }
+.roster-pos[data-position='WR'] { color: var(--pos-wr); }
+.roster-pos[data-position='TE'] { color: var(--pos-te); }
+.roster-pos[data-position='K'] { color: var(--pos-k); }
+
+/*
+ * The abbreviation ladder in `playerName.ts` does the readable shortening; this is only the
+ * backstop under it. Note that the ladder makes its own failures INVISIBLE -- it absorbs any
+ * shortfall, so nothing ellipsises and no overflow probe fires -- which is why the gate counts
+ * abbreviated names directly instead of trusting this rule to reveal a problem.
+ */
+.roster-player {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster-price {
+  color: var(--fg-dim);
+}
+
+/* A price the sheet could not parse, read as $0 (gridParser). Say so rather than lie. */
+.roster-price[data-suspect='true'] {
+  color: var(--stale);
+}
+
+/* Unfilled slots: present, countable, and quiet. */
+.roster-empty .roster-player,
+.roster-empty .roster-pos {
+  color: var(--rule);
+}
+
+/*
+ * 4:3 and 5:4: four across, three bands, and the type sized for 49 lines instead of 33.
+ * `min(0.41em, 1.7vh)` is the arithmetic above with a little measured margin.
+ */
+@media (aspect-ratio < 3 / 2) {
+  .roster {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    font-size: min(0.41em, 1.7vh);
+    gap: 0.4em 0.5em;
+  }
+  .roster-slot {
+    grid-template-columns: 1.6em minmax(0, 1fr) auto;
+    gap: 0.3em;
+  }
+}
+
+/*
+ * A phone scrolls the PAGE vertically, and never horizontally.
+ *
+ * Four attempts to scroll an inner container all failed the same way: `.roster` is a grid whose
+ * height is definite -- it fills `.stage`, which fills a `100vh` `.app` -- and its rows kept
+ * being sized to a share of that height rather than to their content no matter what
+ * `grid-auto-rows`, `align-content` or the blocks' own tracks said. Measured, the rows came out
+ * at 115.6px each while each block needed 386px. So this drops the nesting on mobile instead:
+ * the shell stops being viewport-height, blocks become ordinary wrapping flow content, and the
+ * document scrolls the way a phone expects.
+ *
+ * ONE block per row, not two. Two columns is 172px per block, which leaves about five
+ * characters -- 175 of 180 names came out as bare initials, which answers nothing about which
+ * players somebody has. Full width gets ~18 characters and shows real names. The cost is a long
+ * page, which is the accepted trade: vertical scrolling is fine on mobile, horizontal is not.
+ *
+ * Horizontal overflow is prevented structurally rather than hidden: a 100% basis with wrapping
+ * cannot sum past one viewport at any width. `overflow-x: hidden` is the belt to that braces,
+ * and the gate asserts zero horizontal overflow on every case, mobile included.
+ *
+ * None of this reaches the projector -- it is scoped to a width no projector has.
+ */
+@media (max-width: 700px) {
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .app {
+    height: auto;
+    min-height: 100vh;
+  }
+  .app:has(.roster) .stage,
+  .app:has(.roster) .stage[data-rail='off'] {
+    grid-template-rows: auto;
+    min-height: 0;
+  }
+  .roster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6em 0.5em;
+    font-size: 0.62em;
+    overflow: visible;
+  }
+  .roster-block {
+    flex: 1 1 100%;
+    min-width: 0;
+    display: block;
+    overflow: visible;
+  }
+  .roster-slots {
+    overflow: visible;
+  }
+}
