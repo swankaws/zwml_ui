@@ -594,8 +594,23 @@ body {
    * would break again the next time someone nudges it one step further. A phone
    * viewer who wants bigger text has the browser's own zoom, which reflows.
    */
+  /*
+   * ...and it sizes from WIDTH here, which inverts the rule the rest of this file follows.
+   *
+   * Everything else derives type from viewport HEIGHT, because on a fixed 16:9 wall the vertical
+   * budget is what binds and a width-based ramp would shrink the type on the exact display this is
+   * built for. A phone is the opposite in both respects. Height stopped being scarce the moment the
+   * page was allowed to scroll (see the roster block below), and width was always the scarce axis:
+   * `4.35vh` of an 844px-tall phone is 36.7px, nearly a laptop's type, in a THIRD of a laptop's
+   * width. Measured, that left room for two columns -- `MANAGER` and `MAX BID` -- so the phone lost
+   * spent, left, needs and every position count, which is most of the reason to look at the board.
+   *
+   * `4.6vw` is ~18px at 390px, which fits the full column set through `selectColumns`' own fit test
+   * rather than by assertion. Capped at 26px so a tablet in portrait does not go back to two
+   * columns, and floored at 13px like `--type`.
+   */
   :root {
-    font-size: var(--type);
+    font-size: clamp(13px, 4.6vw, 26px);
   }
 
   /*
@@ -646,9 +661,52 @@ body {
     padding-left: 0;
   }
 
-  /* One nominator: who is on the clock. The rest of the lap costs rows. */
-  .rail .nomination > *:nth-child(n + 2) {
-    display: none;
+  /*
+   * The whole window, not one entry each.
+   *
+   * This used to show a single nominator and a single sale, because on a fixed-height screen every
+   * extra line came out of a manager's row. A phone scrolls now, so that trade is gone: the lap and
+   * the recent sales are exactly what someone glancing at their phone mid-auction wants, and they
+   * cost nothing but page length.
+   */
+  .rail .nomination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25em 0.8em;
+  }
+
+  .rail .nomination > *:nth-child(n + 2),
+  .rail .sales > *:nth-child(n + 2) {
+    display: revert;
+  }
+
+  /*
+   * The stacked rail re-bases its type on `var(--type)` to stay immune to `--scale` (see that
+   * rule's note). On a phone that is now doing harm rather than good: the mobile root is a `vw`
+   * clamp with no `--scale` in it, so it is ALREADY scale-immune, and re-basing on a 4.35vh value
+   * made the rail render against 36.7px while the table rendered against 17.9px -- the rail came
+   * out twice the size of the figures it sits under. Inheriting the mobile root keeps the immunity
+   * and restores the proportion.
+   */
+  .rail {
+    font-size: 1em;
+  }
+
+  /*
+   * ...and the rail's type comes down to match the table it sits under.
+   *
+   * These sizes were tuned when the phone showed ONE nominator and ONE sale, where being the
+   * largest thing on screen was the point. Showing the whole window at those sizes inverted the
+   * board's own hierarchy: measured, nominees rendered at 30.8px against 16.9px manager names, so
+   * the least important panel on the screen was nearly twice the size of the figures the room is
+   * actually reading.
+   */
+  .rail .nomination {
+    font-size: 0.95em;
+  }
+
+  .rail .sales {
+    font-size: 0.9em;
   }
 }
 
@@ -1188,7 +1246,13 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 0.6em 0.5em;
-    font-size: 0.62em;
+    /*
+     * Full size, not the 0.62em this used to carry. That fraction was written when the mobile root
+     * was a 4.35vh value -- 36.7px on a phone -- so 0.62em came out at 22.8px. The root is now a
+     * `vw` clamp at ~17.9px, and the same fraction collapsed the roster to 11.1px: unreadable at
+     * arm's length. The page scrolls here, so there is no reason to spend anything on shrinking it.
+     */
+    font-size: 1em;
     overflow: visible;
   }
   .roster-block {
@@ -1353,5 +1417,41 @@ kbd {
 
   .help-touch {
     display: block;
+  }
+}
+
+/* The `?` beside the title: permanent, quiet, and desktop-only (a phone has its own). */
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.help-open {
+  flex: 0 0 auto;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 0.6em;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.help-open:hover,
+.help-open:focus-visible {
+  color: var(--fg);
+  border-color: var(--fg-dim);
+}
+
+@media (max-width: 700px) {
+  .help-open {
+    display: none;
   }
 }

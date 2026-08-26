@@ -161,6 +161,17 @@ export function App({
          * is simply unavailable there -- which is how the roster view came to be unreachable on a
          * phone entirely (7.9 requires a tap route for anything reachable only by key).
          */
+        help={
+          <button
+            type="button"
+            className="help-open"
+            onClick={toggleHelp}
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts"
+          >
+            ?
+          </button>
+        }
         action={
           <div className="touch-controls">
             <button type="button" className="touch-button" onClick={toggleView}>

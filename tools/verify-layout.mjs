@@ -403,6 +403,18 @@ for (const testCase of CASES) {
    * on a projector because a wall does not get buttons.
    */
   const phone = m.viewport.w <= 700
+  /*
+   * The keyboard reference has to be reachable without knowing a key exists. On a display with a
+   * keyboard that is the `?` beside the title; on a phone it is a touch control, and the title
+   * mark would be noise. Both halves are asserted, because "shows up in the wrong place" is the
+   * failure that reaches the wall.
+   */
+  if (m.helpOpen && !frozen) {
+    // Not on the frozen fallback: the React tree is dead there, so there is no header to carry it
+    // and no handler to answer it. `FrozenBoard` is plain text on purpose (8.1).
+    if (!phone && !m.helpOpen.visible) problems.push('the `?` beside the title is not visible')
+    if (phone && m.helpOpen.visible) problems.push('the `?` beside the title shows on a phone')
+  }
   if (m.touchButtons) {
     if (phone && m.touchButtons.visible < 2) {
       problems.push(`phone shows ${m.touchButtons.visible} touch controls, expected 2`)

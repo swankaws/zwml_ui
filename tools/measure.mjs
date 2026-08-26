@@ -246,6 +246,17 @@ const PROBE = `(() => {
      * measured height is checked against the 44px minimum target -- a control the room cannot
      * reliably hit is the same as no control.
      */
+    /*
+     * The "?" beside the title. Present on a display with a keyboard and absent on a phone, which
+     * has its own in the touch controls -- and it must never be the thing that squeezes the title,
+     * which is why h1Truncated below matters more here than anywhere.
+     */
+    helpOpen: (() => {
+      const el = document.querySelector('.help-open')
+      if (!el) return { rendered: false, visible: false }
+      const r = el.getBoundingClientRect()
+      return { rendered: true, visible: r.width > 0 && r.height > 0 }
+    })(),
     touchButtons: (() => {
       const buttons = [...document.querySelectorAll('.touch-button')]
       const shown = buttons.filter((b) => b.getBoundingClientRect().height > 0)

@@ -36,12 +36,34 @@ export interface HeaderProps {
    * measured 1.15 scale ceiling (7.1).
    */
   action?: ReactNode
+  /**
+   * The `?` beside the title. Desktop only, by CSS.
+   *
+   * The keyboard reference was advertised on the standby screen, which is shown for a couple of
+   * seconds at startup and is therefore easy to miss entirely -- and then the eight bound keys are
+   * undiscoverable for the rest of the night. A permanent mark next to the title is the cheapest
+   * fix that does not touch the row budget (`.footer:empty`, see 7.1).
+   *
+   * Absent on a phone, where the touch controls already carry a `?`.
+   */
+  help?: ReactNode
 }
 
-export function Header({ year, league, feed = 'live', feedLabel = 'LIVE', action = null }: HeaderProps) {
+export function Header({
+  year,
+  league,
+  feed = 'live',
+  feedLabel = 'LIVE',
+  action = null,
+  help = null,
+}: HeaderProps) {
   return (
     <header className="header">
-      <h1>ZWML {year} AUCTION</h1>
+      {/* One flex item, so the `?` travels with the title rather than being spaced away from it. */}
+      <div className="title">
+        <h1>ZWML {year} AUCTION</h1>
+        {help}
+      </div>
       <div className="totals">
         <span>
           SPENT <b>{money(league.leagueSpent)}</b>

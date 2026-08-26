@@ -63,13 +63,16 @@ export function Help({ open, onClose }: HelpProps) {
           ))}
         </dl>
         {/*
-         * The pointer's honesty, stated where the operator is already looking. The board derives
-         * who is on the clock from the sales it has watched, and it can be wrong -- an order that
-         * is not the league's real rotation, a sale entered out of sequence, a reload that absorbed
-         * a pick. `N` is the answer, and this is the moment to say so.
+         * Said plainly, and said here because this is where the operator is already looking.
+         *
+         * The board works out who is on the clock from the sales it has watched, and there are real
+         * ways for it to be off: an order that is not the league's actual rotation, a pick typed out
+         * of sequence, or a reload that absorbed one. When the screen and the room disagree, the
+         * room is right -- so the fix has to be one key, and the operator has to know it exists.
          */}
         <p className="help-foot">
-          If the wall names the wrong nominator, the room is right — press <kbd>N</kbd>.
+          Wrong name on the clock? Press <kbd>N</kbd> until it is right. The correction sticks for
+          the rest of the draft.
         </p>
         {/* A phone reaches this overlay by tapping `?`, so it needs to know keys are not the only way. */}
         <p className="help-foot help-touch">On a phone, use the buttons in the header.</p>
