@@ -28,6 +28,7 @@ import { Setup } from './ui/Setup'
 import { loadFixture } from './dev/fixtureState'
 import { createBoardStore, type BoardStore } from './live/boardStore'
 import { installWatchdog, sessionHistory } from './live/watchdog'
+import { browserSession, safeSessionStorage as safeSession } from './live/session'
 import { createCsvSource } from './data/sheetClient'
 import { pickAuctionTab } from './data/tabs'
 import { confirmSheetId, resolveSheetId } from './config/sheetLocation'
@@ -94,6 +95,13 @@ function renderLive(root: ReturnType<typeof createRoot>) {
     // Only now is the id worth remembering: a fetch has proved it works (9.1).
     onFirstSuccess: () => confirmSheetId(location),
     tabWarning: tab.warning,
+    /*
+     * The pointer and the ticker survive a reload (7.5) -- including the watchdog's own reload,
+     * which is what made this necessary: the recovery for a dead tree was silently restarting the
+     * rotation at the top of the order. `sessionStorage`, so a baseline can never outlive the tab
+     * that made it; see the header of `live/session.ts`.
+     */
+    session: browserSession(safeSession(), `zwml:session:${tab.year}`),
   })
 
   logWarnings(store)
@@ -120,8 +128,18 @@ function renderLive(root: ReturnType<typeof createRoot>) {
   window.addEventListener('keydown', (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return
 
-    // `r` for refetch. Not `0`: `useDisplayScale` owns `0` for clearing a scale nudge.
-    if (event.key === 'r' || event.key === 'R') return store.refetch()
+    /*
+     * `g` -- get the sheet now.
+     *
+     * It was `r`, which collided with the roster-view toggle: one key quietly did two things, and
+     * that reads as a bug even when both are harmless. `R` is the roster view (7.9 says so) and
+     * this is the letter left that means "fetch". Not `0`, which `useDisplayScale` owns for
+     * clearing a scale nudge.
+     *
+     * On `window` rather than in a component, because the moment someone reaches for this is the
+     * moment the React tree has died and nothing is updating (8.1).
+     */
+    if (event.key === 'g' || event.key === 'G') return store.refetch()
 
     /*
      * `N` / `Shift+N` -- correct who is on the clock (7.5, 7.9).

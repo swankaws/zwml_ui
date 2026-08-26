@@ -1201,3 +1201,157 @@ body {
     overflow: visible;
   }
 }
+
+/* -------------------------------------------------- keyboard reference (7.9) */
+
+/*
+ * The one overlay in this app, and the only place covering the board is right: it exists only
+ * while somebody is holding the keyboard and asking for it. The notices strip had to move into
+ * the flow for the opposite reason -- it appears unbidden.
+ *
+ * Sized from viewport height like everything else, and capped, so a raised `--scale` cannot push
+ * it past the screen. Centred rather than cornered because there is nothing to read behind it.
+ */
+.help {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  /* Dimmed, not black: the room can still see that the board is there, waiting. */
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  font-size: min(0.5em, 2.6vh);
+}
+
+.help-card {
+  min-width: 0;
+  max-width: 90vw;
+  max-height: 92vh;
+  overflow: hidden;
+  padding: 1.4em 1.8em;
+  border: 1px solid var(--rule);
+  border-radius: 0.5em;
+  background: var(--bg-row-alt);
+}
+
+.help-card h2 {
+  margin: 0 0 0.9em;
+  font-size: 1em;
+  letter-spacing: 0.14em;
+  color: var(--fg-dim);
+}
+
+.help-list {
+  margin: 0;
+  display: grid;
+  gap: 0.55em;
+}
+
+.help-row {
+  display: grid;
+  grid-template-columns: 3.6em minmax(0, 1fr);
+  align-items: baseline;
+  gap: 1em;
+}
+
+.help-row dt {
+  margin: 0;
+}
+
+.help-row dd {
+  margin: 0;
+  min-width: 0;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0.16em 0.4em;
+  border: 1px solid var(--rule);
+  border-radius: 0.25em;
+  background: var(--bg);
+  font: inherit;
+  text-align: center;
+  color: var(--fg);
+}
+
+/* The surprising-behaviour notes, quieter than the action they qualify. */
+.help-note {
+  display: block;
+  font-size: 0.76em;
+  font-weight: 400;
+  color: var(--fg-dim);
+}
+
+.help-foot {
+  margin: 1.2em 0 0;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--rule);
+  font-size: 0.86em;
+  color: var(--fg-dim);
+}
+
+/* Where the reference is advertised: the setup screen, which costs the board nothing. */
+.standby-hint {
+  margin: 1.6em 0 0;
+  font-size: 0.42em;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+
+/* ------------------------------------------------ touch controls (Q8, 7.9) */
+
+/*
+ * Hidden wherever there is a keyboard, which is every display this was designed for. They exist
+ * because a phone has no keyboard at all, so every key-only action is simply absent there -- and
+ * the roster view was unreachable on a phone until these landed.
+ *
+ * Rendered unconditionally and hidden by CSS, not conditionally rendered, because they live in the
+ * HEADER: `.footer:empty` is what keeps the footer's ~35px off the twelve-row budget, so a child
+ * there would cost the projector its measured 1.15 ceiling. The header has no such rule.
+ */
+.touch-controls {
+  display: none;
+}
+
+.help-touch {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .touch-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    flex: 0 0 auto;
+    font-size: 0.7em;
+  }
+
+  .touch-button {
+    /*
+     * 44px is Apple's and Google's minimum touch target, and it is a floor rather than a
+     * preference: a control the room cannot reliably hit is the same as no control.
+     */
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.3em 0.7em;
+    border: 1px solid var(--rule);
+    border-radius: 0.3em;
+    background: var(--bg-row-alt);
+    color: var(--fg);
+    font: inherit;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    /* No tap-highlight flash: 7.7 bans motion that pulls the eye. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .touch-button:active {
+    background: var(--rule);
+  }
+
+  .help-touch {
+    display: block;
+  }
+}

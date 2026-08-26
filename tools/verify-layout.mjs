@@ -203,6 +203,20 @@ const CASES = [
     allowConsole: /render error|deliberate render error|above error|Error Boundary|uncaught/i,
   },
   /*
+   * The keyboard reference (7.9), at the two extremes of the matrix and at the scale ceiling.
+   * It is an overlay, so it cannot push the board around -- what it CAN do is outgrow the screen,
+   * which is what `helpClipped` checks. `?view=help` pins it open.
+   */
+  { size: '1920x1080', query: '?fixture=2026&view=help', label: 'help on the projector', help: 8 },
+  { size: '1024x768', query: '?fixture=2026&view=help', label: 'help at 4:3', help: 8 },
+  { size: '390x844', query: '?fixture=2026&view=help', label: 'help on a phone', help: 8 },
+  {
+    size: '1920x1080',
+    query: '?fixture=2026&view=help&scale=1.15',
+    label: 'help at the ceiling',
+    help: 8,
+  },
+  /*
    * The roster view (7.4). `?fixture=2025` on purpose: that draft is COMPLETE, so every
    * one of the twelve blocks holds all fifteen players. It is the only content in the
    * repo that exercises this view at full load, and a view that fits nine picks and
@@ -310,7 +324,13 @@ for (const testCase of CASES) {
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
 
-  if (roster) {
+  if (testCase.help !== undefined) {
+    // The card must be complete and on screen. The board behind it is not this case's business.
+    if (m.helpRows !== testCase.help) {
+      problems.push(`help lists ${m.helpRows} shortcuts, expected ${testCase.help}`)
+    }
+    if (m.helpClipped) problems.push('the help card does not fit the screen')
+  } else if (roster) {
     /*
      * The board's row and column checks do not apply -- there is no table here. What
      * replaces them is this view's own promise: twelve squads, all fifteen slots each,
@@ -377,6 +397,24 @@ for (const testCase of CASES) {
     if (m.boundary !== 'ok') problems.push(`boundary is "${m.boundary}", expected "ok"`)
   }
 
+  /*
+   * The touch controls, asserted on EVERY case rather than in one of their own. Their contract is
+   * as much about absence as presence: visible on a phone because there is no keyboard, invisible
+   * on a projector because a wall does not get buttons.
+   */
+  const phone = m.viewport.w <= 700
+  if (m.touchButtons) {
+    if (phone && m.touchButtons.visible < 2) {
+      problems.push(`phone shows ${m.touchButtons.visible} touch controls, expected 2`)
+    }
+    if (!phone && m.touchButtons.visible > 0) {
+      problems.push(`${m.touchButtons.visible} touch controls visible on a non-phone display`)
+    }
+    if (phone && m.touchButtons.minSide !== null && m.touchButtons.minSide < 44) {
+      problems.push(`touch target is ${m.touchButtons.minSide}px, under the 44px minimum`)
+    }
+  }
+
   if (m.docOverflow.x > 0) problems.push(`${m.docOverflow.x}px horizontal overflow`)
   if (m.docOverflow.y > 0 && !testCase.allowVerticalScroll) {
     problems.push(`${m.docOverflow.y}px vertical overflow`)
@@ -411,7 +449,9 @@ for (const testCase of CASES) {
   const status = problems.length === 0 ? 'ok  ' : 'FAIL'
   console.log(
     `${status} ${testCase.size.padEnd(10)} ${testCase.label.padEnd(24)} ` +
-      (roster
+      (testCase.help !== undefined
+        ? `helpRows=${m.helpRows} card=${m.help?.w}x${m.help?.h}`
+        : roster
         ? `blocks=${m.rosterBlocks} cols=${m.rosterColumns} slots=${m.rosterMaxSlots}` +
           ` type=${m.rosterTypePx}px slack=${-m.rosterOverflowPx}px` +
           ` abbrev=${m.rosterNames?.abbreviated}/${m.rosterNames?.total}`

@@ -38,6 +38,7 @@ import {
   type SlotMap,
 } from '../model/diff'
 import { countsFromSlots, type PointerBasis } from '../model/pointer'
+import { RESYNC_NOTICE_MS, isRestorable, type SessionStore } from './session'
 import type { ManagerBlock } from '../data/gridParser'
 
 /**
@@ -98,6 +99,13 @@ export interface BoardStoreOptions {
   onFirstSuccess?: () => void
   /** A one-off warning from tab selection (`?year=` naming an unconfigured year). */
   tabWarning?: string | null
+  /**
+   * Where the pointer and the sale log survive a reload (7.5). Omit to keep them in memory only.
+   *
+   * Injected rather than reached for, like the clock and the timers, so the whole restore /
+   * reconcile / absorb path is unit-testable with no browser.
+   */
+  session?: SessionStore | null
 }
 
 export interface BoardStore {
@@ -186,6 +194,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     clearTimer,
     onFirstSuccess,
     tabWarning = null,
+    session = null,
   } = options
 
   const listeners = new Set<() => void>()
@@ -221,6 +230,18 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   let derived: { state: LeagueState; order: readonly string[]; warnings: string[] } | null = null
   let settings: Partial<DisplaySettings> = {}
   let settingsWarnings: string[] = []
+  /**
+   * The roster the SETTINGS tab was last parsed against, or `null` if never.
+   *
+   * The tab's `order` is validated against whoever is actually playing (9.2), which comes from
+   * the auction tab -- so a settings poll that lands FIRST has no roster to check against and
+   * falls back to the committed list. That rejection then stuck for the whole session, because
+   * settings are only re-parsed when the tab's text CHANGES, and this is not hypothetical: on
+   * 2026-08-26 a stale committed roster made the deployed board reject the sheet's entire
+   * nomination order with `"Brian" is not a known manager`, and it stayed rejected. Remembering
+   * which roster was used lets the next successful parse re-run it against the real one.
+   */
+  let settingsRoster: readonly string[] | null = null
 
   /*
    * The sale log and what it is measured against (7.3, 7.5).
@@ -241,6 +262,14 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   let cursorOffset = 0
   /** Replaced wholesale whenever any of its three parts changes, so `===` is meaningful. */
   let pointerBasis: PointerBasis = { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 }
+  /**
+   * A restored session has not yet been checked against the sheet, and until it has, the next
+   * parse must not be diffed normally -- see `reconcile`.
+   */
+  let pendingReconcile = false
+  /** When a restore last absorbed unaccounted picks, so the notice can expire (7.5). */
+  let resyncedAt: number | null = null
+  let resyncedCount = 0
   /** Latest parse/derive throw. One slot, not a list: see `noteInternalError`. */
   let internalWarning: string | null = null
 
@@ -258,6 +287,32 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
    * other's backoff.
    */
   let generation = 0
+
+  /*
+   * Restore before the first poll, so the very first parse is a reconciliation rather than a
+   * baseline. Doing this at construction rather than in `start()` means a caller that reads a
+   * snapshot before starting already sees the restored ticker.
+   */
+  restore()
+
+  function restore() {
+    const saved = session?.read() ?? null
+    if (saved === null || !isRestorable(saved, year, now())) {
+      // Stale, another year's, or malformed. 7.5: discard the baseline and the log, and
+      // re-baseline from the current poll. Nothing to warn about -- this is the normal path on
+      // every fresh open.
+      if (saved !== null) session?.clear()
+      return
+    }
+
+    baselineCounts = saved.baselineCounts
+    lastSlots = saved.slots
+    saleLog = saved.saleLog
+    salesView = [...saved.saleLog].reverse()
+    cursorOffset = saved.cursorOffset
+    pendingReconcile = true
+    setPointerBasis()
+  }
 
   function notify() {
     for (const listener of listeners) listener()
@@ -290,6 +345,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       feedLabel: label(feed, age),
       warnings: [
         ...(tabWarning ? [tabWarning] : []),
+        ...(resyncNotice() ? [resyncNotice()!] : []),
         ...(derived?.warnings ?? []),
         ...(internalWarning ? [internalWarning] : []),
         ...settingsWarnings,
@@ -347,6 +403,16 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
           noteInternalError(cause)
         }
       }
+      /*
+       * Written on every successful poll and AFTER the parse, not before it (7.5).
+       *
+       * On every poll, because `savedAt` is what the restore window is measured against and an
+       * open tab must never age into staleness while it sits idle during a break in the auction.
+       * After the parse, because before it there is nothing to save on the very first poll --
+       * `lastSlots` is still null -- which left a poll-interval-wide hole where a reload lost the
+       * baseline it had just established.
+       */
+      saveSession()
       publish()
     } catch (cause) {
       if (!running || mine !== generation) return
@@ -402,6 +468,26 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
      * screen.
      */
     trackSales(tab.blocks)
+    reparseSettingsIfRosterChanged(roster)
+  }
+
+  /**
+   * Re-run the remembered SETTINGS text when the roster it was validated against has changed.
+   *
+   * Covers the first-poll race above, and also a genuine mid-draft roster edit -- both end with
+   * the tab's own `order` being judged against the twelve people actually on the board.
+   */
+  function reparseSettingsIfRosterChanged(roster: readonly string[]) {
+    if (lastSettingsText === null) return
+    if (settingsRoster !== null && sameStrings(settingsRoster, roster)) return
+    try {
+      const result = parseSettingsGrid(parseCsv(lastSettingsText), roster)
+      settings = result.settings
+      settingsWarnings = result.warnings
+      settingsRoster = roster
+    } catch {
+      // A settings tab we cannot parse must never cost the room the auction (9.2).
+    }
   }
 
   /**
@@ -432,6 +518,37 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     const diff = diffSlots(lastSlots, slots, nextSequence(saleLog))
     lastSlots = slots
 
+    /*
+     * The first parse after a restore ABSORBS rather than replays (7.5 rule 2).
+     *
+     * Anything the sheet holds that the restored log cannot account for is treated as part of the
+     * baseline: no `SaleEvent`, no ticker entry, no pointer advance. That is deliberately the
+     * cautious direction -- keepers entered while the tab was shut would otherwise open the night
+     * as a run of fake sales with the pointer that many managers along, which is the exact
+     * failure 7.5 is written about.
+     *
+     * The cost is the opposite error, and it is much cheaper: a real sale that landed during the
+     * reload is absorbed too, leaving the pointer one behind. That is visible (the `resynced`
+     * notice below) and one keystroke to fix (`N`), whereas a phantom sale is neither.
+     *
+     * Corrections and retractions are still applied. They cannot invent a sale, and adopting them
+     * keeps the log matching a sheet that was edited while we were away.
+     */
+    if (pendingReconcile) {
+      pendingReconcile = false
+      if (diff.sales.length > 0) {
+        const counts: Record<string, number> = { ...baselineCounts }
+        for (const sale of diff.sales) counts[sale.manager] = (counts[sale.manager] ?? 0) + 1
+        baselineCounts = counts
+        resyncedCount = diff.sales.length
+        resyncedAt = now()
+      }
+      saleLog = applyDiff(saleLog, { sales: [], corrections: diff.corrections, retracted: diff.retracted })
+      salesView = [...saleLog].reverse()
+      setPointerBasis()
+      return
+    }
+
     const nextLog = applyDiff(saleLog, diff)
     if (nextLog === saleLog) return
 
@@ -444,6 +561,25 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
 
   function setPointerBasis() {
     pointerBasis = { baselineCounts, log: saleLog, offset: cursorOffset }
+  }
+
+  function saveSession() {
+    if (session === null || lastSlots === null) return
+    session.write({
+      savedAt: now(),
+      year,
+      baselineCounts: { ...baselineCounts },
+      slots: lastSlots,
+      saleLog: [...saleLog],
+      cursorOffset,
+    })
+  }
+
+  /** `resynced · N absorbed`, for ~30s after a restore had to absorb (7.5). */
+  function resyncNotice(): string | null {
+    if (resyncedAt === null) return null
+    if (now() - resyncedAt > RESYNC_NOTICE_MS) return null
+    return `resynced: ${resyncedCount} pick${resyncedCount === 1 ? '' : 's'} absorbed into the baseline, not shown as sales. Press N if the nominator is wrong.`
   }
 
   /**
@@ -555,6 +691,8 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
         const result = parseSettingsGrid(parseCsv(text), roster)
         settings = result.settings
         settingsWarnings = result.warnings
+        // Remember WHICH roster judged it, so a later parse can correct a premature verdict.
+        settingsRoster = roster ?? null
         publish()
       }
     } catch (cause) {
@@ -643,6 +781,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       if (!Number.isFinite(delta) || delta === 0) return
       cursorOffset += Math.trunc(delta)
       setPointerBasis()
+      saveSession()
       publish()
     },
 
@@ -659,6 +798,10 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       saleLog = NO_SALES
       salesView = NO_SALES
       cursorOffset = 0
+      pendingReconcile = false
+      resyncedAt = null
+      resyncedCount = 0
+      session?.clear()
       setPointerBasis()
       publish()
       // Baselining needs a parse, and an unchanged body will not produce one -- the text

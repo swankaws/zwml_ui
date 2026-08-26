@@ -7,6 +7,7 @@
  * unguarded form put `$Infinity` on the wall at the loudest moment of the night.
  */
 
+import type { ReactNode } from 'react'
 import { money } from './columns'
 import type { LeagueState } from '../model/derive'
 import type { FeedState } from '../data/sheetClient'
@@ -26,9 +27,18 @@ export interface HeaderProps {
   /** Feed health. Phase 4 drives this; phase 3 pins it to `live`. */
   feed?: FeedState
   feedLabel?: string
+  /**
+   * Touch controls, as a slot. Hidden by CSS on anything with a keyboard.
+   *
+   * The header rather than the footer, and that is not arbitrary: `.footer:empty` is what keeps
+   * the footer's ~35px off the twelve-row budget, so a child rendered there unconditionally --
+   * even one set to `display: none` -- would make the footer non-empty and cost the projector its
+   * measured 1.15 scale ceiling (7.1).
+   */
+  action?: ReactNode
 }
 
-export function Header({ year, league, feed = 'live', feedLabel = 'LIVE' }: HeaderProps) {
+export function Header({ year, league, feed = 'live', feedLabel = 'LIVE', action = null }: HeaderProps) {
   return (
     <header className="header">
       <h1>ZWML {year} AUCTION</h1>
@@ -58,6 +68,7 @@ export function Header({ year, league, feed = 'live', feedLabel = 'LIVE' }: Head
           {feedLabel}
         </span>
       </div>
-    </header>
+          {action}
+</header>
   )
 }

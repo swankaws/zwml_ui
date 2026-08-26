@@ -13,7 +13,8 @@ import { Rail } from './Rail'
 import { REFERENCE_TYPE_PX, selectColumns, type ColumnKey } from './columns'
 import { useDisplayScale } from './useDisplayScale'
 import { Roster } from './Roster'
-import { useView } from './useView'
+import { Help } from './Help'
+import { useHelp, useView } from './useView'
 import { sortByMaxBid, type LeagueState } from '../model/derive'
 import { derivePointer, type PointerBasis } from '../model/pointer'
 import type { SaleEvent } from '../model/diff'
@@ -128,7 +129,8 @@ export function App({
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
-  const view = useView()
+  const { view, toggle: toggleView } = useView()
+  const { open: helpOpen, toggle: toggleHelp } = useHelp()
 
   // Before the first measurement, assume the projector rather than assume nothing:
   // a width of 0 would drop every optional column for one frame and flash.
@@ -149,7 +151,32 @@ export function App({
 
   return (
     <div className="app">
-      <Header year={year} league={state} feed={feed} feedLabel={feedLabel} />
+      <Header
+        year={year}
+        league={state}
+        feed={feed}
+        feedLabel={feedLabel}
+        /*
+         * Touch controls, mobile-only by CSS. A phone has no keyboard, so every key-only action
+         * is simply unavailable there -- which is how the roster view came to be unreachable on a
+         * phone entirely (7.9 requires a tap route for anything reachable only by key).
+         */
+        action={
+          <div className="touch-controls">
+            <button type="button" className="touch-button" onClick={toggleView}>
+              {view === 'roster' ? 'BOARD' : 'ROSTERS'}
+            </button>
+            <button
+              type="button"
+              className="touch-button"
+              onClick={toggleHelp}
+              aria-label="Keyboard shortcuts"
+            >
+              ?
+            </button>
+          </div>
+        }
+      />
       {/*
        * The view swaps the CONTENT ROW, keeping the header and the footer. A full-screen
        * sibling was the alternative and it buys only ~72px at 1080p (+7.4%) while costing
@@ -183,6 +210,7 @@ export function App({
        * that is usually invisible, and the documented `scale: 1.15` ceiling was measured
        * without it.
        */}
+      <Help open={helpOpen} onClose={toggleHelp} />
       <div className="footer">
         {notices}
         {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}

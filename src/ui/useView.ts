@@ -32,7 +32,17 @@ export function viewFromQuery(search: string): View | null {
   return raw === 'roster' ? 'roster' : raw === 'board' ? 'board' : null
 }
 
-export function useView(search = typeof window === 'undefined' ? '' : window.location.search): View {
+export interface ViewControl {
+  view: View
+  /**
+   * Tap affordance for touch devices, which have no keyboard at all (7.9: "anything reachable
+   * only by key must also be reachable by tap"). The maintainer found this the hard way -- the
+   * roster view was unreachable on a phone.
+   */
+  toggle: () => void
+}
+
+export function useView(search = typeof window === 'undefined' ? '' : window.location.search): ViewControl {
   const pinned = viewFromQuery(search)
   const [view, setView] = useState<View>(pinned ?? 'board')
   /*
@@ -41,6 +51,12 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
    * is what would drop a keypress that arrives during the re-render.
    */
   const viewRef = useRef<View>(pinned ?? 'board')
+
+  /*
+   * Held in a ref so the tap handler and the key handler drive the same `show`, including its idle
+   * timer, without the effect being re-created (and the listener re-bound) on every toggle.
+   */
+  const showRef = useRef<(next: View) => void>(() => {})
 
   useEffect(() => {
     // A pinned view is a measurement or an operator decision made in the URL; nothing may
@@ -66,10 +82,11 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
       }
 
       /*
-       * Any other key means someone is at the keyboard, so restart the clock rather than
-       * pulling the view out from under them. Note `r` is ALSO the refetch key in
-       * `main.tsx`: pressing it does both, which is harmless and arguably right -- someone
-       * switching views is someone who wants current figures.
+       * Any other key means someone is at the keyboard, so restart the clock rather than pulling
+       * the view out from under them.
+       *
+       * `r` used to ALSO refetch, because `main.tsx` bound the same letter. Two actions on one key
+       * reads as a bug even when both are harmless, so refetch moved to `g`.
        */
       if (viewRef.current === 'roster') {
         window.clearTimeout(idle)
@@ -77,6 +94,7 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
       }
     }
 
+    showRef.current = show
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('keydown', onKey)
@@ -84,5 +102,45 @@ export function useView(search = typeof window === 'undefined' ? '' : window.loc
     }
   }, [pinned])
 
-  return view
+  return {
+    view,
+    toggle: () => showRef.current(viewRef.current === 'roster' ? 'board' : 'roster'),
+  }
+}
+
+/**
+ * Whether the keyboard reference is on screen (7.9).
+ *
+ * `?` or `H` toggles, `Esc` closes. A hook rather than store state, for the same reason as the
+ * view toggle: there is nothing here to survive a dead React tree, because with no tree there is
+ * no overlay to show.
+ *
+ * `?view=help` pins it open, which is how the layout gate measures it -- an overlay that has never
+ * been measured is exactly the mistake the notices strip made (see `Notices.tsx`).
+ */
+export interface HelpControl {
+  open: boolean
+  toggle: () => void
+}
+
+export function useHelp(search = typeof window === 'undefined' ? '' : window.location.search): HelpControl {
+  const pinned = new URLSearchParams(search.replace(/^\?/, '')).get('view') === 'help'
+  const [open, setOpen] = useState(pinned)
+
+  useEffect(() => {
+    if (pinned) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === '?' || event.key === 'h' || event.key === 'H') {
+        setOpen((was) => !was)
+        event.preventDefault()
+      } else if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pinned])
+
+  return { open, toggle: () => setOpen((was) => !was) }
 }

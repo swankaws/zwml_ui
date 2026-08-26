@@ -44,6 +44,16 @@ export function Standby({ year, problem, feedLabel, notices = null }: StandbyPro
           <p className="standby-action">{problem.action}</p>
         </>
       )}
+      {/*
+       * Where the keyboard reference is advertised, and the only place it can be without cost.
+       * The footer would be the obvious spot on the board, but `.footer:empty` is what keeps its
+       * ~35px off the row budget -- a permanent hint there would invalidate the measured 1.15
+       * scale ceiling (7.1). This screen has room to spare and, better, it is what the operator is
+       * looking at while they set the projector up, which is exactly when learning the keys is free.
+       */}
+      <p className="standby-hint">
+        Press <kbd>?</kbd> for keyboard shortcuts
+      </p>
       {notices}
     </div>
   )

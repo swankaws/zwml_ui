@@ -13,6 +13,17 @@ import { describe, expect, it } from 'vitest'
 import raw2026 from '../../docs/data-samples/2026-auction.csv?raw'
 import { createBoardStore, initialSnapshot, type BoardStore } from './boardStore'
 import { SheetFetchError, type SheetSource, type TabText } from '../data/sheetClient'
+import { parseCsv } from '../data/csv'
+import { parseAuctionGrid } from '../data/gridParser'
+import { snapshotSlots } from '../model/diff'
+import type { SessionRecord } from './session'
+
+/** Minimal CSV writer, so a test can doctor a fixture and feed it back through the real parser. */
+function toCsv(rows: string[][]): string {
+  return rows
+    .map((row) => row.map((cell) => (/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell)).join(','))
+    .join('\n')
+}
 
 const GID = '1565415907'
 const SETTINGS_GID = '361377598'
@@ -624,5 +635,179 @@ describe('health', () => {
     const health = h.store.health()
     expect(health.lastSuccessAt).toBe(lastGood)
     expect(health.consecutiveFailures).toBeGreaterThan(3)
+  })
+})
+
+/*
+ * Surviving a mid-draft reload (DESIGN.md 7.5).
+ *
+ * The two cases 7.5 names explicitly, plus the ones its rules imply. The whole point is that
+ * exactly one direction of error is acceptable: the board may FORGET a sale (visible, and one
+ * keystroke to fix) but it must never INVENT one, because a phantom sale also moves the
+ * nomination pointer and the room has no way to tell.
+ */
+describe('surviving a reload', () => {
+  const FRESH = 1_000_000
+
+  function seed(over: Partial<SessionRecord> = {}): SessionRecord {
+    return {
+      savedAt: FRESH,
+      year: 2026,
+      baselineCounts: {},
+      slots: {},
+      saleLog: [],
+      cursorOffset: 0,
+      ...over,
+    }
+  }
+
+  /** An in-memory `SessionStore` that also records what the store wrote. */
+  function fakeSession(initial: SessionRecord | null) {
+    let held = initial
+    const writes: SessionRecord[] = []
+    return {
+      writes,
+      cleared: () => held === null,
+      current: () => held,
+      store: {
+        read: () => held,
+        write: (record: SessionRecord) => {
+          writes.push(record)
+          held = record
+        },
+        clear: () => void (held = null),
+      },
+    }
+  }
+
+  /** The slots the real parser produces for the committed 2026 tab: nine keepers. */
+  const slots2026 = snapshotSlots(parseAuctionGrid(parseCsv(raw2026)).blocks)
+
+  it('discards a session older than the window and re-baselines, emitting no sales', async () => {
+    // 7.5's first named test: a two-day-old baseline against a sheet that has gained keepers.
+    const session = fakeSession(seed({ savedAt: FRESH - 2 * 24 * 3600_000, slots: {} }))
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+
+    h.store.start()
+    await h.settle()
+
+    expect(h.store.getSnapshot().sales).toEqual([])
+    expect(h.store.getSnapshot().pointer.log).toEqual([])
+    // Discarded, not merely ignored: nothing stale is left to be restored next time.
+    expect(session.writes[0]?.savedAt).toBe(h.now())
+  })
+
+  it('ignores a session from another year', async () => {
+    const session = fakeSession(seed({ year: 2025, slots: {} }))
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+
+    h.store.start()
+    await h.settle()
+
+    expect(h.store.getSnapshot().sales).toEqual([])
+  })
+
+  it('absorbs picks entered while the tab was away instead of replaying them as sales', async () => {
+    /*
+     * A fresh session that remembers an EMPTY sheet, against a tab that now holds nine picks.
+     * Those nine are unaccounted for, so they join the baseline silently -- no ticker entries, no
+     * pointer advance -- and the room is told, because a pointer that is quietly one behind is
+     * worse than one that says so.
+     */
+    const session = fakeSession(seed({ slots: {} }))
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+
+    h.store.start()
+    await h.settle()
+
+    const snapshot = h.store.getSnapshot()
+    expect(snapshot.sales).toEqual([])
+    expect(snapshot.pointer.log).toEqual([])
+    // The picks became part of the baseline, so fullness is still counted correctly.
+    expect(Object.values(snapshot.pointer.baselineCounts).reduce((a, b) => a + b, 0)).toBe(9)
+    expect(snapshot.warnings.some((w) => w.includes('absorbed'))).toBe(true)
+  })
+
+  it('restores the ticker and the operator correction from a fresh session', async () => {
+    const log = [
+      { slot: '1:5', seq: 1, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'RB' as const },
+      { slot: '7:5', seq: 2, player: 'Puka Nacua', price: 44, manager: 'Corky', position: 'WR' as const },
+    ]
+    const session = fakeSession(seed({ slots: slots2026, saleLog: log, cursorOffset: 2 }))
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+
+    h.store.start()
+    await h.settle()
+
+    const snapshot = h.store.getSnapshot()
+    // Newest first on the wall, oldest first in the log the pointer replays.
+    expect(snapshot.sales.map((s) => s.seq)).toEqual([2, 1])
+    expect(snapshot.pointer.offset).toBe(2)
+    // The sheet matched what we remembered, so nothing was absorbed and nobody is told anything.
+    expect(snapshot.warnings.some((w) => w.includes('absorbed'))).toBe(false)
+  })
+
+  it('keeps counting sales normally after a clean restore', async () => {
+    // 7.5's second named test: with a fresh session the log continues rather than restarting.
+    const session = fakeSession(seed({ slots: slots2026, saleLog: [] }))
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().sales).toEqual([])
+
+    // A player is sold after the reload settled.
+    const grid = parseCsv(raw2026).map((row) => [...row])
+    const row = grid[8]!
+    while (row.length <= 3) row.push('')
+    row[2] = 'Brock Bowers'
+    row[3] = '$9'
+    h.answer(GID, { text: toCsv(grid) })
+    await h.advance(INTERVAL)
+
+    expect(h.store.getSnapshot().sales.map((s) => s.player)).toEqual(['Brock Bowers'])
+  })
+
+  it('refreshes savedAt on every successful poll, not only on change', async () => {
+    // An open tab must never age into staleness while it sits idle during a break in the auction.
+    const session = fakeSession(null)
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+
+    h.store.start()
+    await h.settle()
+    const first = session.current()?.savedAt
+
+    await h.advance(INTERVAL) // same body: no change, but still a successful poll
+    expect(session.current()?.savedAt).toBeGreaterThan(first!)
+  })
+
+  it('persists an operator nudge, so a reload does not silently undo it', async () => {
+    const session = fakeSession(null)
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    h.store.nudgeCursor(1)
+    expect(session.current()?.cursorOffset).toBe(1)
+  })
+
+  it('clears the stored session on X, so the reset actually sticks', async () => {
+    const session = fakeSession(seed({ slots: slots2026, cursorOffset: 4 }))
+    const h = harness({ session: session.store })
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    h.store.resetSession()
+    await h.settle()
+
+    expect(h.store.getSnapshot().pointer.offset).toBe(0)
+    expect(h.store.getSnapshot().sales).toEqual([])
   })
 })

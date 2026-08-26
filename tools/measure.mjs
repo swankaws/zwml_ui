@@ -219,6 +219,48 @@ const PROBE = `(() => {
       const el = document.querySelector('.roster-player')
       return el ? Math.round(parseFloat(getComputedStyle(el).fontSize) * 10) / 10 : null
     })(),
+    /*
+     * The keyboard reference (7.9). Measured because it is the one overlay in the app, and an
+     * unmeasured overlay is precisely how the notices strip shipped covering four managers.
+     * What matters here is only that the card fits the screen -- covering the board is its job.
+     */
+    help: box(document.querySelector('.help-card')),
+    helpRows: document.querySelectorAll('.help-row').length,
+    helpClipped: (() => {
+      const card = document.querySelector('.help-card')
+      if (!card) return null
+      const r = card.getBoundingClientRect()
+      return (
+        clipped(card) ||
+        truncated(card) ||
+        r.top < -1 ||
+        r.left < -1 ||
+        r.bottom > window.innerHeight + 1 ||
+        r.right > window.innerWidth + 1
+      )
+    })(),
+    /*
+     * Touch controls (Q8, 7.9). Two things must be true and neither is visible to any other probe:
+     * they are PRESENT on a phone, where there is no keyboard and the roster view would otherwise
+     * be unreachable, and ABSENT everywhere else, where they would be clutter on a wall. The
+     * measured height is checked against the 44px minimum target -- a control the room cannot
+     * reliably hit is the same as no control.
+     */
+    touchButtons: (() => {
+      const buttons = [...document.querySelectorAll('.touch-button')]
+      const shown = buttons.filter((b) => b.getBoundingClientRect().height > 0)
+      return {
+        rendered: buttons.length,
+        visible: shown.length,
+        minSide: shown.length
+          ? Math.min(...shown.map((b) => {
+              const r = b.getBoundingClientRect()
+              return Math.min(Math.round(r.width), Math.round(r.height))
+            }))
+          : null,
+        labels: shown.map((b) => (b.textContent ?? '').trim()),
+      }
+    })(),
     header: box(document.querySelector('.header')),
     stage: box(document.querySelector('.stage')),
     tableArea: box(document.querySelector('.table-area')),
