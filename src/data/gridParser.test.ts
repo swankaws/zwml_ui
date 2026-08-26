@@ -409,3 +409,53 @@ describe('bonus money', () => {
     expect(blocks[2]?.bonus).toBe(0)
   })
 })
+
+/*
+ * The DEF row (5.3: "position label only, no player and no price"). It sits one row below the last
+ * bench row and one above `Total`, so it is an easy miss for someone typing fast down a block -- and
+ * a pick landing there is invisible in an expensive way: no ticker entry, no pointer advance, and MAX
+ * BID left high by exactly the price that was paid.
+ */
+describe('a pick typed into the DEF row', () => {
+  const BAND = league.grid.bandRows[0]!
+  const COL = league.grid.blockStartCols[0]!
+  const DEF = BAND + league.grid.rowOffsets.def
+
+  function withDefEntry(player: string, price: string) {
+    const rows = parseCsv(readFileSync('docs/data-samples/2026-auction.csv', 'utf8'))
+    setCell(rows, DEF, COL + league.grid.colOffsets.player, player)
+    setCell(rows, DEF, COL + league.grid.colOffsets.price, price)
+    return parseAuctionGrid(rows)
+  }
+
+  it('is reported rather than swallowed', () => {
+    const tab = withDefEntry('Puka Nacua', '$40')
+    expect(tab.warnings.some((w) => w.message.includes('DEF row'))).toBe(true)
+  })
+
+  it('names the player, so the fix is obvious from across the room', () => {
+    const warning = withDefEntry('Puka Nacua', '$40').warnings.find((w) => w.message.includes('DEF'))
+    expect(warning?.message).toContain('Puka Nacua')
+    expect(warning?.message).toContain('bench')
+  })
+
+  it('warns on a price with no name, and on a name with no price', () => {
+    expect(withDefEntry('', '$40').warnings.some((w) => w.message.includes('DEF row'))).toBe(true)
+    expect(withDefEntry('Puka Nacua', '').warnings.some((w) => w.message.includes('DEF row'))).toBe(true)
+  })
+
+  it('stays renderable: the other eleven blocks are still the truth', () => {
+    // Warning, never fatal. Refusing the whole tab would cost the room every correct figure on it.
+    expect(withDefEntry('Puka Nacua', '$40').renderable).toBe(true)
+  })
+
+  it('does not fire on either committed fixture, in any of the 24 blocks', () => {
+    /*
+     * The property that makes this assert safe to add three days out: a warning that cries wolf on
+     * real data is worse than no warning, because it trains the room to ignore the channel (9.2).
+     */
+    for (const tab of [partial, complete]) {
+      expect(tab.warnings.filter((w) => w.message.includes('DEF row'))).toEqual([])
+    }
+  })
+})

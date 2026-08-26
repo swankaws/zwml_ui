@@ -885,3 +885,124 @@ describe('bonus money arriving mid-session', () => {
     expect(h.store.getSnapshot().state!.managers.find((m) => m.name === 'Kevin')!.bonus).toBe(10)
   })
 })
+
+/*
+ * The status strip must never say the board is current while the figures are frozen.
+ *
+ * DESIGN.md 7.8: "Silently showing stale numbers as if fresh is the single most dangerous failure
+ * mode for this display. The room must always be able to tell." These are the cases where fetching
+ * keeps succeeding and PARSING does not, which is the one combination that used to defeat it.
+ */
+describe('a green LIVE over frozen figures', () => {
+  /** A body that fetches fine and fails its template check: one block's `Total` label wiped. */
+  function unparseable(): string {
+    const rows = parseCsv(raw2026).map((row) => [...row])
+    const { bandRows, blockStartCols, rowOffsets, colOffsets } = league.grid
+    const row = bandRows[0]! + rowOffsets.total
+    const line = rows[row] ?? []
+    line[blockStartCols[0]! + colOffsets.player] = ''
+    rows[row] = line
+    return toCsv(rows)
+  }
+
+  it('stops saying LIVE once the parse stops landing, however well the fetch is going', async () => {
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().feedLabel).toBe('LIVE')
+    const good = h.store.getSnapshot().state!.managers.find((m) => m.name === 'Kevin')!.remaining
+
+    // Fetches keep succeeding; the body is no longer renderable.
+    h.answer(GID, { text: unparseable() })
+    await h.advance(INTERVAL * 20)
+
+    const snapshot = h.store.getSnapshot()
+    // The figures are deliberately the last good ones -- that part is right.
+    expect(snapshot.state!.managers.find((m) => m.name === 'Kevin')!.remaining).toBe(good)
+    expect(snapshot.problem?.kind).toBe('wrongTab')
+    // ...and the strip must say so. A green dot over an hour-old figure is the worst state
+    // this store can publish.
+    expect(snapshot.feedLabel).not.toBe('LIVE')
+    expect(snapshot.feed).not.toBe('live')
+  })
+
+  it('recovers the moment the sheet is repaired', async () => {
+    const h = harness()
+    h.answer(GID, { text: unparseable() })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().feedLabel).not.toBe('LIVE')
+
+    h.answer(GID, { text: raw2026 })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().feedLabel).toBe('LIVE')
+  })
+
+  it('keeps counting successful fetches for the watchdog, which measures the LOOP not the parse', async () => {
+    // `health()` must stay honest about fetching: a parse failure is not a dead loop, and the
+    // watchdog's liveness signal has to keep moving or it would reload over a broken sheet.
+    const h = harness()
+    h.answer(GID, { text: unparseable() })
+    h.store.start()
+    await h.settle()
+    await h.advance(INTERVAL * 3)
+    expect(h.store.health().polls).toBeGreaterThan(1)
+    expect(h.store.health().consecutiveFailures).toBe(0)
+  })
+})
+
+/*
+ * A fetch problem must not outlive the fetch that caused it.
+ *
+ * Both of these notices tell the operator to go and change something, and one of them tells them to
+ * re-point the sheet id -- the single most dangerous instruction this app can give, because it is the
+ * one route to a blank board. They were previously cleared only when the body CHANGED, so a static
+ * period kept a false instruction on the wall indefinitely.
+ */
+describe('a fetch problem that has stopped happening', () => {
+  it.each([
+    ['unauthorized', new SheetFetchError('unauthorized', 'Google refused')],
+    ['notFound', new SheetFetchError('notFound', 'no such tab')],
+  ])('clears a %s notice on the next success, even with an unchanged body', async (_kind, error) => {
+    const h = harness()
+    h.answer(GID, { error })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().problem).not.toBeNull()
+
+    /*
+     * Recovery, then a long static period: the sheet is up but nobody is editing it. The first
+     * advance has to clear the failure BACKOFF, not just one poll interval -- `nextDelay` stretches
+     * the retry after a failure, which is exactly why the first version of this test did not reach
+     * the recovery poll at all.
+     */
+    h.answer(GID, { text: raw2026 })
+    await h.advance(INTERVAL * 10)
+    expect(h.store.getSnapshot().problem).toBeNull()
+
+    await h.advance(INTERVAL * 20)
+    expect(h.store.getSnapshot().problem).toBeNull()
+    expect(h.store.getSnapshot().feedLabel).toBe('LIVE')
+  })
+
+  it('does NOT clear a wrongTab problem, which describes the body and not the fetch', async () => {
+    // An unchanged response disproves nothing about a body that failed its template check.
+    const rows = parseCsv(raw2026).map((row) => [...row])
+    const { bandRows, blockStartCols, rowOffsets, colOffsets } = league.grid
+    const line = rows[bandRows[0]! + rowOffsets.total] ?? []
+    line[blockStartCols[0]! + colOffsets.player] = ''
+    rows[bandRows[0]! + rowOffsets.total] = line
+
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+    h.answer(GID, { text: toCsv(rows) })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().problem?.kind).toBe('wrongTab')
+
+    await h.advance(INTERVAL * 10)
+    expect(h.store.getSnapshot().problem?.kind).toBe('wrongTab')
+  })
+})

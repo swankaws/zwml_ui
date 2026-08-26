@@ -85,5 +85,16 @@ deliberately *not* representative — see DESIGN.md section 5.0.
   pointer back one if it is just off by a step. See DESIGN.md §7.5.
 - The money columns never depend on session state, so they stay correct even
   when the ticker or nominator is confused.
-- Press **`D`** for the debug overlay: baseline age, parse warnings, and a
-  sheet-vs-computed comparison.
+- **Stop the laptop sleeping.** `caffeinate -dimsu` in a Terminal, or System
+  Settings → Lock Screen → display off "Never" *and* "Prevent automatic sleeping
+  when the display is off". A suspend stops the poll loop, and waking from one can
+  cost the ticker and the nominator (the money is unaffected).
+- **`?` lists every key.** There is no `D` overlay — the keys are `?` help,
+  `R` rosters, `H` sale history, `N`/`Shift+N` nominator, `X` reset, `T` light/dark,
+  `+`/`−`/`0` type size, `G` fetch now.
+- **If the footer goes amber or red, the figures have stopped tracking the sheet.**
+  The header's `STALE`/`OFFLINE` age is the age of the FIGURES, not of the last
+  request — so a green `LIVE` means what is on the wall is current. `G` will not
+  fix a sheet the parser has refused; that needs the sheet repaired.
+- **Deploying needs `npm run deploy`**, not a bare `git push` — pushing alone
+  stopped triggering the workflow, so the script pushes *and* dispatches it.

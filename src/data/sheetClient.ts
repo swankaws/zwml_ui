@@ -129,6 +129,23 @@ export function createCsvSource({
         throw new SheetFetchError('network', describe(cause))
       }
 
+      /*
+       * An HTML body is a failed fetch wearing a 200.
+       *
+       * Google can answer with an interstitial -- a sign-in page, a rate-limit notice, a redirect
+       * landing page -- and without this it reaches the grid parser as a *success*. The parser
+       * correctly refuses it and keeps the last good frame, but the board then holds frozen figures
+       * because of what looks to the loop like a healthy poll. Classifying it here instead puts it on
+       * the ordinary transient path, so the strip does its live -> stale -> offline ramp and the room
+       * can see something is wrong.
+       *
+       * Sniffing only the first character, deliberately: a CSV cell can legitimately contain almost
+       * anything, but a leading `<` before any comma or quote is not a spreadsheet export.
+       */
+      if (text.trimStart().startsWith('<')) {
+        throw new SheetFetchError('server', 'response was HTML, not CSV')
+      }
+
       return { text, at: now() }
     },
   }

@@ -228,6 +228,7 @@ export function installWatchdog(options: WatchdogOptions): Watchdog {
    */
   let lastAttempts = store.health().attempts
   let lastAttemptAt = now()
+  let lastCheckAt = now()
   let timer: number | null = null
 
   function check(): WatchdogVerdict {
@@ -266,7 +267,30 @@ export function installWatchdog(options: WatchdogOptions): Watchdog {
 
   function schedule() {
     timer = setTimer(() => {
-      check()
+      /*
+       * If OUR OWN timer was late, nothing was running -- so nothing stalled.
+       *
+       * A suspended laptop stops every timer, including this one. On wake the overdue timers fire and
+       * the check can run before any fetch has had a chance to answer, see `attempts` frozen for the
+       * whole sleep, and reload -- which is strictly WORSE than doing nothing. The reload absorbs any
+       * picks entered during the sleep into the baseline rather than the log, so ON THE CLOCK ends up
+       * behind by exactly those picks; and a sleep past the 30-minute session window empties the
+       * night's ticker outright, silently. Measured across the full phase space, roughly one in five
+       * two-and-a-half-minute suspends reloaded.
+       *
+       * The lateness test lives HERE rather than in `check()` deliberately. Only this path knows when
+       * the timer was *supposed* to fire, and `check()` is also called directly -- by the tests, and
+       * by anything that wants an immediate verdict -- where a long gap between calls says nothing
+       * about whether the loop was running.
+       *
+       * It cannot mask a genuine stall: a real stall keeps this timer firing ON TIME while `attempts`
+       * stays put, which is the case the existing tests exercise. It forgives only the interval during
+       * which the watchdog itself was not running.
+       */
+      const late = now() - lastCheckAt > 3 * checkIntervalMs
+      lastCheckAt = now()
+      if (late) lastAttemptAt = now()
+      else check()
       schedule()
     }, checkIntervalMs)
   }

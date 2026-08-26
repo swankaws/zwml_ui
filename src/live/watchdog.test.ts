@@ -272,6 +272,9 @@ function fixture(past: { reloads: number; lastReloadAt: number | null } = { relo
     async advance(_ms: number) {
       /* replaced below */
     },
+    async suspend(_ms: number) {
+      /* replaced below */
+    },
   }
 
   const timers = new Map<number, { fn: () => void; due: number }>()
@@ -314,6 +317,27 @@ function fixture(past: { reloads: number; lastReloadAt: number | null } = { relo
     clearTimer: (handle) => void timers.delete(handle),
   })
 
+  /*
+   * A suspended laptop, which `advance` cannot express.
+   *
+   * `advance` rewinds the clock to each timer's due time before firing it, i.e. it models timers that
+   * fire ON SCHEDULE. A suspend is the opposite: the clock jumps, and the overdue timers all fire
+   * afterwards at the woken-up time. That distinction is the entire subject of the resume guard, so
+   * the test has to be able to say it.
+   */
+  self.suspend = async (ms: number) => {
+    self.clock += ms
+    for (;;) {
+      const due = [...timers.entries()]
+        .filter(([, timer]) => timer.due <= self.clock)
+        .sort((a, b) => a[1].due - b[1].due)[0]
+      if (!due) break
+      timers.delete(due[0])
+      due[1].fn()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  }
+
   self.advance = async (ms: number) => {
     const target = self.clock + ms
     for (;;) {
@@ -343,3 +367,58 @@ function fakeStorage(): Storage {
     length: 0,
   } as unknown as Storage
 }
+
+/*
+ * Waking from suspend (the projector laptop going to sleep during a break).
+ *
+ * The watchdog's liveness signal is `health().attempts`, which only moves when a fetch settles -- and
+ * a suspend stops every timer, so nothing settles for the whole sleep. On wake, the check could run
+ * before any fetch has answered, see `attempts` frozen for minutes, and reload.
+ *
+ * A reload there is strictly WORSE than doing nothing: the session restore absorbs any picks entered
+ * during the sleep into the baseline rather than the sale log, so ON THE CLOCK ends up behind by
+ * exactly those picks -- and a sleep past the 30-minute session window empties the night's ticker
+ * outright, silently.
+ */
+describe('waking from suspend', () => {
+  it('does not reload when its own timer was late, because nothing was running', async () => {
+    const h = fixture()
+    // Healthy right up to the moment the lid closes.
+    h.health.attempts = 1
+    h.health.lastSuccessAt = h.clock
+
+    await h.suspend(5 * 60_000)
+
+    expect(h.reloads).toBe(0)
+  })
+
+  it('still reloads a loop that genuinely stalls while the machine is awake', async () => {
+    /*
+     * The other half, and the reason the guard is a lateness test rather than a blanket grace period:
+     * a real stall keeps the watchdog's own timer firing on schedule while `attempts` stays put.
+     */
+    const h = fixture()
+    h.health.attempts = 1
+    h.health.lastSuccessAt = h.clock - 5 * 60_000
+
+    // Timers fire on time throughout; the store never completes another attempt. 125s is the
+    // existing suite's figure for "one reload's worth of stall" -- longer earns a second.
+    await h.advance(125_000)
+
+    expect(h.reloads).toBe(1)
+  })
+
+  it('resumes normal judgement after the wake, rather than staying forgiving', async () => {
+    const h = fixture()
+    h.health.attempts = 1
+    h.health.lastSuccessAt = h.clock
+
+    await h.suspend(5 * 60_000)
+    expect(h.reloads).toBe(0)
+
+    // Awake now, and the loop really is dead: on-time checks, no new attempts.
+    h.health.lastSuccessAt = h.clock - 5 * 60_000
+    await h.advance(125_000)
+    expect(h.reloads).toBe(1)
+  })
+})

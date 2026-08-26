@@ -183,6 +183,31 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
       warnAt(defRow, col + colOffsets.pos, `Expected "DEF" row, found "${defLabel}"`)
     }
 
+    /*
+     * A pick typed into the DEF row is invisible, and expensively so.
+     *
+     * `collect` walks starters and bench only, and the DEF row sits one row below the last bench row
+     * and one above `Total` -- an easy miss for someone typing fast down a block. Nothing else notices:
+     * the Pos cell still says DEF so the check above passes, no `Pick` is produced, so the player is
+     * absent from the ticker, the roster and the history, the nomination pointer never advances for
+     * that sale, and MAX BID stays high by the price that was paid. 5.3 states the invariant -- "DEF
+     * row: position label only, no player and no price" -- and this was the one cell in the block that
+     * did not assert it.
+     *
+     * A warning, never fatal: the money on screen is still the money the sheet holds for every OTHER
+     * row, so this may not cost the room the board. Verified blank across all 24 blocks of both
+     * committed fixtures, so it cannot cry wolf on real data.
+     */
+    const defPlayer = cell(grid, defRow, col + colOffsets.player)
+    const defPrice = cell(grid, defRow, col + colOffsets.price)
+    if (defPlayer !== '' || defPrice !== '') {
+      warnAt(
+        defRow,
+        col + colOffsets.player,
+        `"${defPlayer || defPrice}" is in the DEF row, so it is NOT counted as a pick -- move it to a bench row`,
+      )
+    }
+
     const totalRow = bandRow + rowOffsets.total
     const totalLabel = cell(grid, totalRow, col + colOffsets.player)
     if (totalLabel.toLowerCase() !== 'total') {

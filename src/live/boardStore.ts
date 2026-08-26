@@ -203,6 +203,35 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   let running = false
   let startedAt = now()
   let lastSuccessAt: number | null = null
+  /**
+   * When the FIGURES on the wall were last current, as distinct from the last successful HTTP
+   * round trip.
+   *
+   * The two diverge in the one combination that matters: fetching keeps working and PARSING stops.
+   * A single inserted row, a wiped `Total` label, or Google answering 200 with an HTML interstitial
+   * all make `applyAuctionText` refuse the body and keep the last good frame -- which is right -- but
+   * `lastSuccessAt` kept advancing, so the strip went on saying `LIVE` with a green dot over figures
+   * that were minutes or hours old, indefinitely. The watchdog stands down in that state on purpose
+   * (a reload cannot fix a broken sheet), so nothing else intervened.
+   *
+   * 7.8 names that exact failure as the worst this display can produce: "Silently showing stale
+   * numbers as if fresh is the single most dangerous failure mode... The room must always be able to
+   * tell." Driving the age from this instead gives the existing live -> stale -> offline ramp for
+   * free, so the wall goes amber and then red on its own.
+   *
+   * `lastSuccessAt` is deliberately left alone: `health()` and the watchdog measure whether the LOOP
+   * is alive, and a loop that is fetching perfectly over a broken sheet must not be reloaded.
+   */
+  let lastGoodAt: number | null = null
+  /**
+   * Does the body we are currently holding parse?
+   *
+   * Needed because an unchanged body is never re-parsed, so "did the last parse succeed" is not the
+   * same question as "is what we are holding good". Without this the fix would break in both
+   * directions: a quiet period with no edits would drift to `STALE` even though the sheet is fine,
+   * and a bad body arriving once would then be re-blessed by every unchanged poll after it.
+   */
+  let holdingGoodBody = false
   let renderErrorAt: number | null = null
   let failures = 0
   let polls = 0
@@ -331,7 +360,8 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   }
 
   function buildSnapshot(): BoardSnapshot {
-    const age = lastSuccessAt === null ? null : now() - lastSuccessAt
+    // Age of the FIGURES, not of the last fetch. See `lastGoodAt`.
+    const age = lastGoodAt === null ? null : now() - lastGoodAt
     const feed: FeedState = age === null ? 'stale' : feedStateFor(age, pollIntervalMs)
 
     return {
@@ -388,6 +418,21 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       lastSuccessAt = at
       if (polls === 1) onFirstSuccess?.()
 
+      /*
+       * A successful fetch disproves the two problems that describe FETCHING, so clear them here.
+       *
+       * They used to be cleared only inside `applyAuctionText`, which is reachable only when the body
+       * CHANGES -- so during any static period (the board up before the first nomination, or a break)
+       * a single 403 or 404 left its instruction on the wall indefinitely. The `notFound` text is the
+       * dangerous one: it tells the operator to "reload with #sheet=<link>", which is the one route
+       * from here to a blank board. Worse, the notice starts out TRUE, the operator fixes sharing,
+       * and it still does not clear -- so they go on changing Google settings that are already right.
+       *
+       * Scoped to those two kinds deliberately. `wrongTab` and `internal` describe the BODY, which an
+       * unchanged response has not disproved at all.
+       */
+      if (problem?.kind === 'unauthorized' || problem?.kind === 'notFound') problem = null
+
       if (text !== lastAuctionText) {
         lastAuctionText = text
         changes += 1
@@ -400,9 +445,17 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
         try {
           applyAuctionText(text)
         } catch (cause) {
+          holdingGoodBody = false
           noteInternalError(cause)
         }
       }
+
+      /*
+       * The age the room reads is the age of the FIGURES, not of the last round trip -- so this only
+       * advances while the body we hold actually parses. See `lastGoodAt`.
+       */
+      if (holdingGoodBody) lastGoodAt = at
+
       /*
        * Written on every successful poll and AFTER the parse, not before it (7.5).
        *
@@ -448,6 +501,8 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
         message: tab.warnings.find((w) => w.severity === 'fatal')?.message ?? 'Unreadable tab.',
         action: `Check that gid ${gid} is still the ${year} auction tab.`,
       }
+      // The figures stay, but they stop being current -- so the strip must stop saying LIVE.
+      holdingGoodBody = false
       return
     }
 
@@ -458,6 +513,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     derived = { state, order: order.order, warnings: [...parseWarnings, ...order.warnings] }
     problem = null
     internalWarning = null
+    holdingGoodBody = true
 
     /*
      * Deliberately AFTER `derived` is assigned. A throw in here is caught by the caller's
