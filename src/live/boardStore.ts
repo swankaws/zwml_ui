@@ -37,6 +37,7 @@ import {
   type SaleEvent,
   type SlotMap,
 } from '../model/diff'
+import { detectMoments, firedFromLog, type Moment } from '../model/moments'
 import { countsFromSlots, type CursorAdjustment, type PointerBasis } from '../model/pointer'
 import { NO_REVISIONS, bumpRevisions, type Revisions } from '../model/revisions'
 import { RESYNC_NOTICE_MS, isRestorable, type SessionStore } from './session'
@@ -80,6 +81,15 @@ export interface BoardSnapshot {
    * inputs move; see `model/revisions.ts` for why this is a counter and not a boolean.
    */
   revisions: Revisions
+  /**
+   * The in-draft moment to celebrate, or `null` (7.3).
+   *
+   * Replaced on every poll that produces sales, which is the SUPERSEDE rule: a 30-second roster-full
+   * overlay can never sit over the next nomination, because the next sale either replaces it with its own
+   * moment or clears it. Left alone by polls that produce nothing, so the UI's own timer owns the normal
+   * dismissal.
+   */
+  moment: Moment | null
   /** The SETTINGS-tab layer only. The caller merges the query layer above it. */
   sheetSettings: Partial<DisplaySettings>
   feed: FeedState
@@ -179,6 +189,7 @@ export function initialSnapshot(year: number): BoardSnapshot {
     order: [],
     sales: NO_SALES,
     pointer: { baselineCounts: NO_COUNTS, log: NO_SALES, adjustments: NO_ADJUSTMENTS },
+    moment: null,
     revisions: NO_REVISIONS,
     sheetSettings: {},
     feed: 'stale',
@@ -292,6 +303,15 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
    */
   let baselineCounts: Readonly<Record<string, number>> = NO_COUNTS
   let lastSlots: SlotMap | null = null
+  let moment: Moment | null = null
+  /**
+   * Which moments have already been spent, by id.
+   *
+   * Store scope, not React scope: `App` is rendered inside `ErrorBoundary`, which grants three
+   * recoveries, and a recovery remounts it -- so a ref here would re-punt the same kicker after a render
+   * crash. Deliberately NOT cleared by `resetSession` either; see `X` below.
+   */
+  const firedMoments = new Set<string>()
   let saleLog: readonly SaleEvent[] = NO_SALES
   /** `saleLog` reversed, memoized. Rebuilt only when the log changes -- see `NO_SALES`. */
   let salesView: readonly SaleEvent[] = NO_SALES
@@ -356,6 +376,13 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     baselineCounts = saved.baselineCounts
     lastSlots = saved.slots
     saleLog = saved.saleLog
+    /*
+     * A restored night has already had its moments. Seeded from the log rather than from a field on
+     * `SessionRecord`, because `looksLikeRecord` is a hand-written type assertion -- a new required field
+     * would either type an old record as valid and crash on `undefined`, or join the shape check and
+     * silently discard the pointer AND the ticker on every watchdog reload.
+     */
+    for (const id of firedFromLog(saved.saleLog)) firedMoments.add(id)
     salesView = [...saved.saleLog].reverse()
     adjustments = saved.adjustments
     pendingReconcile = true
@@ -389,6 +416,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       order: derived?.order ?? [],
       sales: salesView,
       pointer: pointerBasis,
+      moment,
       revisions,
       sheetSettings: settings,
       feed,
@@ -620,6 +648,11 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
         baselineCounts = counts
         resyncedCount = diff.sales.length
         resyncedAt = now()
+        /*
+         * Absorbed sales are still sales that happened. A kicker sold while the tab was shut must spend
+         * the punt, or the NEXT kicker gets announced as the first.
+         */
+        for (const id of firedFromLog(diff.sales)) firedMoments.add(id)
       }
       saleLog = applyDiff(saleLog, { sales: [], corrections: diff.corrections, retracted: diff.retracted })
       salesView = [...saleLog].reverse()
@@ -630,7 +663,16 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     const nextLog = applyDiff(saleLog, diff)
     if (nextLog === saleLog) return
 
+    /*
+     * BEFORE the append. `applyDiff` puts this poll's sales into the log, so a moment asking "has a
+     * kicker already sold?" against `nextLog` finds the very kicker it is asking about and never fires.
+     */
+    const logBefore = saleLog
     saleLog = nextLog
+
+    if (diff.sales.length > 0) {
+      moment = detectMoments({ sales: diff.sales, log: logBefore, slots, fired: firedMoments })
+    }
     // Reversed once here rather than in the render path, so the reference stays stable
     // across the age tick's re-publishes.
     salesView = [...nextLog].reverse()
@@ -884,6 +926,15 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       pendingReconcile = false
       resyncedAt = null
       resyncedCount = 0
+      /*
+       * The visible overlay goes, but `firedMoments` deliberately does NOT.
+       *
+       * `X` is pressed mid-draft, which is exactly when a repeated punt would be most embarrassing -- so
+       * the wrong side to be on is "give the eggs back". The cost is that if a mid-draft row insertion
+       * floods the diff and burns a moment, `X` will not restore it; only a reload with a dead session
+       * will. That is the cheaper error.
+       */
+      moment = null
       session?.clear()
       setPointerBasis()
       publish()
@@ -936,6 +987,12 @@ function equivalent(a: BoardSnapshot, b: BoardSnapshot): boolean {
      */
     a.sales === b.sales &&
     a.pointer === b.pointer &&
+    /*
+     * By reference. `detectMoments` returns a fresh object only when a moment actually fires, so this is
+     * exactly "a new moment, or one cleared" -- and it must be compared, or the overlay would not appear
+     * until some other field happened to change.
+     */
+    a.moment === b.moment &&
     a.revisions === b.revisions &&
     a.sheetSettings === b.sheetSettings &&
     a.feed === b.feed &&

@@ -1007,3 +1007,221 @@ describe('a fetch problem that has stopped happening', () => {
     expect(h.store.getSnapshot().problem?.kind).toBe('wrongTab')
   })
 })
+
+describe('in-draft moments', () => {
+  /*
+   * End to end through the real CSV parser, the real grid geometry and the real diff engine, because
+   * every trap `moments.ts` closes is about the store's sequencing rather than about the predicate:
+   * which log it reads, when the baseline is set, and what a reconcile absorbs.
+   */
+  const { bandRows, blockStartCols, rowOffsets, colOffsets } = league.grid
+  /** Kevin's K STARTER row. `starterTemplate` puts K last, so it is offset 6 within starters. */
+  const KICKER_ROW = bandRows[0]! + rowOffsets.starters[0] + 6
+  const KEVIN = blockStartCols[0]!
+  /** Corky's block, second across, for a second kicker. */
+  const CORKY = blockStartCols[1]!
+  /** A bench row for a plain, non-kicker pick. */
+  const BENCH_ROW = bandRows[0]! + rowOffsets.bench[0]
+
+  const grid = () => parseCsv(raw2026).map((row) => [...row])
+
+  /* Local copies -- the reload block's helpers are scoped to it. */
+  const seedRecord = (over: Partial<SessionRecord> = {}): SessionRecord => ({
+    savedAt: 1_000_000,
+    year: 2026,
+    baselineCounts: {},
+    slots: {},
+    saleLog: [],
+    adjustments: [],
+    ...over,
+  })
+
+  function sessionHolding(initial: SessionRecord | null) {
+    let held = initial
+    return {
+      read: () => held,
+      write: (record: SessionRecord) => void (held = record),
+      clear: () => void (held = null),
+    }
+  }
+
+  function put(g: string[][], row: number, col: number, value: string) {
+    const line = g[row] ?? []
+    while (line.length <= col) line.push('')
+    line[col] = value
+    g[row] = line
+  }
+
+  function pick(g: string[][], row: number, col: number, player: string, price: string) {
+    put(g, row, col + colOffsets.player, player)
+    put(g, row, col + colOffsets.price, price)
+    return g
+  }
+
+  const withKicker = (price = '$1', col = KEVIN) =>
+    toCsv(pick(grid(), KICKER_ROW, col, 'Harrison Butker', price))
+
+  it('does not punt a KEEPER kicker: the first parse is the baseline', async () => {
+    // The 7pm case. A kicker already in the sheet when the board opens emits no sale at all.
+    const h = harness()
+    h.answer(GID, { text: withKicker() })
+    h.store.start()
+    await h.settle()
+
+    expect(h.store.getSnapshot().sales).toEqual([])
+    expect(h.store.getSnapshot().moment).toBeNull()
+  })
+
+  it('punts the first kicker sold after the board opened', async () => {
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().moment).toBeNull()
+
+    h.answer(GID, { text: withKicker('$2') })
+    await h.advance(INTERVAL)
+
+    const moment = h.store.getSnapshot().moment
+    expect(moment?.kind).toBe('firstKicker')
+    expect(moment?.sale).toMatchObject({ player: 'Harrison Butker', price: 2, manager: 'Kevin' })
+  })
+
+  it('does not fire on a price CORRECTION, and leaves the previous moment alone by reference', async () => {
+    /*
+     * A correction is not a sale -- `diffSlots` emits it separately -- so `$7` fixed to `$70` must not
+     * celebrate. Compared BY REFERENCE, because that is what the overlay keys on: a new object would
+     * restart the animation for something that did not happen.
+     */
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    h.answer(GID, { text: toCsv(pick(grid(), BENCH_ROW, KEVIN, 'Justin Jefferson', '$7')) })
+    await h.advance(INTERVAL)
+    const afterSale = h.store.getSnapshot().moment
+    expect(afterSale).toBeNull()
+
+    h.answer(GID, { text: toCsv(pick(grid(), BENCH_ROW, KEVIN, 'Justin Jefferson', '$70')) })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment).toBe(afterSale)
+  })
+
+  it('celebrates a big spend once, and not again when the same slot is re-entered', async () => {
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    const sold = toCsv(pick(grid(), BENCH_ROW, KEVIN, 'Justin Jefferson', '$72'))
+    h.answer(GID, { text: sold })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment?.kind).toBe('bigSpender')
+
+    // Retracted, then re-entered at the same price: one moment for the night, not two.
+    h.answer(GID, { text: raw2026 })
+    await h.advance(INTERVAL)
+    h.answer(GID, { text: sold })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment).toBeNull()
+  })
+
+  it('shows nothing for a batch, and leaves the log and the pointer untouched', async () => {
+    /*
+     * A row inserted above the grid re-keys every slot below it. The moment is suppressed AND consumed;
+     * what must NOT change is the sale log or the rotation, which is the reason this feature is not
+     * allowed anywhere near `applyDiff`.
+     */
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    const g = grid()
+    pick(g, KICKER_ROW, KEVIN, 'Harrison Butker', '$1')
+    pick(g, BENCH_ROW, KEVIN, 'Justin Jefferson', '$70')
+    pick(g, BENCH_ROW + 1, KEVIN, 'Javonte Williams', '$4')
+    h.answer(GID, { text: toCsv(g) })
+    await h.advance(INTERVAL)
+
+    expect(h.store.getSnapshot().moment).toBeNull()
+    expect(h.store.getSnapshot().sales).toHaveLength(3)
+    expect(h.store.getSnapshot().pointer.log).toHaveLength(3)
+  })
+
+  it('does not re-punt across a reload, because the restored log already holds the kicker', async () => {
+    /*
+     * The watchdog reloads the page on purpose when the feed is broken, so this is the ordinary path, not
+     * an edge case. Seeded from the log rather than from a field on `SessionRecord`, which is why
+     * `looksLikeRecord` needed no change.
+     */
+    const kickerCsv = withKicker('$1')
+    const slotsWithKicker = snapshotSlots(parseAuctionGrid(parseCsv(kickerCsv)).blocks)
+    const session = sessionHolding(
+      seedRecord({
+        slots: slotsWithKicker,
+        baselineCounts: { Kevin: 5 },
+        saleLog: [
+          {
+            slot: `${KEVIN}:${KICKER_ROW}`,
+            player: 'Harrison Butker',
+            price: 1,
+            manager: 'Kevin',
+            position: 'K',
+            seq: 1,
+          },
+        ],
+      }),
+    )
+    const h = harness({ session })
+    h.answer(GID, { text: kickerCsv })
+    h.store.start()
+    await h.settle()
+    expect(h.store.getSnapshot().moment).toBeNull()
+
+    // A SECOND kicker sells later. Still nothing: the first one already happened tonight.
+    h.answer(GID, { text: toCsv(pick(parseCsv(kickerCsv).map((r) => [...r]), KICKER_ROW, CORKY, 'Cameron Dicker', '$1')) })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment).toBeNull()
+  })
+
+  it('keeps the fired set through X, so a mid-draft reset cannot repeat a punt', async () => {
+    /*
+     * `X` is pressed mid-draft, which is exactly when a repeated punt is most embarrassing -- so the
+     * fired set deliberately survives it, even though the baseline and the log do not.
+     */
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    h.answer(GID, { text: withKicker('$1') })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment?.kind).toBe('firstKicker')
+
+    h.store.resetSession()
+    await h.settle()
+    expect(h.store.getSnapshot().moment).toBeNull()
+
+    // Re-baselined, so a further kicker is a fresh sale -- and still must not punt.
+    h.answer(GID, { text: toCsv(pick(grid(), KICKER_ROW, CORKY, 'Cameron Dicker', '$1')) })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment).toBeNull()
+  })
+
+  it('cannot be fired by a wrong-tab body, which never reaches the diff at all', async () => {
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    h.answer(GID, { text: SETTINGS_CSV })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment).toBeNull()
+
+    h.answer(GID, { text: withKicker('$1') })
+    await h.advance(INTERVAL)
+    expect(h.store.getSnapshot().moment?.kind).toBe('firstKicker')
+  })
+})
