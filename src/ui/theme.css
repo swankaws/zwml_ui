@@ -2425,7 +2425,7 @@ kbd {
 }
 
 /* The label. Small, tracked, and the only part that says which moment this is. */
-.moment-kicker {
+.moment-label {
   font-size: 0.34em;
   letter-spacing: 0.16em;
   color: var(--fg-dim);
@@ -2449,9 +2449,32 @@ kbd {
   border-radius: 0.2em;
 }
 
+/*
+ * The who and the money, on one line and sized to be read from the room.
+ *
+ * 0.42em for the lot was too small -- the maintainer could not read the names on the projector, which is
+ * the whole point of naming them. The manager and player now carry full white at 0.62em and the price
+ * takes the accent a step larger again, so the three facts read in order of how much anyone cares:
+ * what it cost, who bought, who they bought.
+ */
 .moment-detail {
-  font-size: 0.42em;
-  color: var(--fg-soft);
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0 0.5em;
+}
+
+.moment-who {
+  font-size: 0.62em;
+  color: var(--fg);
+}
+
+.moment-price {
+  font-size: 0.8em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--accent);
 }
 
 /* The kicker is the joke, so its headline gets the room. A price needs less. */

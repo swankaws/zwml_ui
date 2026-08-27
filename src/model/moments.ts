@@ -36,12 +36,20 @@
 import { league } from '../config/league'
 import { creditable, type SaleEvent, type SlotMap } from './diff'
 
-export type MomentKind = 'firstKicker' | 'bigSpender' | 'rosterFull'
+export type MomentKind = 'firstKicker' | 'extraKicker' | 'bigSpender' | 'rosterFull'
 
 export interface Moment {
   kind: MomentKind
   /** The sale that earned it. The overlay names the player, the manager and the price. */
   sale: SaleEvent
+  /**
+   * How many kickers that manager now holds. `extraKicker` only.
+   *
+   * Carried on the moment rather than recomputed in the UI, because the overlay would have to be handed
+   * the whole slot map to work it out -- and the headline says the number, so a second opinion about it
+   * is exactly the kind of drift that puts "TWO KICKERS" over a roster holding three.
+   */
+  count?: number
 }
 
 /**
@@ -49,17 +57,19 @@ export interface Moment {
  *
  * `rosterFull` is much longer on the maintainer's call: when somebody finishes, the room stops and
  * celebrates before the next nomination, so the overlay should last about as long as the pause does. It
- * is the riskiest number in this feature -- for those 30 seconds the board is not visible -- and three
+ * is the riskiest number in this feature -- for those 15 seconds the board is not visible -- and three
  * things make it survivable, all of which must stay: any newer sale hides it at once (so it can never
  * sit over live bidding), any key or tap dismisses it, and `eggs off` turns the whole thing off from the
  * SETTINGS tab with no deploy.
  *
- * The other two are short because they land mid-flow rather than in a pause.
+ * The others are short because they land mid-flow rather than in a pause.
  */
 export const MOMENT_HOLD_MS: Record<MomentKind, number> = {
   firstKicker: 5_000,
+  /* Longer than the first kicker: it is the better joke, and it is much rarer. */
+  extraKicker: 8_000,
   bigSpender: 3_500,
-  rosterFull: 30_000,
+  rosterFull: 15_000,
 }
 
 /**
@@ -104,6 +114,12 @@ function idOf(kind: MomentKind, sale: SaleEvent): string {
   switch (kind) {
     case 'firstKicker':
       return 'firstKicker'
+    /*
+     * Per SLOT, not per manager: a third kicker deserves its own mockery, and keying on the slot is also
+     * what stops a retraction and re-entry of the same pick firing twice.
+     */
+    case 'extraKicker':
+      return `extraKicker:${sale.slot}`
     case 'bigSpender':
       return `bigSpender:${sale.slot}`
     case 'rosterFull':
@@ -173,6 +189,21 @@ export function detectMoments(input: MomentInput): Moment | null {
   const kicker = sales.find((sale) => sale.position === 'K') ?? null
 
   /*
+   * Kickers per manager, INCLUDING keepers, because the joke is about the roster rather than about the
+   * auction: a manager who kept one and then bought another has two kickers, however they got there.
+   */
+  const kickersHeld = new Map<string, number>()
+  for (const held of Object.values(slots)) {
+    if (held.position === 'K' && creditable(held)) {
+      kickersHeld.set(held.manager, (kickersHeld.get(held.manager) ?? 0) + 1)
+    }
+  }
+  /* A kicker sale to somebody who already had one. Two on a roster is poor strategy and fair game. */
+  const doubles = sales
+    .filter((sale) => sale.position === 'K' && (kickersHeld.get(sale.manager) ?? 0) >= 2)
+    .map((sale) => ({ sale, count: kickersHeld.get(sale.manager) ?? 2 }))
+
+  /*
    * The highest price on the board BEFORE this poll, which is what a "new highest sale" has to beat.
    *
    * Read from the sheet minus this poll's own slots, rather than from the log, so it counts KEEPERS too.
@@ -227,6 +258,16 @@ export function detectMoments(input: MomentInput): Moment | null {
    * a finished roster is the moment the room actually stops for, so it outranks a big spend.
    */
   const candidates: Moment[] = []
+  /*
+   * FIRST, ahead of the first-kicker punt. If a sale is both, the two-kickers joke is the better one --
+   * and in practice they rarely compete, because a manager holding a keeper kicker is an unaccounted
+   * kicker in the sheet, which suppresses `firstKicker` anyway.
+   */
+  for (const { sale, count } of doubles) {
+    if (!fired.has(idOf('extraKicker', sale))) {
+      candidates.push({ kind: 'extraKicker', sale, count })
+    }
+  }
   if (kicker && !fired.has('firstKicker') && !kickerAlreadySold) {
     candidates.push({ kind: 'firstKicker', sale: kicker })
   }
@@ -287,7 +328,15 @@ export function detectMoments(input: MomentInput): Moment | null {
 export function firedFromLog(log: readonly SaleEvent[]): Set<string> {
   const fired = new Set<string>()
   for (const sale of log) {
-    if (sale.position === 'K') fired.add('firstKicker')
+    if (sale.position === 'K') {
+      fired.add('firstKicker')
+      /*
+       * Conservative: every kicker sale in the log has its slot marked, without working out which of them
+       * were second kickers at the time. Marking one that never fired costs a joke nobody expected;
+       * missing one repeats a joke the room already had.
+       */
+      fired.add(idOf('extraKicker', sale))
+    }
     if (sale.price > BIG_SPENDER_OVER && sale.price <= MAX_PLAUSIBLE_PRICE) {
       fired.add(idOf('bigSpender', sale))
     }
@@ -309,6 +358,8 @@ export function pinnedMomentKind(search: string): MomentKind | null {
   switch (params.get('moment')) {
     case 'kicker':
       return 'firstKicker'
+    case 'extra':
+      return 'extraKicker'
     case 'spender':
       return 'bigSpender'
     case 'done':

@@ -145,6 +145,68 @@ describe('firstKicker', () => {
   })
 })
 
+describe('extraKicker', () => {
+  /*
+   * The maintainer's rule: more than one kicker on a roster is poor strategy, so it earns mockery. The
+   * count comes from the SHEET including keepers, because the joke is about the roster rather than about
+   * the auction -- kept one and bought another is still two kickers.
+   */
+  const held = (manager: string, count: number, col: number): SlotMap =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, i) => [`${col}:${9 + i}`, slot({ manager })]),
+    )
+
+  it('fires when a kicker sale gives a manager their second', () => {
+    const slots = held('Kevin', 2, 1)
+    const moment = detect({ sales: [sale({ slot: '1:10' })], slots })
+    expect(moment?.kind).toBe('extraKicker')
+    expect(moment?.count).toBe(2)
+  })
+
+  it('counts a KEEPER as the first one', () => {
+    // The case the maintainer named: they already had one, keeper or otherwise.
+    const slots = { '1:9': slot(), '1:10': slot() }
+    expect(detect({ sales: [sale({ slot: '1:10' })], slots })?.count).toBe(2)
+  })
+
+  it('does not fire for a manager taking their FIRST kicker', () => {
+    const slots = { ...held('Kevin', 1, 1), ...held('Corky', 1, 7) }
+    expect(detect({ sales: [sale({ slot: '1:9' })], slots })?.kind).not.toBe('extraKicker')
+  })
+
+  it('counts up, so a third kicker says three', () => {
+    const slots = held('Kevin', 3, 1)
+    expect(detect({ sales: [sale({ slot: '1:11' })], slots })?.count).toBe(3)
+  })
+
+  it('fires per SLOT, so each additional kicker gets its own mockery but no repeats', () => {
+    const fired = new Set<string>()
+    const slots = held('Kevin', 3, 1)
+    expect(detect({ sales: [sale({ slot: '1:10' })], slots, fired })?.kind).toBe('extraKicker')
+    // The same pick again -- a retraction and re-entry -- says nothing.
+    expect(detect({ sales: [sale({ slot: '1:10', seq: 9 })], slots, fired })).toBeNull()
+    // A different slot is a different kicker, and does fire.
+    expect(detect({ sales: [sale({ slot: '1:11', seq: 10 })], slots, fired })?.kind).toBe('extraKicker')
+  })
+
+  it('outranks the first-kicker punt when a sale is both', () => {
+    /*
+     * They rarely compete: a manager holding a keeper kicker is an unaccounted kicker in the sheet, which
+     * suppresses `firstKicker` on its own. Pinned anyway, because "which joke wins" should not be an
+     * accident of declaration order.
+     */
+    const fired = new Set<string>()
+    const slots = { '1:9': slot(), '1:10': slot() }
+    const moment = detect({ sales: [sale({ slot: '1:10' })], slots, fired })
+    expect(moment?.kind).toBe('extraKicker')
+  })
+
+  it('is not fired by a non-kicker sale to a manager who holds two kickers', () => {
+    const slots = { ...held('Kevin', 2, 1), '1:3': slot({ position: 'RB', player: 'Bijan' }) }
+    expect(detect({ sales: [sale({ slot: '1:3', position: 'RB' })], slots })).toBeNull()
+  })
+})
+
 describe('bigSpender', () => {
   const spend = (price: number, over: Partial<SaleEvent> = {}) =>
     sale({ position: 'RB', player: 'Justin Jefferson', price, slot: '1:3', ...over })
@@ -315,7 +377,7 @@ describe('rosterFull', () => {
     // The riskiest number in the feature: for this long the board is not visible. It is survivable only
     // because a newer sale supersedes it and any key dismisses it.
     expect(MOMENT_HOLD_MS.rosterFull).toBeGreaterThan(MOMENT_HOLD_MS.firstKicker)
-    expect(MOMENT_HOLD_MS.rosterFull).toBe(30_000)
+    expect(MOMENT_HOLD_MS.rosterFull).toBe(15_000)
   })
 })
 
@@ -390,7 +452,12 @@ describe('firedFromLog', () => {
       sale({ slot: '13:5', position: 'RB', price: 4, seq: 3 }),
       sale({ slot: '19:2', position: 'QB', price: 700, seq: 4 }),
     ])
-    expect([...fired].sort()).toEqual(['bigSpender:7:3', 'firstKicker'])
+    /*
+     * `extraKicker:1:9` is here too, and deliberately so: the log does not say whether that kicker was
+     * somebody's second at the time, so every kicker sale gets its slot marked. Marking one that never
+     * fired costs a joke nobody expected; missing one repeats a joke the room already had.
+     */
+    expect([...fired].sort()).toEqual(['bigSpender:7:3', 'extraKicker:1:9', 'firstKicker'])
   })
 })
 

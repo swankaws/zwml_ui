@@ -8,7 +8,7 @@
  * DISMISSAL IS THE PART THAT MATTERS, because this thing covers the board. Three ways out, and all three
  * are load-bearing:
  *
- *   1. A timer per kind. `rosterFull` holds for 30s because the room stops to congratulate somebody;
+ *   1. A timer per kind. `rosterFull` holds longest because the room stops to congratulate somebody;
  *      the other two are seconds, because they land mid-flow.
  *   2. Any key or any tap. Deliberately WITHOUT `preventDefault`, so every existing shortcut still works
  *      through the overlay -- the operator does not have to know it is there.
@@ -55,6 +55,7 @@ export function gifFrom(choices: readonly string[], seed: string): string {
 function gifFor(moment: Moment): string {
   switch (moment.kind) {
     case 'firstKicker':
+    case 'extraKicker':
       return gifFrom(PUNT_GIFS, moment.sale.player)
     case 'rosterFull':
       return gifFrom(DONE_GIFS, moment.sale.manager)
@@ -63,28 +64,49 @@ function gifFor(moment: Moment): string {
   }
 }
 
-/** The copy. Deliberately short: this is read from across a room in a few seconds. */
-function lines(moment: Moment): { kicker: string; headline: string; detail: string } {
+/**
+ * The copy, in parts rather than one sentence.
+ *
+ * Split so the who and the money can be sized and coloured separately: the maintainer's note was that the
+ * names were too small to read from the room and the price deserved the accent. A single interpolated
+ * string could not do either without markup in the middle of it.
+ */
+function lines(moment: Moment): { label: string; headline: string; who: string; price: string } {
   const { player, manager, price } = moment.sale
+  const money$ = money(price)
   switch (moment.kind) {
     case 'firstKicker':
       return {
-        kicker: 'FIRST KICKER OFF THE BOARD',
+        label: 'FIRST KICKER OFF THE BOARD',
         headline: 'A KICKER. REALLY.',
-        detail: `${manager} spent ${money(price)} on ${player}`,
+        who: `${manager} — ${player}`,
+        price: money$,
+      }
+    case 'extraKicker':
+      return {
+        label: 'MORE THAN ONE KICKER',
+        /*
+         * The count is on the moment rather than worked out here. It also has to be a number rather than
+         * the word "two": a third kicker is funnier than the second and the headline should say so.
+         */
+        headline: `${moment.count ?? 2} KICKERS?!`,
+        who: `${manager} — ${player}`,
+        price: money$,
       }
     case 'bigSpender':
       return {
         // The label says WHY this one fired -- it is a record, not merely an expensive player.
-        kicker: 'NEW HIGHEST SALE',
+        label: 'NEW HIGHEST SALE',
         headline: 'BIG SPENDER!!!',
-        detail: `${manager} — ${player} — ${money(price)}`,
+        who: `${manager} — ${player}`,
+        price: money$,
       }
     case 'rosterFull':
       return {
-        kicker: 'ROSTER FULL',
+        label: 'ROSTER FULL',
         headline: `${manager.toUpperCase()} IS DONE`,
-        detail: `${player} at ${money(price)} filled the last slot`,
+        who: `last slot: ${player}`,
+        price: money$,
       }
   }
 }
@@ -180,14 +202,17 @@ export function MomentOverlay({ moment, pinned = null, enabled = true }: MomentO
   return (
     <div className="moment" data-kind={active.kind} role="presentation">
       <div className="moment-card">
-        <div className="moment-kicker">{copy.kicker}</div>
+        <div className="moment-label">{copy.label}</div>
         <div className="moment-headline">{copy.headline}</div>
         {/*
           * `alt` empty and `role="presentation"` above: the clip is the joke, not information. Everything
           * it conveys is in the type beside it, which is also what shows if the file never loads.
           */}
         <img className="moment-gif" src={gif} alt="" />
-        <div className="moment-detail">{copy.detail}</div>
+        <div className="moment-detail">
+          <span className="moment-who">{copy.who}</span>
+          <span className="moment-price">{copy.price}</span>
+        </div>
       </div>
     </div>
   )
