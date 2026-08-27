@@ -127,7 +127,14 @@ export function snapshotSlots(blocks: readonly ManagerBlock[]): SlotMap {
  * genuine data error; the benefit is that `$0 -> Kevin` never reaches the wall and the
  * nomination pointer never advances on a half-finished row.
  */
-function creditable(slot: SlotState): boolean {
+/**
+ * Exported so `moments.ts` can ask the same question with the same answer.
+ *
+ * Its unaccounted-kicker guard has to decide which slots in the sheet "count", and that must be exactly
+ * the set this file is willing to emit a sale for -- a second, drifting copy of the predicate would make
+ * the guard suppress an egg for a slot that can never fire one, or vice versa.
+ */
+export function creditable(slot: SlotState): boolean {
   return !slot.suspect && slot.price >= league.minBid
 }
 
