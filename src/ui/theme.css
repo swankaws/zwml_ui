@@ -51,43 +51,42 @@
   --dead: #ff5c5c;
 
   /*
-   * Position palette (7.3). The first position colors in the project -- until phase 5 the
-   * only position rendering was the POS count matrix, which is colored by zero-ness alone.
+   * Position palette (7.3), taken from the designer's marked-up mock and then measured.
    *
-   * Chosen for hue separation rather than prettiness, because 7.7 requires them to survive
-   * projector color shift and common color-vision deficiencies: the red/green pair that
-   * deuteranopia collapses is avoided by keeping RB amber and WR cyan rather than
-   * red-and-green, and no two positions rely on saturation alone to be told apart. Color is
-   * never the only signal -- `.sale-pos` prints the abbreviation beside the price, which is
-   * what 7.7's "always paired with a text label" demands.
+   * The hues are the mock's: QB green, RB cyan, WR yellow, TE red, K purple. Two of them were nudged off
+   * what the mock literally had, because the mock could not know what else on this board is already
+   * coloured -- and the nudges are the whole reason to write the numbers down.
+   *
+   * MEASURED IN CIEDE2000, dark mode, against `--warn`, `--stale`, `--accent`/`--live` and the three text
+   * greys. Worst collision 14.2 (QB against the green of ON THE CLOCK); worst position-to-position 21.7.
+   *
+   * That is a large improvement on what this replaced, which is worth recording because the old palette
+   * looked fine and was not: `--pos-rb` was byte-identical to `--stale` and `--pos-te` byte-identical to
+   * `--accent`. Two ΔE 0.0 collisions -- an RB count and a stale-feed warning in exactly the same ink,
+   * and a TE count in exactly the same green as ON THE CLOCK. The positions matrix now sits on its own
+   * tinted bands, which helps, but identical is identical.
+   *
+   * The nudges: QB from the mock's #60c274 (ΔE 5.8 from `--accent`) to a sage green at 14.2, and TE from
+   * #dc5951 (ΔE 6.6 from `--warn`) to a brick red at 14.8. WR moved slightly off the mock too, to 17.3
+   * from `--stale` rather than 15.2.
+   *
+   * 7.7 asks for hues that survive a deuteranope, and this palette does NOT: QB green against TE red is
+   * the pair that collapses. The maintainer's call was explicit -- "colour blindness support is nice to
+   * have, but not a requirement as long as it is readable" -- and the mitigation is structural rather
+   * than chromatic: the two sit two columns apart, each on its own band, under a spelled-out header, and
+   * `.sale-pos` prints the abbreviation beside every price.
    */
-  --pos-qb: #c792ea;
-  --pos-rb: #ffb020;
-  --pos-wr: #4fc3f7;
-  --pos-te: #37d67a;
-  /*
-   * Rose. This one took two wrong answers to land, and both were measured the wrong way.
-   *
-   * It began as `#ff8a65`, an orange-red that read as `--warn` -- a kicker count and an overspend
-   * warning looking alike. The fix was `#dfe6ef`, a near-white "it can afford to be uncoloured"
-   * neutral, on the theory that K is always exactly one slot and always labelled by its header. That
-   * traded a collision with the warning for a worse one with the body text: in CIEDE2000, #dfe6ef is
-   * ΔE 4.2 from `--fg-soft` in dark mode and 2.7 from it in light. Below about 5 the eye does not
-   * separate two colours at all, so the kicker column was not "neutral", it was invisible -- rendered
-   * in the same ink as every ordinary figure on the board.
-   *
-   * The lesson is that the first measurement used RGB Euclidean distance ("47 units in a 441-unit
-   * space"), which is not perceptual and is why a swap that looked safe was not.
-   *
-   * `#ff6fae` maximises the WORST collision rather than the average: ΔE 18.2 from `--pos-qb` and 19.2
-   * from `--warn`, its two nearest neighbours, with everything else further. Rose beats the teal that
-   * scored marginally higher on raw distance, because teal sits perceptually between `--pos-wr` and
-   * `--pos-te` -- the two columns immediately to K's LEFT in the matrix -- and distance matters most
-   * between things that sit next to each other. QB is four columns away. Nothing else in the app uses
-   * this hue.
-   */
-  --pos-k: #ff6fae;
+  --pos-qb: #76a85c;
+  --pos-rb: #00c2de;
+  --pos-wr: #dfd06a;
+  --pos-te: #b5544a;
+  --pos-k: #a759a9;
   --pos-none: var(--fg);
+  /*
+   * How much of a position's own hue tints its column. Stronger on dark than on light: a colour mixed
+   * toward a near-black row loses saturation fast, while the same mix on white already reads.
+   */
+  --pos-tint: 34%;
 
   color-scheme: dark;
 }
@@ -447,51 +446,71 @@ body {
   color: var(--warn);
 }
 
-/* Position counts read as a matrix, so the sub-columns are fixed and equal. */
+/*
+ * Position counts read as a matrix, so the sub-columns are fixed and equal -- and FLUSH.
+ *
+ * The 0.2em horizontal gap is gone. With a tint behind each column that gap became a dark seam between
+ * every pair of bands, so five stripes read as five separate chips per row rather than as five columns
+ * running down the board. The reference the designer marked up shows continuous stripes; centring the
+ * digit inside its own band gives the separation the gap used to, without breaking the band.
+ */
 .positions {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 0 0.2em;
+  gap: 0;
 }
 
 /*
- * The positional-needs panel, on the designer's note that these columns should have their own
- * background and "pop".
+ * The positional-needs columns, each tinted with its OWN position hue.
  *
- * It earns the tint: QB..K are a different KIND of figure from the money to their left -- counts, not
- * dollars -- and for the first hour of a draft they are also almost all zero, so the right third of
- * the board read as one large flat void with a few coloured digits floating in it.
+ * The first attempt put one uniform translucent wash behind all five sub-columns. That was the wrong
+ * reading of the note: on a dark row a single 3.5% white overlay is nearly invisible, and worse, it
+ * said nothing -- the whole point is that QB reads purple, RB orange, WR blue, TE green, K rose, so the
+ * matrix can be scanned by column without reading the header every time.
  *
- * TRANSLUCENT, not a solid colour. The rows alternate `--bg-row`/`--bg-row-alt`, and a solid panel
- * would flatten that alternation across the rightmost third of the table -- precisely where you are
- * furthest from the manager's name and most dependent on the banding to know which row you are
- * reading. An overlay tints the zone and lets the stripes through underneath.
+ * The tint is derived from the same `--pos-*` token as the text with `color-mix`, rather than being a
+ * second hand-picked hex per position per theme. Ten more literals would be ten more things to drift
+ * out of step with the text colour -- and the kicker hue has already moved twice.
  *
- * The gradient is the left EDGE, not decoration. A hard rule there would be the fifth line on a screen
- * that already has row rules, a header rule and the rail divider; a short ramp reads as a boundary
- * without drawing one. It settles to a flat floor by 22% so the K column -- the far end, and the one
- * that was hardest to see -- gets the same tint as the rest rather than fading out of it.
+ * `height: 100%` on `.positions` is what makes these read as COLUMNS rather than as a band per row.
+ * `.cell` is a grid item and so already fills the row, but `.positions` is a block grid inside it and
+ * was only as tall as its own line box, which left an untinted gap between every row.
  *
- * On the CELL rather than on `.positions`, because the cell is the grid item: it stretches to the full
- * row height, so consecutive rows' panels meet and the zone reads as one continuous column. `.positions`
- * is only as tall as its own line box, which would have left a gap between every row.
+ * `align-items` is deliberately NOT set here. The first attempt used `center`, which centres each span in
+ * its track instead of stretching it -- so the spans were one digit tall and the stripes came out as a
+ * ladder of chips with dark bands between the rows. The grid default is `stretch`, which is what a
+ * continuous column needs.
+ *
+ * If `color-mix` is ever unsupported the declaration is simply dropped and the counts render on the
+ * plain row, which is exactly the old appearance -- a graceful floor, unlike a text effect.
  */
-.cell-positions {
-  background: linear-gradient(
-    90deg,
-    rgb(255 255 255 / 7.5%),
-    rgb(255 255 255 / 3.5%) 22%,
-    rgb(255 255 255 / 3.5%)
-  );
+.positions {
+  height: 100%;
+}
+
+.positions > span[data-position='QB'] {
+  background: color-mix(in srgb, var(--pos-qb) var(--pos-tint), transparent);
+}
+.positions > span[data-position='RB'] {
+  background: color-mix(in srgb, var(--pos-rb) var(--pos-tint), transparent);
+}
+.positions > span[data-position='WR'] {
+  background: color-mix(in srgb, var(--pos-wr) var(--pos-tint), transparent);
+}
+.positions > span[data-position='TE'] {
+  background: color-mix(in srgb, var(--pos-te) var(--pos-tint), transparent);
+}
+.positions > span[data-position='K'] {
+  background: color-mix(in srgb, var(--pos-k) var(--pos-tint), transparent);
 }
 
 /*
- * A filled count carries weight as well as hue, so it lifts off the tint. Zero stays a dim dot.
+ * A filled count carries weight as well as hue, so it lifts off its tint. Zero stays a dim dot.
  *
- * This is the "minor gradient change to the text colour" from the note, read as a step in weight and
- * brightness rather than a literal gradient fill: `background-clip: text` would put every number on
- * this board one unsupported property away from rendering as nothing, and the board is a projector
- * with nobody sitting at it.
+ * This is the "minor gradient change to the text colour" from the note, read as a step in weight rather
+ * than a literal gradient fill: `background-clip: text` would put every number on this board one
+ * unsupported property away from rendering as nothing, and the board is a projector with nobody sitting
+ * at it.
  */
 .positions > span:not(.zero) {
   font-weight: 800;
@@ -503,7 +522,14 @@ body {
  * column HEADER still spells the letters out, which is what keeps 7.7's rule that colour is never the
  * only signal.
  */
+/*
+ * `place-items: center` rather than `text-align` alone, because the span now carries a background and has
+ * to FILL its grid cell to draw a continuous stripe. Grid items stretch by default, so it already spans
+ * the full row height -- the centring has to happen INSIDE the span, not by aligning the box.
+ */
 .positions > span {
+  display: grid;
+  place-items: center;
   text-align: center;
 }
 
@@ -1754,7 +1780,7 @@ kbd {
  * Not an inversion. Straight inversion of a palette tuned for a glowing dark screen gives muddy
  * mid-greys and accents that vanish: on white, a colour needs to be DARKER and more saturated to
  * carry the same weight, so every accent here is re-picked rather than flipped. The position hues
- * keep their identity -- QB violet, RB amber, WR blue, TE green, K rose -- because the room will
+ * keep their identity -- QB green, RB cyan, WR yellow, TE red, K purple -- because the room will
  * have learned them, but each drops in lightness to hold contrast against a near-white row.
  */
 :root[data-theme='light'] {
@@ -1774,28 +1800,18 @@ kbd {
   --stale: #a3560a;
   --dead: #c0261f;
 
-  --pos-qb: #6b28c9;
-  --pos-rb: #9a5300;
-  --pos-wr: #0a5fa8;
-  --pos-te: #0a7a3c;
-  /* Rose, held one step darker and more saturated than dark mode's -- ΔE 23.7 from `--pos-qb` and
-     23.9 from `--warn`, its nearest neighbours here. See the dark-mode note for why K is not neutral. */
-  --pos-k: #b01268;
+  /*
+   * The same five hues, each darker and more saturated so it holds contrast against a near-white row.
+   * Re-measured against the light status colours: worst collision 13.0 (QB against `--accent`), worst
+   * position-to-position 12 (QB against WR, two columns apart and each on its own band).
+   */
+  --pos-qb: #476318;
+  --pos-rb: #0b6b7a;
+  --pos-wr: #6e6420;
+  --pos-te: #6f3328;
+  --pos-k: #6b2c73;
+  --pos-tint: 20%;
   --pos-none: var(--fg);
-}
-
-/*
- * The positions panel inverts with the theme: on a near-white row a white overlay is invisible, so the
- * tint has to darken instead. Same shape, same 22% ramp, opacity nudged up because a dark wash on white
- * carries less apparent weight than a light wash on black at the same alpha.
- */
-:root[data-theme='light'] .cell-positions {
-  background: linear-gradient(
-    90deg,
-    rgb(10 20 35 / 9%),
-    rgb(10 20 35 / 4.5%) 22%,
-    rgb(10 20 35 / 4.5%)
-  );
 }
 
 /*
