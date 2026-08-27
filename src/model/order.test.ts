@@ -54,7 +54,7 @@ describe('resolveNominationOrder', () => {
      * instruction to go and fix a manager who is not in this season at all.
      */
     expect(result.warnings).toEqual([
-      'No usable nomination order: fix cell A1 or the SETTINGS tab `order` row.',
+      'No nomination order is set. Fix cell A1 or the SETTINGS tab `order` row.',
     ])
   })
 

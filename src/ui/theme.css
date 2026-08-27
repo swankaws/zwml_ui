@@ -66,12 +66,27 @@
   --pos-wr: #4fc3f7;
   --pos-te: #37d67a;
   /*
-   * Neutral, not orange-red. `#ff8a65` sat 47 units from `--warn` in a 441-unit space -- close enough
-   * to read as the same colour for NORMAL vision at 25 feet, so a kicker count and an overspend
-   * warning looked alike. K is the one position that is always exactly one slot and always labelled by
-   * its column header, so it is the one that can afford to be uncoloured.
+   * Rose. This one took two wrong answers to land, and both were measured the wrong way.
+   *
+   * It began as `#ff8a65`, an orange-red that read as `--warn` -- a kicker count and an overspend
+   * warning looking alike. The fix was `#dfe6ef`, a near-white "it can afford to be uncoloured"
+   * neutral, on the theory that K is always exactly one slot and always labelled by its header. That
+   * traded a collision with the warning for a worse one with the body text: in CIEDE2000, #dfe6ef is
+   * ΔE 4.2 from `--fg-soft` in dark mode and 2.7 from it in light. Below about 5 the eye does not
+   * separate two colours at all, so the kicker column was not "neutral", it was invisible -- rendered
+   * in the same ink as every ordinary figure on the board.
+   *
+   * The lesson is that the first measurement used RGB Euclidean distance ("47 units in a 441-unit
+   * space"), which is not perceptual and is why a swap that looked safe was not.
+   *
+   * `#ff6fae` maximises the WORST collision rather than the average: ΔE 18.2 from `--pos-qb` and 19.2
+   * from `--warn`, its two nearest neighbours, with everything else further. Rose beats the teal that
+   * scored marginally higher on raw distance, because teal sits perceptually between `--pos-wr` and
+   * `--pos-te` -- the two columns immediately to K's LEFT in the matrix -- and distance matters most
+   * between things that sit next to each other. QB is four columns away. Nothing else in the app uses
+   * this hue.
    */
-  --pos-k: #dfe6ef;
+  --pos-k: #ff6fae;
   --pos-none: var(--fg);
 
   color-scheme: dark;
@@ -134,9 +149,26 @@ body {
  * matches *exactly* 16:10, so a 1440x900 laptop -- which has ample room for the
  * rail -- was getting the stacked fallback and cropping the sale price.
  */
+/*
+ * 1370/460, trimmed from 1300/530 on the maintainer's note that the rail had room to spare. It did, but
+ * less than it looks, and the number is measured rather than judged by eye.
+ *
+ * The binding content is the ticker, not the nomination list: `Rail.tsx` renders `{sale.player}` RAW,
+ * with no abbreviation ladder behind it, so a rail that is too narrow ellipsises a player's name instead
+ * of shortening it gracefully. At 1920x1080 the longest name in the 2025 fixture -- `Jacory
+ * Croskey-Merritt` -- needs 372px intrinsic, and the rail's own padding takes 30px, so the floor is
+ * ~402px. 460 leaves 430px of inner width: 58px, about 16% headroom for a longer name than any in the
+ * fixtures.
+ *
+ * 430 was tried first and clips by roughly TWO pixels. Worth recording because it very nearly passed a
+ * check it should fail: a live sweep of rail widths in the browser found 430 clean, and it was wrong
+ * because that sweep ran a few pixels shorter than 1080 -- type here is `4.35vh`, so a shorter viewport
+ * quietly shrinks the type and the name fits. Only the gate, which pins the viewport to exactly
+ * 1920x1080 via device-metrics override, sees it. Measure at the real size or do not measure.
+ */
 .stage {
   display: grid;
-  grid-template-columns: minmax(0, 1300fr) minmax(0, 530fr);
+  grid-template-columns: minmax(0, 1370fr) minmax(0, 460fr);
   gap: 0.34rem;
   min-height: 0;
 }
@@ -371,8 +403,19 @@ body {
  * down to 1em. Measured: twelve rows still fit at 1080p, 4:3, 5:4 and on a laptop, and MAX BID keeps
  * its weight and colour so the hierarchy survives without the size difference.
  */
+/*
+ * 1.04em, down from 1.18em, to pay for the eighth column.
+ *
+ * The maintainer's call between three options once the width was measured: at 1.18em the eight columns
+ * needed 1174px of the 1187px the table has, which is 1% of slack -- below what belongs on a wall, and
+ * what truncated `% REM` on every row. Type came down rather than a column coming out.
+ *
+ * The CELL size rather than the root, deliberately. Content width scales with this, while row height,
+ * the header and every vertical budget in 7.1 scale with the root -- so this buys horizontal room and
+ * changes nothing about whether twelve rows fit. Dropping the root would have cost both.
+ */
 .cell {
-  font-size: 1.18em;
+  font-size: 1.04em;
 }
 
 /*
@@ -387,6 +430,7 @@ body {
 
 /* The supporting figures. Still fully legible, just not competing with the answer. */
 .cell-spent,
+.cell-pctLeft,
 .cell-needs,
 .cell-perSlot {
   color: var(--fg-soft);
@@ -395,7 +439,7 @@ body {
 /* 4:3 is short, not narrow: ~47px per row against ~78px at 1080p, so the common size comes down. */
 @media (aspect-ratio < 16 / 10) {
   .cell {
-    font-size: 1.04em;
+    font-size: 0.95em;
   }
 }
 
@@ -408,6 +452,49 @@ body {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 0 0.2em;
+}
+
+/*
+ * The positional-needs panel, on the designer's note that these columns should have their own
+ * background and "pop".
+ *
+ * It earns the tint: QB..K are a different KIND of figure from the money to their left -- counts, not
+ * dollars -- and for the first hour of a draft they are also almost all zero, so the right third of
+ * the board read as one large flat void with a few coloured digits floating in it.
+ *
+ * TRANSLUCENT, not a solid colour. The rows alternate `--bg-row`/`--bg-row-alt`, and a solid panel
+ * would flatten that alternation across the rightmost third of the table -- precisely where you are
+ * furthest from the manager's name and most dependent on the banding to know which row you are
+ * reading. An overlay tints the zone and lets the stripes through underneath.
+ *
+ * The gradient is the left EDGE, not decoration. A hard rule there would be the fifth line on a screen
+ * that already has row rules, a header rule and the rail divider; a short ramp reads as a boundary
+ * without drawing one. It settles to a flat floor by 22% so the K column -- the far end, and the one
+ * that was hardest to see -- gets the same tint as the rest rather than fading out of it.
+ *
+ * On the CELL rather than on `.positions`, because the cell is the grid item: it stretches to the full
+ * row height, so consecutive rows' panels meet and the zone reads as one continuous column. `.positions`
+ * is only as tall as its own line box, which would have left a gap between every row.
+ */
+.cell-positions {
+  background: linear-gradient(
+    90deg,
+    rgb(255 255 255 / 7.5%),
+    rgb(255 255 255 / 3.5%) 22%,
+    rgb(255 255 255 / 3.5%)
+  );
+}
+
+/*
+ * A filled count carries weight as well as hue, so it lifts off the tint. Zero stays a dim dot.
+ *
+ * This is the "minor gradient change to the text colour" from the note, read as a step in weight and
+ * brightness rather than a literal gradient fill: `background-clip: text` would put every number on
+ * this board one unsupported property away from rendering as nothing, and the board is a projector
+ * with nobody sitting at it.
+ */
+.positions > span:not(.zero) {
+  font-weight: 800;
 }
 
 /*
@@ -1667,7 +1754,7 @@ kbd {
  * Not an inversion. Straight inversion of a palette tuned for a glowing dark screen gives muddy
  * mid-greys and accents that vanish: on white, a colour needs to be DARKER and more saturated to
  * carry the same weight, so every accent here is re-picked rather than flipped. The position hues
- * keep their identity -- QB violet, RB amber, WR blue, TE green, K orange -- because the room will
+ * keep their identity -- QB violet, RB amber, WR blue, TE green, K rose -- because the room will
  * have learned them, but each drops in lightness to hold contrast against a near-white row.
  */
 :root[data-theme='light'] {
@@ -1691,8 +1778,24 @@ kbd {
   --pos-rb: #9a5300;
   --pos-wr: #0a5fa8;
   --pos-te: #0a7a3c;
-  --pos-k: #2c3a48;
+  /* Rose, held one step darker and more saturated than dark mode's -- ΔE 23.7 from `--pos-qb` and
+     23.9 from `--warn`, its nearest neighbours here. See the dark-mode note for why K is not neutral. */
+  --pos-k: #b01268;
   --pos-none: var(--fg);
+}
+
+/*
+ * The positions panel inverts with the theme: on a near-white row a white overlay is invisible, so the
+ * tint has to darken instead. Same shape, same 22% ramp, opacity nudged up because a dark wash on white
+ * carries less apparent weight than a light wash on black at the same alpha.
+ */
+:root[data-theme='light'] .cell-positions {
+  background: linear-gradient(
+    90deg,
+    rgb(10 20 35 / 9%),
+    rgb(10 20 35 / 4.5%) 22%,
+    rgb(10 20 35 / 4.5%)
+  );
 }
 
 /*

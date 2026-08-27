@@ -53,12 +53,13 @@ describe('order resolution', () => {
      * This used to assert two -- the stale A1 and the wrong-season committed copy -- and both arrived
      * labelled `SETTINGS:` because `parseOrder` hard-coded that prefix. So the projector showed two
      * near-identical amber sentences differing in one name, both blaming a tab neither came from. The
-     * committed copy's complaint is unactionable mid-draft anyway; what replaces it says what to do.
+     * committed copy's complaint is unactionable mid-draft anyway, and the remedy is appended to A1's
+     * own sentence rather than printed in a second box beside it -- A1 has already named the cell.
      */
-    expect(warnings.filter((w) => /not a known manager/.test(w))).toEqual([
-      'A1: "Rob" is not a known manager, so this order is not being used.',
+    expect(warnings).toEqual([
+      'A1: "Rob" is not a known manager, so this order is not being used. ' +
+        'Fix cell A1 or the SETTINGS tab `order` row.',
     ])
-    expect(warnings.at(-1)).toMatch(/fix cell A1/)
   })
 
   it('recognizes the 2025 board as twelve managers including Nick', () => {

@@ -53,7 +53,19 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
     <div className="board">
       <div className="row head" style={{ gridTemplateColumns: template }}>
         {columns.map((column) => (
-          <div key={column.key} className="cell" data-align={column.align}>
+          <div
+            key={column.key}
+            /*
+             * The positions header carries its column class so the tinted panel behind the QB..K matrix
+             * starts at the header and runs down through every row as one continuous shape.
+             *
+             * Only that one. The other header cells deliberately do NOT get a `cell-<key>` class:
+             * `.cell-maxBid` and `.cell-spent`/`.cell-needs`/`.cell-perSlot` set text colours chosen for
+             * FIGURES, and handing them to the header would repaint the header row off `--fg-dim`.
+             */
+            className={column.key === 'positions' ? 'cell cell-positions' : 'cell'}
+            data-align={column.align}
+          >
             {column.key === 'positions' ? (
               <div className="positions">
                 {POSITION_COLUMNS.map((p) => (

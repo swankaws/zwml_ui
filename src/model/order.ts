@@ -60,20 +60,21 @@ export function resolveNominationOrder(roster: readonly string[], a1: string): R
   }
 
   /*
-   * Both failed, so the rail will say NOMINATION ORDER NOT SET -- and the room gets ONE line about it
-   * rather than two.
+   * Both failed, so the rail will say NOMINATION ORDER NOT SET -- and the room gets ONE box about it.
    *
    * Surfacing both sources' complaints put two near-identical amber sentences side by side on the 2025
-   * board, differing only in a name, and the second one was unactionable anyway: nobody can edit the
-   * committed fallback during a draft. The A1 warning stays because A1 IS editable, and the added line
-   * says what to do about it.
+   * board, differing only in a name, and the second was unactionable anyway: nobody can edit the
+   * committed fallback during a draft. Dropping it left two boxes still -- A1's complaint, plus a
+   * generic "fix A1" -- which is one box too many for the same reason. A1 already named the cell.
+   *
+   * So the fix is appended to A1's own sentence rather than printed beside it. The generic line only
+   * stands alone when A1 was silent, i.e. when the cell is empty and there is nothing to quote.
    */
-  return {
-    order: [],
-    warnings: [
-      ...fromSheet.warnings,
-      'No usable nomination order: fix cell A1 or the SETTINGS tab `order` row.',
-    ],
-    source: 'none',
-  }
+  const remedy = 'Fix cell A1 or the SETTINGS tab `order` row.'
+  const warnings =
+    fromSheet.warnings.length > 0
+      ? [`${fromSheet.warnings.join(' ')} ${remedy}`]
+      : [`No nomination order is set. ${remedy}`]
+
+  return { order: [], warnings, source: 'none' }
 }

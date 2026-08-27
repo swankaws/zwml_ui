@@ -24,16 +24,33 @@ function managerState(overrides: Partial<ManagerState> = {}): ManagerState {
   }
 }
 
-/** Measured with tools/measure.mjs at each of the resolutions below. */
+/**
+ * Measured with a CDP probe at each of the resolutions below, re-taken after the rail was trimmed from
+ * 530fr to 460fr -- which handed the table 70px at 1080p and 52px on a laptop.
+ */
 const REAL = {
-  /** 1080p projector, rail layout: table area 1298px, root type 47px. */
-  projector: { width: 1298, typePx: 47 },
+  /** 1080p projector, rail layout: table area 1368px, root type 47px. */
+  projector: { width: 1368, typePx: 47 },
   /** 1024x768 fallback, stacked layout: table gets the full width, type 33.4px. */
   fourThree: { width: 983, typePx: 33.4 },
-  /** 1440x900 laptop, rail layout: table area 973px, root type 39.15px. */
-  laptop: { width: 973, typePx: 39.15 },
-  /** 390x844 phone, stacked: the case the priority system actually exists for. */
-  phone: { width: 374, typePx: 36.7 },
+  /** 1440x900 laptop, rail layout: table area 1025px, root type 39.15px. */
+  laptop: { width: 1025, typePx: 39.15 },
+  /**
+   * 390x844 phone, stacked: the case the priority system actually exists for.
+   *
+   * `typePx` was 36.7 here and that was wrong by 2x. Mobile inverts the whole type rule -- root is
+   * `clamp(13px, 4.6vw, 26px)` because WIDTH is the scarce axis once the page may scroll -- so the real
+   * measurement is 4.6% of 390 = 17.94px. The stale figure made the fit test twice as pessimistic as the
+   * app, so these cases were asserting a two-column phone that the app has not rendered for some time;
+   * it serves four. Same class of mistake as the `nameBudget` error that abbreviated 180 roster names.
+   */
+  phone: { width: 374, typePx: 17.94 },
+  /**
+   * Narrower than any phone in portrait: a split-screen pane, or a browser window dragged small. It is
+   * here because the phone no longer trims a four-column set once its type size is measured correctly,
+   * so this is where the fit test and the query-string bypass still visibly disagree.
+   */
+  narrow: { width: 240, typePx: 17.94 },
 }
 
 const keys = (options: Parameters<typeof selectColumns>[0]) =>
@@ -44,10 +61,11 @@ describe('selectColumns', () => {
   it('shows every default column at the projector', () => {
     expect(keys(REAL.projector)).toEqual([
       'manager',
-      'spent',
-      'left',
-      'needs',
       'maxBid',
+      'left',
+      'pctLeft',
+      'spent',
+      'needs',
       'positions',
     ])
   })
@@ -57,10 +75,11 @@ describe('selectColumns', () => {
     // it, so nothing needs to drop.
     expect(keys(REAL.fourThree)).toEqual([
       'manager',
-      'spent',
-      'left',
-      'needs',
       'maxBid',
+      'left',
+      'pctLeft',
+      'spent',
+      'needs',
       'positions',
     ])
   })
@@ -72,17 +91,38 @@ describe('selectColumns', () => {
      * "fit" arithmetically there and MAX BID rendered "$186" 8px short on all twelve
      * rows. SPENT is redundant with LEFT, so it is the cheapest thing in the room.
      */
-    expect(keys(REAL.laptop)).toEqual(['manager', 'left', 'needs', 'maxBid', 'positions'])
+    expect(keys(REAL.laptop)).toEqual(['manager', 'maxBid', 'left', 'spent', 'needs', 'positions'])
   })
 
-  it('drops down to the two essential columns on a phone', () => {
+  it('gets the position matrix onto a phone, and still falls to the essentials below that', () => {
     /*
-     * The regression this model was rewritten for. With a fixed px-per-unit floor
-     * this kept four columns and truncated LEFT, NEEDS and MAX BID on all twelve
-     * rows: a phone in portrait has nearly a laptop's type size in a third of the
-     * width, so the floor has to scale with the type.
+     * Five columns, and the fifth is the one worth having: a follow-along screen answers "who has whom",
+     * which is what QB/RB/WR/TE/K says.
+     *
+     * The history here is two separate mistakes cancelling out. This asserted TWO columns against a
+     * `typePx` of 36.7 that was wrong by 2x -- mobile sizes root from `4.6vw`, not from height, so 390px
+     * is 17.94px -- which made the fit test twice as pessimistic as the app, and the app was really
+     * serving four. Then the narrow widths let the fifth on: the phone had been handing MANAGER 104px to
+     * draw a 66px name, and that wasted third across every column was a whole column's worth.
+     *
+     * The floor still bites below a phone: `narrow` re-proportions the columns, it does not exempt them.
      */
-    expect(keys(REAL.phone)).toEqual(['manager', 'maxBid'])
+    expect(keys(REAL.phone)).toEqual(['manager', 'maxBid', 'left', 'needs', 'positions'])
+    expect(keys(REAL.narrow)).toEqual(['manager', 'maxBid', 'left'])
+    expect(keys({ width: 120, typePx: 17.94 })).toEqual(['manager', 'maxBid'])
+  })
+
+  it('uses the narrow width only below the mobile type ceiling', () => {
+    /*
+     * The switch is the type size, not the viewport, because what decides is the ratio of content to
+     * room. 26px is the top of the mobile clamp; 33.41px is the smallest desktop case in the matrix.
+     */
+    const wide = selectColumns({ width: 2000, typePx: 33.41 })
+    const narrow = selectColumns({ width: 2000, typePx: 26 })
+    expect(wide.find((c) => c.key === 'manager')?.width).toBe(205)
+    expect(narrow.find((c) => c.key === 'manager')?.width).toBe(174)
+    // A column with no `narrow` of its own keeps its one width at both sizes.
+    expect(COLUMNS.every((c) => c.narrow === undefined || c.narrow > 0)).toBe(true)
   })
 
   it('scales the readability floor with the type size, not the viewport width', () => {
@@ -116,8 +156,15 @@ describe('selectColumns', () => {
   })
 
   it('returns display order, not priority order', () => {
-    // MAX BID is priority 1 but sits fifth, after the numbers that derive it.
-    expect(keys(REAL.projector).indexOf('maxBid')).toBe(4)
+    /*
+     * MAX BID now leads the figures, which is the point of the reorder: it is the one number a bidder
+     * acts on and it used to sit FIFTH, behind two columns derivable from a third. SPENT is priority 5
+     * yet sits ahead of NEEDS (3) and POS (4), so display order and priority are still independent --
+     * which is what this test is really pinning.
+     */
+    const order = keys(REAL.projector)
+    expect(order.indexOf('maxBid')).toBe(1)
+    expect(order.indexOf('spent')).toBeLessThan(order.indexOf('needs'))
   })
 
   it('keeps opted-in columns subject to the same priority drop', () => {
@@ -133,8 +180,9 @@ describe('selectColumns', () => {
 
   it('assumes the projector when the type size is not yet measured', () => {
     // App renders one frame before its first measurement; that frame must not flash
-    // a stripped-down board.
-    expect(keys({ width: 1298 })).toHaveLength(6)
+    // a stripped-down board. Uses the projector's real table width, so "not stripped
+    // down" means the whole default set rather than the whole set minus one.
+    expect(keys({ width: REAL.projector.width })).toHaveLength(7)
   })
 })
 
@@ -149,9 +197,9 @@ describe('a forced column set, and where it came from', () => {
     for (const forcedFrom of ['query', 'sheet'] as const) {
       expect(keys({ ...REAL.projector, forced: LIVE, forcedFrom })).toEqual([
         'manager',
+        'maxBid',
         'left',
         'needs',
-        'maxBid',
       ])
     }
   })
@@ -160,8 +208,8 @@ describe('a forced column set, and where it came from', () => {
     // The row must read the same way however the columns were chosen.
     expect(keys({ ...REAL.projector, forced: ['maxBid', 'manager', 'spent'] })).toEqual([
       'manager',
-      'spent',
       'maxBid',
+      'spent',
     ])
   })
 
@@ -172,7 +220,12 @@ describe('a forced column set, and where it came from', () => {
      * before the draft, so if the heuristic turns out to be wrong on that hardware, a
      * URL has to be able to say "no, show these" and be obeyed.
      */
-    expect(keys({ ...REAL.phone, forced: LIVE, forcedFrom: 'query' })).toEqual([...LIVE])
+    expect(keys({ ...REAL.narrow, forced: LIVE, forcedFrom: 'query' })).toEqual([
+      'manager',
+      'maxBid',
+      'left',
+      'needs',
+    ])
   })
 
   it('fit-tests the same set when the SHEET is what asked for it', () => {
@@ -182,14 +235,15 @@ describe('a forced column set, and where it came from', () => {
      * 47px of the 73px it needed. The sheet is broadcast to everyone following along,
      * and nobody holding a phone can edit a spreadsheet to fix what they are seeing.
      */
-    expect(keys({ ...REAL.phone, forced: LIVE, forcedFrom: 'sheet' })).toEqual([
+    expect(keys({ ...REAL.narrow, forced: LIVE, forcedFrom: 'sheet' })).toEqual([
       'manager',
       'maxBid',
+      'left',
     ])
   })
 
   it('defaults to fit-testing, so forgetting the provenance fails safe', () => {
-    expect(keys({ ...REAL.phone, forced: LIVE })).toEqual(['manager', 'maxBid'])
+    expect(keys({ ...REAL.narrow, forced: LIVE })).toEqual(['manager', 'maxBid', 'left'])
   })
 
   it('trims a sheet-forced set by priority, keeping what does fit', () => {
@@ -203,19 +257,24 @@ describe('a forced column set, and where it came from', () => {
      */
     expect(keys({ width: 550, typePx: 39.15, forced: LIVE, forcedFrom: 'sheet' })).toEqual([
       'manager',
-      'left',
       'maxBid',
+      'left',
     ])
   })
 
   it('never adds a column the forced set left out, however much room there is', () => {
     // Trimming is the only adjustment. A forced set is still a ceiling.
-    expect(keys({ width: 4000, typePx: 47, forced: LIVE, forcedFrom: 'sheet' })).toEqual([...LIVE])
+    expect(keys({ width: 4000, typePx: 47, forced: LIVE, forcedFrom: 'sheet' })).toEqual([
+      'manager',
+      'maxBid',
+      'left',
+      'needs',
+    ])
   })
 
   it('ignores an empty forced set rather than rendering an empty row', () => {
-    expect(keys({ ...REAL.projector, forced: [] })).toHaveLength(6)
-    expect(keys({ ...REAL.projector, forced: null })).toHaveLength(6)
+    expect(keys({ ...REAL.projector, forced: [] })).toHaveLength(7)
+    expect(keys({ ...REAL.projector, forced: null })).toHaveLength(7)
   })
 })
 
@@ -246,6 +305,29 @@ describe('cellValue', () => {
 
   it('shows overspending honestly instead of flooring at zero', () => {
     expect(cellValue('left', managerState({ remaining: -6 }))).toBe('−$6')
+  })
+
+  it('renders % REM against the manager OWN budget, so a bonus cannot exceed 100%', () => {
+    /*
+     * The denominator is the point. `derive.ts` divides by this manager's budget with bonus included, so
+     * a manager who was awarded $50 and has spent nothing reads 100%, not 125% -- which is what
+     * denominating on the league's flat $200 would have produced.
+     */
+    expect(cellValue('pctLeft', managerState({ pctRemaining: 1 }))).toBe('100%')
+    expect(cellValue('pctLeft', managerState({ pctRemaining: 0.615 }))).toBe('62%')
+    expect(cellValue('pctLeft', managerState({ pctRemaining: 0 }))).toBe('0%')
+  })
+
+  it('signs an overspent % REM with the same unicode minus the money columns use', () => {
+    // -$6 on $200. It has to read as negative from 25 feet, like `money` does.
+    expect(cellValue('pctLeft', managerState({ pctRemaining: -0.03 }))).toBe('\u22123%')
+  })
+
+  it('renders an em dash for % REM rather than Infinity when the budget parses as zero', () => {
+    // `pctRemaining` is a division by a PARSED budget, so a blank or junk budget cell yields Infinity or
+    // NaN. Either one reaching the wall is worse than admitting the figure is unknown.
+    expect(cellValue('pctLeft', managerState({ pctRemaining: Infinity }))).toBe('—')
+    expect(cellValue('pctLeft', managerState({ pctRemaining: NaN }))).toBe('—')
   })
 
   it('renders nothing for the positions cell -- Board draws the matrix', () => {
