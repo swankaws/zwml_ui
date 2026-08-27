@@ -83,10 +83,18 @@
   --pos-k: #a759a9;
   --pos-none: var(--fg);
   /*
-   * How much of a position's own hue tints its column. Stronger on dark than on light: a colour mixed
-   * toward a near-black row loses saturation fast, while the same mix on white already reads.
+   * How much of a position's own hue tints its column, and how much on every other row.
+   *
+   * Stronger on dark than on light: a colour mixed toward a near-black row loses saturation fast, while
+   * the same mix on white already reads.
+   *
+   * The `-alt` step exists because the mock's bands visibly alternate and ours barely did. Sampling the
+   * mock showed each band carrying two values about 30 RGB units apart; ours were about 4, because they
+   * only inherited the row striping and `--bg-row` and `--bg-row-alt` are themselves close together. The
+   * band needs its own step to show the banding the rest of the row shows.
    */
-  --pos-tint: 34%;
+  --pos-tint: 30%;
+  --pos-tint-alt: 44%;
 
   color-scheme: dark;
 }
@@ -300,12 +308,20 @@ body {
 .row {
   display: grid;
   align-items: center;
-  gap: 0 0.5em;
   /*
-   * `rem`, not `em`. The header row is `font-size: 0.5em`, so an em-based inset gave it HALF the
-   * padding of the data rows -- measured, the MANAGER label started 9.8px left of the names beneath it,
-   * the only misaligned column on the board. Root-relative units make the two agree by construction.
+   * BOTH in `rem`, not `em`, and for the same reason.
+   *
+   * The header row is `font-size: 0.5em`, so any em length on `.row` resolves to half as much there as
+   * on a data row. The padding was fixed first -- measured, the MANAGER label started 9.8px left of the
+   * names beneath it -- and the GAP was left behind, which was the subtler half of the same bug: the
+   * tracks are `fr`, so they divide whatever is left after the gutters, and header gutters of 11.75px
+   * against body gutters of 23.5px move every column boundary. Invisible while the columns were only
+   * text, obvious the moment the position columns got a background and the header band no longer sat
+   * over the band beneath it.
+   *
+   * `columns.ts` already assumed this: its fit test multiplies COLUMN_GAP_EM by the ROOT type size.
    */
+  gap: 0 0.5rem;
   padding: 0 0.42rem;
 }
 
@@ -368,11 +384,27 @@ body {
    */
   letter-spacing: 0.06em;
   color: var(--fg-dim);
-  padding-top: 0.5em;
-  padding-bottom: 0.5em;
   background: var(--bg-head);
   border-bottom: 2px solid var(--rule);
   border-radius: 0.2em 0.2em 0 0;
+}
+
+/*
+ * The header's height comes from its CELLS, not from padding on the row.
+ *
+ * It used to be `padding-block: 0.5em` on `.head` itself, which gives the same height -- but a cell
+ * stretches inside the row's CONTENT box, so the padding sat below the band and left a measured 13.7px
+ * dead strip between the header's QB..K stripes and the first row's. Paying for the height with cell
+ * padding instead puts the row's full height inside the stretchable area, so the only thing between the
+ * two bands is the 2px separator the designer asked for.
+ */
+.head .cell {
+  padding-block: 0.5em;
+}
+
+/* ...except this one, which has to reach the row's edges to draw a continuous stripe. */
+.head .cell-positions {
+  padding-block: 0;
 }
 
 .cell {
@@ -484,6 +516,18 @@ body {
  * If `color-mix` is ever unsupported the declaration is simply dropped and the counts render on the
  * plain row, which is exactly the old appearance -- a graceful floor, unlike a text effect.
  */
+/*
+ * The one cell that fills its row rather than centring in it.
+ *
+ * `.row` is `align-items: center`, which every other column wants -- a figure sits on the row's centre
+ * line. But a centred cell is only as tall as its own text, so the tinted bands came out as a ladder of
+ * chips with a dark gap at every row boundary instead of five continuous stripes. Stretching only this
+ * cell leaves the other seven columns' alignment exactly as it was.
+ */
+.cell-positions {
+  align-self: stretch;
+}
+
 .positions {
   height: 100%;
 }
@@ -502,6 +546,20 @@ body {
 }
 .positions > span[data-position='K'] {
   background: color-mix(in srgb, var(--pos-k) var(--pos-tint), transparent);
+}
+
+/*
+ * Every other row's bands take the stronger tint, so the stripes carry the same alternation the rest of
+ * the row does -- the mock does this, and it is what stops five long bands reading as flat blocks down
+ * twelve rows.
+ *
+ * It works by REDEFINING `--pos-tint` rather than restating five backgrounds: the `color-mix` in each
+ * position rule reads the property from its inherited value, so one declaration re-tints all five.
+ *
+ * Scoped to `.rows`, so the header keeps the base tint and reads as the top of the column.
+ */
+.rows .row:nth-child(even) .positions > span {
+  --pos-tint: var(--pos-tint-alt);
 }
 
 /*
@@ -1354,9 +1412,21 @@ body {
   overflow: hidden;
 }
 
+/*
+ * The name takes what is left; every figure after it gets its own column, however many there are.
+ *
+ * This was `minmax(0, 1fr) auto auto` -- three tracks for what is FOUR children whenever a manager has
+ * bonus money, so the fourth wrapped onto a second line and that block's header stood twice as tall as
+ * the other eleven. Corky at -$15 was the case that showed it.
+ *
+ * `grid-auto-flow: column` rather than a fourth `auto` track, because a fourth track would still be
+ * created for the eleven managers with no bonus and its gap would shift their figures relative to his.
+ */
 .roster-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
   align-items: baseline;
   gap: 0.45em;
   padding-bottom: 0.12em;
@@ -1810,7 +1880,8 @@ kbd {
   --pos-wr: #6e6420;
   --pos-te: #6f3328;
   --pos-k: #6b2c73;
-  --pos-tint: 20%;
+  --pos-tint: 18%;
+  --pos-tint-alt: 28%;
   --pos-none: var(--fg);
 }
 
