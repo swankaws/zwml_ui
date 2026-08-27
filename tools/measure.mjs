@@ -13,11 +13,60 @@
  */
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+/*
+ * Chrome does not live in one place. The board is developed on macOS, but this harness is also what
+ * someone runs on a borrowed Linux box, and a hardcoded /Applications path fails there with
+ * `spawn ENOENT` -- which reaches the operator through verify-layout.mjs as the opaque
+ * `measure.mjs exited 1`, reading like a harness bug rather than a missing browser.
+ *
+ * First candidate that exists on disk wins; ZWML_CHROME overrides everything, so an unusual install
+ * needs no edit here.
+ */
+const CHROME_CANDIDATES = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+]
+
+/*
+ * An explicit override is honoured or it FAILS -- it never falls back.
+ *
+ * The first version simply put `process.env.ZWML_CHROME` at the head of the candidate list, which meant
+ * a typo'd path was skipped in silence and the search quietly used the system Chrome instead. That is
+ * the worst outcome available: someone pointing this at a specific build to reproduce a rendering
+ * difference would have measured a different browser than the one they named, and every number in the
+ * report would look plausible.
+ */
+const CHROME = (() => {
+  const override = process.env.ZWML_CHROME
+  if (override) {
+    if (existsSync(override)) return override
+    fail(`ZWML_CHROME is set to "${override}", which does not exist. Refusing to fall back.`)
+  }
+  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate))
+  if (found) return found
+  fail(
+    'no Chrome found. Set ZWML_CHROME to the browser binary.\nLooked for:\n  ' +
+      CHROME_CANDIDATES.join('\n  '),
+  )
+})()
+
+/*
+ * Exit rather than throw: verify-layout.mjs surfaces this child's stderr verbatim, so one actionable
+ * line beats an unhandled-rejection stack out of a module full of top-level await.
+ */
+function fail(message) {
+  console.error(`measure.mjs: ${message}`)
+  process.exit(1)
+}
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`)
@@ -480,6 +529,14 @@ const chrome = spawn(
     `--user-data-dir=${profile}`,
     '--no-first-run',
     '--disable-gpu',
+    /*
+     * Linux only. Ubuntu 24.04 -- and the GitHub runner image built on it -- blocks unprivileged user
+     * namespaces through AppArmor, so Chrome's zygote sandbox cannot start and the browser dies before
+     * printing a DevTools endpoint; the symptom is this file's 20s "did not report a DevTools endpoint"
+     * timeout, not a sandbox error. Nothing here loads anything but localhost fixture HTML from the
+     * repo's own dist/. macOS is untouched and keeps its sandbox.
+     */
+    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
     '--hide-scrollbars',
     '--force-device-scale-factor=1',
     'about:blank',
