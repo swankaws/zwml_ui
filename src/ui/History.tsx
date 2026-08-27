@@ -85,7 +85,12 @@ export function History({
         <div className="history-table">
           <div className="history-row history-labels">
             <span>#</span>
-            <span>NOMINATED BY</span>
+            {/*
+             * `NOMINATOR`, not `NOMINATED BY`. The longer label needs 162.5px of text in a 148.8px
+             * track, so it wrapped to two lines and made the header row twice the height of every row
+             * under it. One word, and it is the word the rest of the app already uses.
+             */}
+            <span>NOMINATOR</span>
             <span>PLAYER</span>
             <span>POS</span>
             <span className="history-price">PRICE</span>

@@ -1864,6 +1864,19 @@ kbd {
  * Type sized from height and capped like the roster view, and for the same reason: this is a
  * reference screen pinned against its own budget, so honouring `--scale` could only cost rows.
  */
+/*
+ * Capped and centred, because PLAYER is the only flexible track and it was absorbing every spare pixel.
+ *
+ * Measured at 1920x1080: the row is 1843px, the PLAYER track 1131px, and the widest name in a completed
+ * draft -- `Jacory Croskey-Merritt` -- needs 254px. So 877px of empty space sat between a player and its
+ * price, on the one screen whose entire purpose is connecting those two things when someone disputes a
+ * figure. Centring a narrower table trades side margins for that gap, which is the right way round: the
+ * eye crosses the margins once and the gap on every row it reads.
+ *
+ * 52em at this view's own 22.68px em is ~1180px, leaving PLAYER ~470px against a 254px need -- room for
+ * a name half again as long as any in the fixtures. `min(100%, ...)` so a phone is unaffected, where the
+ * table is already narrower than the cap and the two widest columns are hidden anyway.
+ */
 .history {
   min-width: 0;
   min-height: 0;
@@ -1871,6 +1884,8 @@ kbd {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0.5em;
   font-size: min(0.52em, 2.1vh);
+  width: min(100%, 52em);
+  margin-inline: auto;
 }
 
 .history-head {
@@ -1929,15 +1944,31 @@ kbd {
 }
 
 /* Sticky, so the columns stay named however far down the night someone scrolls. */
+/*
+ * The header row keeps the DATA row's font size, and only its text is shrunk.
+ *
+ * `font-size: 0.82em` used to sit here, on the row -- and `.history-row`'s track list is written in em
+ * (`3em 8em minmax(0, 1fr) 3em 5em 8em`), as are its `gap` and `padding`. So a smaller font on the row
+ * silently made every fixed track, both gutters and the padding 18% narrower than the rows beneath it,
+ * and the column labels did not line up with the columns they name. On a screen whose entire job is
+ * auditing a disputed price, the header pointed at the wrong column.
+ *
+ * Same trap as `.row`'s padding on the board, and for the same reason: an em length on an element whose
+ * font-size differs from its siblings' resolves against a different base. The rule is that a grid's
+ * track list and the font-size of its own text must not live on the same element.
+ */
 .history-labels {
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--bg);
   color: var(--fg-dim);
+  border-bottom: 2px solid var(--rule);
+}
+
+.history-labels > span {
   font-size: 0.82em;
   letter-spacing: 0.1em;
-  border-bottom: 2px solid var(--rule);
 }
 
 .history-index,

@@ -69,7 +69,17 @@ const PROBE = `(() => {
   const clipped = (el) => !!el && el.scrollHeight > el.clientHeight + 1
 
   const rows = [...document.querySelectorAll('.rows .row')]
-  const cells = [...document.querySelectorAll('.cell')]
+  /*
+   * NO BACKTICKS IN THIS COMMENT -- it lives inside the PROBE template literal, so one would end the
+   * string and Node would parse the rest of the file as code. This is the third time.
+   *
+   * .cell covers the board. The .history-row children are here because the history view uses its own
+   * class names, so every history column was invisible to the truncation probe -- and .history-player
+   * ellipsises, which means a too-narrow PLAYER column would crop a name like Jacory Croskey-Merritt
+   * with nothing in this file to notice. The sale history is the screen used to settle a disputed
+   * price, so a cropped name there is worse than one on the board.
+   */
+  const cells = [...document.querySelectorAll('.cell, .history-row > *')]
 
   return {
     viewport: { w: window.innerWidth, h: window.innerHeight },
