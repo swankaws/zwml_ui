@@ -38,7 +38,7 @@ export function resolveNominationOrder(roster: readonly string[], a1: string): R
    * an A1 naming `Rob`, who has not played in years -- so a fumbled A1 rejects
    * wholesale and falls through rather than putting a wrong rotation on the wall.
    */
-  const fromSheet = parseOrder(a1, roster)
+  const fromSheet = parseOrder(a1, roster, 'A1')
   if (fromSheet.order) {
     return { order: fromSheet.order, warnings: fromSheet.warnings, source: 'sheet' }
   }
@@ -53,9 +53,27 @@ export function resolveNominationOrder(roster: readonly string[], a1: string): R
    * the same state reported `draftComplete`. A rotation naming someone who is not on
    * the board is not a usable rotation; showing none is honest.
    */
-  const fromConfig = parseOrder(league.nominationOrder.join(' > '), roster)
-  const warnings = [...fromSheet.warnings, ...fromConfig.warnings]
-  return fromConfig.order
-    ? { order: fromConfig.order, warnings, source: 'config' }
-    : { order: [], warnings, source: 'none' }
+  const fromConfig = parseOrder(league.nominationOrder.join(' > '), roster, 'Committed order')
+
+  if (fromConfig.order) {
+    return { order: fromConfig.order, warnings: fromSheet.warnings, source: 'config' }
+  }
+
+  /*
+   * Both failed, so the rail will say NOMINATION ORDER NOT SET -- and the room gets ONE line about it
+   * rather than two.
+   *
+   * Surfacing both sources' complaints put two near-identical amber sentences side by side on the 2025
+   * board, differing only in a name, and the second one was unactionable anyway: nobody can edit the
+   * committed fallback during a draft. The A1 warning stays because A1 IS editable, and the added line
+   * says what to do about it.
+   */
+  return {
+    order: [],
+    warnings: [
+      ...fromSheet.warnings,
+      'No usable nomination order: fix cell A1 or the SETTINGS tab `order` row.',
+    ],
+    source: 'none',
+  }
 }

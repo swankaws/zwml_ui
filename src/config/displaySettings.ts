@@ -296,6 +296,15 @@ function withProtected(requested: ColumnKey[], warnings: string[]): ColumnKey[] 
 export function parseOrder(
   raw: string,
   roster: readonly string[] = league.managers,
+  /**
+   * Which source this order came from, for the warning text.
+   *
+   * It used to be hard-coded as `SETTINGS:` for every caller, and `resolveNominationOrder` calls this
+   * for cell A1 and for the committed fallback too -- so a problem in A1 told the room to go and look at
+   * the SETTINGS tab. On the 2025 board that produced two near-identical amber lines side by side, both
+   * blaming a tab that neither had come from.
+   */
+  source = 'SETTINGS',
 ): { order: readonly string[] | null; warnings: string[] } {
   const warnings: string[] = []
   const parts = raw
@@ -324,7 +333,7 @@ export function parseOrder(
     const name = canonical.get(part.toLowerCase())
     if (name === undefined) {
       warnings.push(
-        `SETTINGS: "${part}" is not a known manager; ignoring the order and using the committed copy.`,
+        `${source}: "${part}" is not a known manager, so this order is not being used.`,
       )
       return { order: null, warnings }
     }
@@ -334,7 +343,7 @@ export function parseOrder(
   const duplicates = resolved.filter((name, index) => resolved.indexOf(name) !== index)
   if (duplicates.length > 0) {
     warnings.push(
-      `SETTINGS: ${[...new Set(duplicates)].join(', ')} appear(s) more than once in the order; ` +
+      `${source}: ${[...new Set(duplicates)].join(', ')} appear(s) more than once in the order; ` +
         'ignoring it and using the committed copy.',
     )
     return { order: null, warnings }
@@ -347,7 +356,7 @@ export function parseOrder(
    */
   if (resolved.length !== roster.length) {
     warnings.push(
-      `SETTINGS: order lists ${resolved.length} of ${roster.length} managers. ` +
+      `${source}: order lists ${resolved.length} of ${roster.length} managers. ` +
         'Using it as given; the rest will not nominate.',
     )
   }

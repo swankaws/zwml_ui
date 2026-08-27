@@ -47,8 +47,18 @@ describe('order resolution', () => {
     expect(order).not.toContain('Kris')
     expect(order).toEqual([])
 
-    // Both rejections are reported -- the stale A1 and the wrong-season fallback.
-    expect(warnings.filter((w) => /not a known manager/.test(w))).toHaveLength(2)
+    /*
+     * ONE rejection reaches the wall, attributed to the source the operator can actually edit.
+     *
+     * This used to assert two -- the stale A1 and the wrong-season committed copy -- and both arrived
+     * labelled `SETTINGS:` because `parseOrder` hard-coded that prefix. So the projector showed two
+     * near-identical amber sentences differing in one name, both blaming a tab neither came from. The
+     * committed copy's complaint is unactionable mid-draft anyway; what replaces it says what to do.
+     */
+    expect(warnings.filter((w) => /not a known manager/.test(w))).toEqual([
+      'A1: "Rob" is not a known manager, so this order is not being used.',
+    ])
+    expect(warnings.at(-1)).toMatch(/fix cell A1/)
   })
 
   it('recognizes the 2025 board as twelve managers including Nick', () => {

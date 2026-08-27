@@ -46,7 +46,16 @@ describe('resolveNominationOrder', () => {
 
     expect(result.source).toBe('none')
     expect(result.order).toEqual([])
-    expect(result.warnings.join(' ')).toContain('Kris')
+    /*
+     * The room is told what to DO, not which name in a list it cannot see tripped the check.
+     *
+     * A1 is empty here, so the only complaint available is about the committed order -- and no operator
+     * can edit that during a draft. Naming `Kris` was strictly worse than useless: it read as an
+     * instruction to go and fix a manager who is not in this season at all.
+     */
+    expect(result.warnings).toEqual([
+      'No usable nomination order: fix cell A1 or the SETTINGS tab `order` row.',
+    ])
   })
 
   // A1 is validated against the roster in front of us, not the committed list, so a
