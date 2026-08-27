@@ -1640,6 +1640,7 @@ would shift every index.
 | `scale` | *(leave unset)* | Root type multiplier. Clamped to 0.6–2.0, snapped to 0.05. **Read the ceiling in §7.1 first — it buys ~15%, and the note below on who else is watching** |
 | `columns` | *(leave unset)* | Forces an exact set, overriding the priority system. Names are case-insensitive. **Costs you `POS` and `SPENT`** — see below |
 | `rail` | `on` / `off` | The nomination + sales rail. `off` returns *width* at 16:9, *height* at 4:3 |
+| `eggs` | `on` / `off` | The in-draft moments (§7.3): first kicker, a new highest sale, a finished roster. **The kill switch** — a full-screen overlay covers the board, and the roster-full one covers it for 30s, so it has to be switchable from a phone in the moment rather than by a deploy |
 | `perslot` | — | **Retired.** `$/SLOT` was removed (§7.2). Still *recognised* so an existing row does not raise an `unknown key` notice on the wall mid-draft; it simply does nothing |
 | `order` | `Jeff > Toby > …` | Nomination order (§7.5). Comma-, newline- or `>`-separated. Names are checked against the roster **the sheet reported**, so a new manager needs no deploy |
 

@@ -2384,3 +2384,97 @@ kbd {
   letter-spacing: 0.08em;
   color: var(--fg-dim);
 }
+
+/* ------------------------------------------------- in-draft moments (7.3) */
+
+/*
+ * A full-screen celebration: the first kicker, a big spend, a finished roster.
+ *
+ * `z-index: 9`, one BELOW `.help`. The help card is operator-initiated -- somebody is standing there
+ * having pressed `?` -- and a gif appearing over the thing they just asked for would be the one case
+ * where this feature actively obstructs. The board itself is far below both.
+ *
+ * Sized from `vh` and NOT from `--scale`, the same trade the roster view and the finale make: this is
+ * chrome that covers the board, so there is no reason for `+` to grow it and every reason for it to fit
+ * at 1024x768 and on a phone.
+ *
+ * Every colour comes from a custom property, so light mode needs no override block -- unlike the
+ * position bands, which had to re-pick their tint because a white overlay is invisible on a white row.
+ */
+.moment {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  /* Heavier than `.help`'s scrim: this is meant to take the room's attention, not to hint. */
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  font-size: min(1em, 5vh);
+  text-align: center;
+}
+
+.moment-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.5em;
+  max-width: 86vw;
+  padding: 0.8em 1.2em;
+  background: var(--bg-row);
+  border: 2px solid var(--rule);
+  border-radius: 0.3em;
+}
+
+/* The label. Small, tracked, and the only part that says which moment this is. */
+.moment-kicker {
+  font-size: 0.34em;
+  letter-spacing: 0.16em;
+  color: var(--fg-dim);
+}
+
+.moment-headline {
+  font-size: 1.15em;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+/*
+ * Capped in BOTH axes. The five roster-full clips are whatever aspect ratio they arrived in, and a tall
+ * one would otherwise push the detail line off a 768px-high screen -- the gate's 4:3 case is what would
+ * have caught it, but a cap costs nothing and means the clip can be replaced without re-measuring.
+ */
+.moment-gif {
+  max-width: min(52vw, 12em);
+  max-height: 40vh;
+  border-radius: 0.2em;
+}
+
+.moment-detail {
+  font-size: 0.42em;
+  color: var(--fg-soft);
+}
+
+/* The kicker is the joke, so its headline gets the room. A price needs less. */
+.moment[data-kind='bigSpender'] .moment-headline {
+  font-size: 1.6em;
+  color: var(--accent);
+}
+
+.moment[data-kind='rosterFull'] .moment-headline {
+  color: var(--accent);
+}
+
+/*
+ * A phone gets the same card, smaller. The board scrolls vertically on a phone, so this must not
+ * establish a scroll of its own -- hence the height caps above rather than a fixed size.
+ */
+@media (max-width: 700px) {
+  .moment {
+    font-size: min(1em, 4.4vh);
+  }
+
+  .moment-gif {
+    max-width: 74vw;
+    max-height: 30vh;
+  }
+}

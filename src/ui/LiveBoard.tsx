@@ -26,6 +26,7 @@ import { Standby } from './Standby'
 import { columnsPinnedByQuery, resolveSettings, settingsFromQuery } from '../config/displaySettings'
 import { league } from '../config/league'
 import type { BoardSnapshot, BoardStore } from '../live/boardStore'
+import { pinnedMomentKind } from '../model/moments'
 
 export interface LiveBoardProps {
   store: BoardStore
@@ -134,6 +135,12 @@ function BoardSurface({ snapshot, search, cursor }: SurfaceProps) {
       feed={snapshot.feed}
       feedLabel={snapshot.feedLabel}
       notices={notices}
+      moment={snapshot.moment}
+      /*
+       * Fixture-only by construction, so a `?moment=` left in a bookmark cannot strand the projector on
+       * an overlay that has no timer and no key out. See `pinnedMomentKind`.
+       */
+      pinnedMoment={pinnedMomentKind(search)}
     />
   )
 }

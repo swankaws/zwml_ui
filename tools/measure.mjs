@@ -448,6 +448,33 @@ const PROBE = `(() => {
      * stacked 4:3 layout cropping "Christian McCaffery" mid-word, because the rail's
      * own overflow:hidden made it invisible to every other probe here.
      */
+    /*
+     * The celebration overlay (7.3). NO BACKTICKS IN THIS COMMENT -- it is inside the PROBE template
+     * literal, so one would end the string and Node would parse the rest of the file as code.
+     *
+     * momentLoaded is the load-bearing one. Under vite's base: './' a wrong asset path is the single
+     * failure that cannot be seen by eye before the night: the card renders, the type renders, and only
+     * the clip is missing. img.complete alone is true for a 404, so naturalWidth is what proves a decode.
+     */
+    moment: (() => {
+      const el = document.querySelector('.moment')
+      if (!el) return null
+      const card = el.querySelector('.moment-card')
+      const rect = card ? card.getBoundingClientRect() : null
+      const img = el.querySelector('.moment-gif')
+      const view = { w: window.innerWidth, h: window.innerHeight }
+      return {
+        kind: el.getAttribute('data-kind'),
+        cardW: rect ? Math.round(rect.width) : 0,
+        cardH: rect ? Math.round(rect.height) : 0,
+        clipped: rect
+          ? rect.left < -1 || rect.top < -1 || rect.right > view.w + 1 || rect.bottom > view.h + 1
+          : false,
+        imgSrc: img ? img.getAttribute('src') : null,
+        imgLoaded: img ? img.complete && img.naturalWidth > 0 : false,
+        headline: (el.querySelector('.moment-headline') || {}).textContent || '',
+      }
+    })(),
     railClipped: (() => {
       const rail = document.querySelector('.rail')
       if (!rail) return []

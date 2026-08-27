@@ -63,11 +63,15 @@ export const MOMENT_HOLD_MS: Record<MomentKind, number> = {
 }
 
 /**
- * Strictly over this. `$65` does not fire; `$66` does.
+ * The FLOOR under a record, not the trigger on its own.
  *
- * The maintainer's figure. Checked against the 2025 draft: exactly three of 180 picks cleared it
- * (Justin Jefferson $72, Bijan Robinson $69, Saquon Barkley $66), which is a moment three times in an
- * evening rather than a running gag.
+ * BIG SPENDER fires on a new highest sale, which is a better rule than a fixed threshold: it scales with
+ * however the room happens to bid and it is naturally rare -- for a random ordering the number of new
+ * maxima over 180 picks is about ln(180) + 0.577, roughly six times in an evening.
+ *
+ * A floor is still needed, because the FIRST sale of the night is always a new maximum and nobody wants a
+ * celebration for a $1 flyer. $65 is the maintainer's figure; the 2025 draft put exactly three of 180
+ * picks above it.
  */
 export const BIG_SPENDER_OVER = 65
 
@@ -169,6 +173,21 @@ export function detectMoments(input: MomentInput): Moment | null {
   const kicker = sales.find((sale) => sale.position === 'K') ?? null
 
   /*
+   * The highest price on the board BEFORE this poll, which is what a "new highest sale" has to beat.
+   *
+   * Read from the sheet minus this poll's own slots, rather than from the log, so it counts KEEPERS too.
+   * That is the honest reading: if the biggest price on the board is a $61 keeper, a $62 auction sale is
+   * genuinely the new top of the board -- and the floor is what stops that being announced.
+   */
+  const thisPoll = new Set(sales.map((sale) => sale.slot))
+  let record = 0
+  for (const [key, held] of Object.entries(slots)) {
+    if (thisPoll.has(key) || !creditable(held)) continue
+    if (held.price > record) record = held.price
+  }
+  const beats = Math.max(record, BIG_SPENDER_OVER)
+
+  /*
    * Who this poll finished off -- NEEDS reaching 0, which is the same thing as holding `auctionSlots`
    * picks. Read from the SHEET rather than by counting the log, so it is right even on the first poll
    * after a reload, and so a manager who was already full when this board opened has no sale to fire on.
@@ -186,9 +205,12 @@ export function detectMoments(input: MomentInput): Moment | null {
    * time anyone can be full, all twelve have nominated and therefore all twelve hold picks.
    */
   const everyoneFull = filled.size > 1 && [...filled.keys()].every(isFull)
-  /* Highest price wins, ties broken by the earlier observation so the choice is deterministic. */
+  /*
+   * A new record, and above the floor. Highest price wins, ties broken by the earlier observation so the
+   * choice is deterministic when two land in one poll.
+   */
   const spends = sales
-    .filter((sale) => sale.price > BIG_SPENDER_OVER && sale.price <= MAX_PLAUSIBLE_PRICE)
+    .filter((sale) => sale.price > beats && sale.price <= MAX_PLAUSIBLE_PRICE)
     .sort((a, b) => b.price - a.price || a.seq - b.seq)
 
   /*
@@ -252,6 +274,10 @@ export function detectMoments(input: MomentInput): Moment | null {
  * already judged unacceptable once, which is why `migrate` exists. The restored log answers the same
  * question with no schema surface at all.
  *
+ * Deliberately BROADER than the trigger for big spends: every logged sale above the floor is marked,
+ * without working out which of them were records at the time. Marking one that never fired costs a
+ * celebration nobody was expecting; missing one costs a repeat of a celebration the room already had.
+ *
  * `rosterFull` is deliberately NOT seeded here, and cannot be: a log holds sales, not roster sizes, and a
  * restored log is a partial night. It does not need to be -- a manager who was already full when this
  * board opened produces no further sale to fire on, and the one who fills the last slot after a reload
@@ -285,6 +311,8 @@ export function pinnedMomentKind(search: string): MomentKind | null {
       return 'firstKicker'
     case 'spender':
       return 'bigSpender'
+    case 'done':
+      return 'rosterFull'
     default:
       return null
   }

@@ -26,6 +26,7 @@ import { LiveBoard } from './ui/LiveBoard'
 import { Notices } from './ui/Notices'
 import { Setup } from './ui/Setup'
 import { loadFixture } from './dev/fixtureState'
+import { pinnedMomentKind } from './model/moments'
 import { createBoardStore, type BoardStore } from './live/boardStore'
 import { installWatchdog, sessionHistory } from './live/watchdog'
 import { browserSession, safeSessionStorage as safeSession, sessionKey } from './live/session'
@@ -265,6 +266,13 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * opacity-only on an absolutely-positioned pseudo-element, so it should be provably incapable of
        * shifting a pixel; this is what lets the harness say so rather than assume it.
        */
+      /*
+       * `?moment=kicker|spender|done` pins the celebration overlay open, which is the only way the layout
+       * gate can measure a screen no fixture produces -- a real moment needs two polls and a specific
+       * pick. Pinned means no timer and no key out, which is exactly why `pinnedMomentKind` refuses
+       * unless a fixture is loaded: a `?moment=` in a bookmark would otherwise strand the projector.
+       */
+      pinnedMoment={pinnedMomentKind(search)}
       /* `?flash=N` also makes the rail's washes visible, which a static fixture otherwise cannot. */
       demoFlash={params.get('flash') !== null}
       revisions={Object.fromEntries(

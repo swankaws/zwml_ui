@@ -16,6 +16,8 @@ import { Roster } from './Roster'
 import { History } from './History'
 import { Complete } from './Complete'
 import { Help } from './Help'
+import { MomentOverlay } from './MomentOverlay'
+import type { Moment, MomentKind } from '../model/moments'
 import { useHelp, useView } from './useView'
 import { useTheme } from './useTheme'
 import { sortByMaxBid, type LeagueState } from '../model/derive'
@@ -74,6 +76,10 @@ export interface AppProps {
    * last row of a grid -- the standby screen renders the same element with room to spare.
    */
   notices?: ReactNode
+  /** The in-draft moment to celebrate, by reference (§7.3). `null` is the ordinary case all night. */
+  moment?: Moment | null
+  /** `?moment=`, fixture-only. Pins the overlay open so the layout gate can measure it. */
+  pinnedMoment?: MomentKind | null
 }
 
 /**
@@ -135,6 +141,8 @@ export function App({
   settings = DEFAULT_SETTINGS,
   columnsFrom = 'sheet',
   notices = null,
+  moment = null,
+  pinnedMoment = null,
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
@@ -325,6 +333,11 @@ export function App({
        * without it.
        */}
       <Help open={helpOpen} onClose={toggleHelp} theme={theme} onToggleTheme={toggleTheme} />
+      {/*
+       * Beside `Help`, the app's other overlay, and OUTSIDE `.stage` on purpose: it covers the board
+       * rather than living in it, so it must not be a grid item competing for the row budget.
+       */}
+      <MomentOverlay moment={moment} pinned={pinnedMoment} enabled={settings.eggs} />
       <div className="footer">
         {notices}
         {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}

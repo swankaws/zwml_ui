@@ -34,6 +34,14 @@ export interface DisplaySettings {
   columns: readonly ColumnKey[] | null
   /** Show the nomination + sales rail at all. */
   rail: boolean
+  /**
+   * The in-draft moments (§7.3). The kill switch.
+   *
+   * A full-screen overlay covers the board, and the roster-full one covers it for 30 seconds. If that
+   * turns out to be wrong in the room, it has to be switchable from a phone in the moment -- not by a
+   * deploy and a CDN wait.
+   */
+  eggs: boolean
   /** Nomination order (§7.5). `null` = fall back to `league.nominationOrder`. */
   order: readonly string[] | null
   /**
@@ -53,6 +61,7 @@ export const DEFAULT_SETTINGS: DisplaySettings = {
   scale: null,
   columns: null,
   rail: true,
+  eggs: true,
   order: null,
   theme: null,
 }
@@ -178,6 +187,13 @@ export function parseSettingsGrid(
         break
       }
 
+      case 'eggs': {
+        const value = parseBoolean(raw)
+        if (value === null) warnings.push(`SETTINGS: eggs "${raw}" is not on/off; ignoring.`)
+        else settings.eggs = value
+        break
+      }
+
       /*
        * Retired, and recognised only so it does not warn.
        *
@@ -219,7 +235,7 @@ export function settingsFromQuery(
 ): ParseResult {
   const params = new URLSearchParams(search.replace(/^\?/, ''))
   const rows: string[][] = [[SETTINGS_ANCHOR]]
-  for (const key of ['scale', 'columns', 'rail', 'order', 'theme']) {
+  for (const key of ['scale', 'columns', 'rail', 'eggs', 'order', 'theme']) {
     const value = params.get(key)
     if (value !== null) rows.push([key, value])
   }

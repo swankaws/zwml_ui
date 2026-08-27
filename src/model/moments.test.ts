@@ -162,6 +162,40 @@ describe('bigSpender', () => {
     expect(detect({ sales: [spend(700)] })).toBeNull()
   })
 
+  it('needs a NEW RECORD, not merely a big price', () => {
+    /*
+     * The rule the maintainer asked for, and it is better than a fixed threshold: it scales with however
+     * the room bids and is naturally rare -- about six new maxima over 180 picks for a random ordering.
+     * A standing $80 on the board means a $70 sale is just an expensive player.
+     */
+    const board: SlotMap = { '7:3': slot({ position: 'WR', price: 80, player: 'Ja Marr Chase' }) }
+    expect(detect({ sales: [spend(70)], slots: board })).toBeNull()
+    expect(detect({ sales: [spend(81)], slots: board })?.kind).toBe('bigSpender')
+  })
+
+  it('counts KEEPERS toward the record, because they are prices on the board', () => {
+    /*
+     * If the biggest price on the board is a $70 keeper, a $68 auction sale is not the top of anything.
+     * Read from the sheet rather than from the sale log, which is what makes that true.
+     */
+    const withKeeper: SlotMap = { '13:2': slot({ position: 'QB', price: 70, player: 'Josh Allen' }) }
+    expect(detect({ sales: [spend(68)], slots: withKeeper })).toBeNull()
+    expect(detect({ sales: [spend(71)], slots: withKeeper })?.kind).toBe('bigSpender')
+  })
+
+  it('keeps the floor, so the first sale of the night is not a celebration', () => {
+    // Every opening sale is trivially a new maximum. Without a floor, a $1 flyer would fire.
+    expect(detect({ sales: [spend(1)], slots: {} })).toBeNull()
+    expect(detect({ sales: [spend(BIG_SPENDER_OVER)], slots: {} })).toBeNull()
+    expect(detect({ sales: [spend(BIG_SPENDER_OVER + 1)], slots: {} })?.kind).toBe('bigSpender')
+  })
+
+  it('ignores a slot the diff engine would never credit when judging the record', () => {
+    // A suspect $0 price is not a price. It must not sit on the board as an unbeatable record either.
+    const board: SlotMap = { '7:3': slot({ position: 'WR', price: 99, suspect: true }) }
+    expect(detect({ sales: [spend(70)], slots: board })?.kind).toBe('bigSpender')
+  })
+
   it('does not fire again for the same slot after a retraction and re-entry', () => {
     const fired = new Set<string>()
     expect(detect({ sales: [spend(70)], fired })?.kind).toBe('bigSpender')

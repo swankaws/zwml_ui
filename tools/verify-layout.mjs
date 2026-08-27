@@ -376,6 +376,32 @@ const CASES = [
     label: 'roster mid-draft',
     rosterCols: 6,
   },
+
+  /*
+   * The celebration overlay (7.3), pinned open by `?moment=`.
+   *
+   * A real moment needs two polls and a specific pick, so a fixture cannot produce one -- and the one
+   * failure that cannot be caught by eye before the night is a wrong asset path under `base: './'`, which
+   * renders the card and the type perfectly and simply omits the clip. `imgLoaded` checks
+   * `naturalWidth > 0` rather than `complete`, because `complete` is true for a 404.
+   */
+  { size: '1920x1080', query: '?fixture=2026&moment=kicker', label: 'kicker on the projector', moment: 'firstKicker' },
+  { size: '1024x768', query: '?fixture=2026&moment=kicker', label: 'kicker at 4:3', moment: 'firstKicker' },
+  { size: '390x844', query: '?fixture=2026&moment=kicker', label: 'kicker on a phone', moment: 'firstKicker' },
+  {
+    size: '1920x1080',
+    query: '?fixture=2026&moment=kicker&scale=1.15',
+    label: 'kicker at the ceiling',
+    moment: 'firstKicker',
+  },
+  { size: '1920x1080', query: '?fixture=2026&moment=spender', label: 'big spender', moment: 'bigSpender' },
+  { size: '1024x768', query: '?fixture=2026&moment=spender', label: 'big spender at 4:3', moment: 'bigSpender' },
+  { size: '390x844', query: '?fixture=2026&moment=spender', label: 'big spender on a phone', moment: 'bigSpender' },
+  { size: '1920x1080', query: '?fixture=2026&moment=done', label: 'roster full', moment: 'rosterFull' },
+  { size: '1024x768', query: '?fixture=2026&moment=done', label: 'roster full at 4:3', moment: 'rosterFull' },
+  { size: '390x844', query: '?fixture=2026&moment=done', label: 'roster full on a phone', moment: 'rosterFull' },
+  /* The kill switch. If this ever renders, the SETTINGS tab cannot turn the feature off on the night. */
+  { size: '1920x1080', query: '?fixture=2026&moment=done&eggs=off', label: 'eggs off', noMoment: true },
 ]
 
 function measure(size, query) {
@@ -408,7 +434,25 @@ for (const testCase of CASES) {
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
 
-  if (testCase.complete !== undefined) {
+  if (testCase.moment !== undefined) {
+    /*
+     * The celebration overlay. The board behind it is not this case's business -- what matters is that
+     * the card fits, the clip actually decoded, and the right moment is on screen.
+     */
+    if (m.moment === null) {
+      problems.push('no moment overlay rendered')
+    } else {
+      if (m.moment.kind !== testCase.moment) {
+        problems.push(`moment is "${m.moment.kind}", expected "${testCase.moment}"`)
+      }
+      if (m.moment.clipped) problems.push('the moment card does not fit the screen')
+      if (!m.moment.imgLoaded) {
+        problems.push(`the clip "${m.moment.imgSrc}" did not load -- check the path under base: './'`)
+      }
+    }
+  } else if (testCase.noMoment) {
+    if (m.moment !== null) problems.push('a moment overlay rendered with eggs off')
+  } else if (testCase.complete !== undefined) {
     if (m.completeAwards < testCase.complete) {
       problems.push(`finale shows ${m.completeAwards} awards, expected at least ${testCase.complete}`)
     }
@@ -579,7 +623,12 @@ for (const testCase of CASES) {
   const status = problems.length === 0 ? 'ok  ' : 'FAIL'
   console.log(
     `${status} ${testCase.size.padEnd(10)} ${testCase.label.padEnd(24)} ` +
-      (testCase.help !== undefined
+      (testCase.moment !== undefined || testCase.noMoment
+        ? m.moment === null
+          ? 'moment=none'
+          : `moment=${m.moment.kind} card=${m.moment.cardW}x${m.moment.cardH}` +
+            ` clip=${m.moment.imgSrc}${m.moment.imgLoaded ? '' : ' NOT-LOADED'}`
+        : testCase.help !== undefined
         ? `helpRows=${m.helpRows} card=${m.help?.w}x${m.help?.h}`
         : roster
         ? `blocks=${m.rosterBlocks} cols=${m.rosterColumns} slots=${m.rosterMaxSlots}` +
