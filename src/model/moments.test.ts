@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { league } from '../config/league'
 import {
   BIG_SPENDER_OVER,
+  MOMENT_HOLD_MS,
   MAX_PLAUSIBLE_PRICE,
   MOMENT_MAX_BATCH,
   detectMoments,
@@ -183,6 +184,104 @@ describe('bigSpender', () => {
       sales: [spend(70, { slot: '7:3', seq: 5 }), spend(70, { slot: '1:3', seq: 2 })],
     })
     expect(moment?.sale.seq).toBe(2)
+  })
+})
+
+describe('rosterFull', () => {
+  /** `count` picks for `manager`, keyed so each is its own slot. */
+  const rosterOf = (manager: string, count: number, col = 1): SlotMap =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, i) => [
+        `${col}:${i + 2}`,
+        slot({ manager, position: 'RB', player: `P${i}` }),
+      ]),
+    )
+
+  const lastPick = (manager: string, over: Partial<SaleEvent> = {}) =>
+    sale({ manager, position: 'RB', player: 'Javonte Williams', slot: '1:16', price: 1, ...over })
+
+  it('fires when a sale takes a manager to NEEDS 0', () => {
+    const slots = { ...rosterOf('Kevin', league.auctionSlots), ...rosterOf('Corky', 3, 7) }
+    const moment = detect({ sales: [lastPick('Kevin')], slots })
+    expect(moment?.kind).toBe('rosterFull')
+    expect(moment?.sale.manager).toBe('Kevin')
+  })
+
+  it('does not fire while a manager still needs a slot', () => {
+    const slots = { ...rosterOf('Kevin', league.auctionSlots - 1), ...rosterOf('Corky', 3, 7) }
+    expect(detect({ sales: [lastPick('Kevin')], slots })).toBeNull()
+  })
+
+  it('fires once per manager, so a retraction and re-fill does not repeat it', () => {
+    const fired = new Set<string>()
+    const slots = { ...rosterOf('Kevin', league.auctionSlots), ...rosterOf('Corky', 3, 7) }
+    expect(detect({ sales: [lastPick('Kevin')], slots, fired })?.kind).toBe('rosterFull')
+    expect(fired.has('rosterFull:Kevin')).toBe(true)
+    expect(detect({ sales: [lastPick('Kevin', { seq: 9 })], slots, fired })).toBeNull()
+  })
+
+  it('fires separately for each manager', () => {
+    /*
+     * A third manager who is still going, deliberately: with only two and both full, this would trip the
+     * "everyone is done" rule below and be left to the finale -- which is how the first draft of this
+     * test failed, and a useful reminder that the two rules interact.
+     */
+    const fired = new Set(['rosterFull:Kevin'])
+    const slots = {
+      ...rosterOf('Kevin', league.auctionSlots),
+      ...rosterOf('Corky', league.auctionSlots, 7),
+      ...rosterOf('Toby', 4, 13),
+    }
+    const moment = detect({ sales: [lastPick('Corky')], slots, fired })
+    expect(moment?.kind).toBe('rosterFull')
+    expect(moment?.sale.manager).toBe('Corky')
+  })
+
+  it('does not fire for a manager who was already full when the board opened', () => {
+    // They have no further sale to fire on -- the baseline rule does this for free. Asserted because a
+    // future caller feeding the baseline in as `sales` would be a very quiet mistake.
+    const slots = { ...rosterOf('Kevin', league.auctionSlots), ...rosterOf('Corky', 3, 7) }
+    expect(detect({ sales: [], slots })).toBeNull()
+  })
+
+  it('leaves the LAST manager to the finale rather than burying it', () => {
+    /*
+     * When everybody is full the draft is over and `Complete.tsx` takes the screen with the awards.
+     * Congratulating one manager in front of that would bury the bigger moment.
+     */
+    const slots = {
+      ...rosterOf('Kevin', league.auctionSlots),
+      ...rosterOf('Corky', league.auctionSlots, 7),
+    }
+    const fired = new Set(['rosterFull:Kevin'])
+    expect(detect({ sales: [lastPick('Corky')], slots, fired })).toBeNull()
+  })
+
+  it('yields to the first kicker, and both are consumed', () => {
+    // A kicker as somebody's final pick is entirely plausible -- ten of the 2025 kickers went for $1.
+    const fired = new Set<string>()
+    const slots = { ...rosterOf('Kevin', league.auctionSlots), ...rosterOf('Corky', 3, 7) }
+    slots['1:9'] = slot({ manager: 'Kevin' })
+    const moment = detect({
+      sales: [sale({ manager: 'Kevin', slot: '1:9' })],
+      slots,
+      fired,
+    })
+    expect(moment?.kind).toBe('firstKicker')
+    expect([...fired].sort()).toEqual(['firstKicker', 'rosterFull:Kevin'])
+  })
+
+  it('outranks a big spend, because it is the moment the room stops for', () => {
+    const slots = { ...rosterOf('Kevin', league.auctionSlots), ...rosterOf('Corky', 3, 7) }
+    const moment = detect({ sales: [lastPick('Kevin', { price: 70 })], slots })
+    expect(moment?.kind).toBe('rosterFull')
+  })
+
+  it('holds the screen far longer than the other two, on purpose', () => {
+    // The riskiest number in the feature: for this long the board is not visible. It is survivable only
+    // because a newer sale supersedes it and any key dismisses it.
+    expect(MOMENT_HOLD_MS.rosterFull).toBeGreaterThan(MOMENT_HOLD_MS.firstKicker)
+    expect(MOMENT_HOLD_MS.rosterFull).toBe(30_000)
   })
 })
 

@@ -36,12 +36,30 @@
 import { league } from '../config/league'
 import { creditable, type SaleEvent, type SlotMap } from './diff'
 
-export type MomentKind = 'firstKicker' | 'bigSpender'
+export type MomentKind = 'firstKicker' | 'bigSpender' | 'rosterFull'
 
 export interface Moment {
   kind: MomentKind
   /** The sale that earned it. The overlay names the player, the manager and the price. */
   sale: SaleEvent
+}
+
+/**
+ * How long each moment holds the screen, in ms.
+ *
+ * `rosterFull` is much longer on the maintainer's call: when somebody finishes, the room stops and
+ * celebrates before the next nomination, so the overlay should last about as long as the pause does. It
+ * is the riskiest number in this feature -- for those 30 seconds the board is not visible -- and three
+ * things make it survivable, all of which must stay: any newer sale hides it at once (so it can never
+ * sit over live bidding), any key or tap dismisses it, and `eggs off` turns the whole thing off from the
+ * SETTINGS tab with no deploy.
+ *
+ * The other two are short because they land mid-flow rather than in a pause.
+ */
+export const MOMENT_HOLD_MS: Record<MomentKind, number> = {
+  firstKicker: 5_000,
+  bigSpender: 3_500,
+  rosterFull: 30_000,
 }
 
 /**
@@ -74,9 +92,28 @@ export const MAX_PLAUSIBLE_PRICE = league.budget
  */
 export const MOMENT_MAX_BATCH = 2
 
-/** Stable id for the fired set. One per kicker-moment ever; one per slot for big spends. */
+/**
+ * Stable id for the fired set. One kicker-moment ever, one per slot for big spends, one per manager for
+ * a finished roster.
+ */
 function idOf(kind: MomentKind, sale: SaleEvent): string {
-  return kind === 'firstKicker' ? 'firstKicker' : `bigSpender:${sale.slot}`
+  switch (kind) {
+    case 'firstKicker':
+      return 'firstKicker'
+    case 'bigSpender':
+      return `bigSpender:${sale.slot}`
+    case 'rosterFull':
+      return `rosterFull:${sale.manager}`
+  }
+}
+
+/** Picks per manager. One `slots` entry IS one pick, so this is `slotsFilled` and `15 - needs`. */
+function picksByManager(slots: SlotMap): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const slot of Object.values(slots)) {
+    counts.set(slot.manager, (counts.get(slot.manager) ?? 0) + 1)
+  }
+  return counts
 }
 
 /**
@@ -130,6 +167,25 @@ export function detectMoments(input: MomentInput): Moment | null {
   if (sales.length === 0) return null
 
   const kicker = sales.find((sale) => sale.position === 'K') ?? null
+
+  /*
+   * Who this poll finished off -- NEEDS reaching 0, which is the same thing as holding `auctionSlots`
+   * picks. Read from the SHEET rather than by counting the log, so it is right even on the first poll
+   * after a reload, and so a manager who was already full when this board opened has no sale to fire on.
+   */
+  const filled = picksByManager(slots)
+  const isFull = (manager: string) => (filled.get(manager) ?? 0) >= league.auctionSlots
+  const finishers = sales.filter((sale) => isFull(sale.manager))
+
+  /*
+   * When the LAST manager finishes, the draft is over and `Complete.tsx` takes the screen with the
+   * awards. Congratulating one manager in front of that would bury the bigger moment, so the final
+   * roster-full is left to the finale.
+   *
+   * Judged from the sheet: every manager who appears in it is full. That is sound here because by the
+   * time anyone can be full, all twelve have nominated and therefore all twelve hold picks.
+   */
+  const everyoneFull = filled.size > 1 && [...filled.keys()].every(isFull)
   /* Highest price wins, ties broken by the earlier observation so the choice is deterministic. */
   const spends = sales
     .filter((sale) => sale.price > BIG_SPENDER_OVER && sale.price <= MAX_PLAUSIBLE_PRICE)
@@ -144,9 +200,18 @@ export function detectMoments(input: MomentInput): Moment | null {
    */
   const kickerAlreadySold = log.some((sale) => sale.position === 'K')
 
+  /*
+   * Order is priority order. The kicker can only ever happen once all night, so it outranks everything;
+   * a finished roster is the moment the room actually stops for, so it outranks a big spend.
+   */
   const candidates: Moment[] = []
   if (kicker && !fired.has('firstKicker') && !kickerAlreadySold) {
     candidates.push({ kind: 'firstKicker', sale: kicker })
+  }
+  for (const sale of finishers) {
+    if (!everyoneFull && !fired.has(idOf('rosterFull', sale))) {
+      candidates.push({ kind: 'rosterFull', sale })
+    }
   }
   for (const sale of spends) {
     if (!fired.has(idOf('bigSpender', sale))) candidates.push({ kind: 'bigSpender', sale })
@@ -167,15 +232,15 @@ export function detectMoments(input: MomentInput): Moment | null {
   if (kickerMoment && !everyKickerWatched(slots, log, sales)) {
     /*
      * Suppressed AND consumed. Consuming matters: without it the next kicker to sell would be announced
-     * as the first, which is the same wrong claim one poll later.
+     * as the first, which is the same wrong claim one poll later. Anything else this poll earned still
+     * stands -- the guard is about the kicker's claim to be first, not about the poll.
      */
     consume()
-    const spend = candidates.find((moment) => moment.kind === 'bigSpender')
-    return spend ?? null
+    return candidates.find((moment) => moment.kind !== 'firstKicker') ?? null
   }
 
   consume()
-  return kickerMoment ?? candidates[0] ?? null
+  return candidates[0] ?? null
 }
 
 /**
@@ -186,6 +251,12 @@ export function detectMoments(input: MomentInput): Moment | null {
  * check and silently discards the pointer AND the ticker on every watchdog reload -- a cost this project
  * already judged unacceptable once, which is why `migrate` exists. The restored log answers the same
  * question with no schema surface at all.
+ *
+ * `rosterFull` is deliberately NOT seeded here, and cannot be: a log holds sales, not roster sizes, and a
+ * restored log is a partial night. It does not need to be -- a manager who was already full when this
+ * board opened produces no further sale to fire on, and the one who fills the last slot after a reload
+ * genuinely has just finished. The only exposure is a manager who filled up, had a pick retracted, and
+ * re-filled across a reload, which announces them twice.
  */
 export function firedFromLog(log: readonly SaleEvent[]): Set<string> {
   const fired = new Set<string>()
