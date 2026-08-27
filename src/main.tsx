@@ -28,7 +28,7 @@ import { Setup } from './ui/Setup'
 import { loadFixture } from './dev/fixtureState'
 import { createBoardStore, type BoardStore } from './live/boardStore'
 import { installWatchdog, sessionHistory } from './live/watchdog'
-import { browserSession, safeSessionStorage as safeSession } from './live/session'
+import { browserSession, safeSessionStorage as safeSession, sessionKey } from './live/session'
 import { createCsvSource } from './data/sheetClient'
 import { pickAuctionTab } from './data/tabs'
 import { confirmSheetId, resolveSheetId } from './config/sheetLocation'
@@ -100,8 +100,15 @@ function renderLive(root: ReturnType<typeof createRoot>) {
      * which is what made this necessary: the recovery for a dead tree was silently restarting the
      * rotation at the top of the order. `sessionStorage`, so a baseline can never outlive the tab
      * that made it; see the header of `live/session.ts`.
+     *
+     * Keyed by (sheet, tab, year), not by year alone. `sessionStorage` is scoped to the TAB, so it
+     * survives a same-tab navigation -- `?sheet=<other>`, a re-pasted `#sheet=`, or the setup card's own
+     * reload. Rehearse against a COPY of the workbook and then point that tab at the live sheet, and a
+     * year-only key restores the copy's baseline and ticker: phantom sales on LAST PURCHASED and the
+     * pointer several managers along. The id is digested into the key, never written there in the
+     * clear (9.1) -- see `sessionKey`.
      */
-    session: browserSession(safeSession(), `zwml:session:${tab.year}`),
+    session: browserSession(safeSession(), sessionKey(location.id, tab.gid, tab.year)),
   })
 
   logWarnings(store)

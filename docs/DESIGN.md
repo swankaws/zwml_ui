@@ -1213,10 +1213,23 @@ history" weakness noted in §7.3.
 > credibility bug, not a correctness one — but it fires exactly when the room is paying most
 > attention, so it is worth the three cheap guards below.
 
-**Persistence rules.** Store `zwml:session:<year>` as
+**Persistence rules.** Store `zwml:session:<year>:<sheet-fingerprint>` as
 `{ savedAt, baselinePickCount, order, baseline, saleLog }`, rewriting `savedAt` on **every successful
 poll**, not just on change — an open tab must never age into staleness while it sits idle during a
 break in the auction.
+
+The key carries a **fingerprint of the spreadsheet id and the tab gid**, not the year alone.
+`sessionStorage` is scoped to the browser tab rather than to the document, so a record survives a
+same-tab navigation to a different `?sheet=` or `#sheet=` — including the setup card's own reload. Without
+the fingerprint, rehearsing against a *copy* of the workbook and then pointing that tab at the live sheet
+restores the copy's baseline and sale log: phantom sales on LAST PURCHASED and the rotation several
+managers along, before the first fetch returns. Neither guard below closes it, because `savedAt` is
+refreshed on every poll and the year is identical.
+
+The id is **digested, never written into the key in the clear** (§9.1). Not for secrecy — `zwml:sheetId`
+already holds it plainly in `localStorage` — but because a key containing the id is a copy-pasteable
+string that invites a troubleshooting note carrying the id into the repository, in a shape
+`no-committed-sheet-id.test.ts` cannot detect.
 
 On load, restore only if **both** hold; otherwise discard `baseline` and `saleLog`, keep `order`, and
 re-baseline from the current poll:

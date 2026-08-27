@@ -38,6 +38,57 @@ export const SESSION_MAX_AGE_MS = 30 * 60_000
 /** How long the `resynced` notice stays on the wall after a restore absorbed something. */
 export const RESYNC_NOTICE_MS = 30_000
 
+/**
+ * WHICH sheet and tab this session belongs to, as a short opaque digest.
+ *
+ * Keying by year alone was not enough, and the route is one address-bar edit: `sessionStorage` is scoped
+ * to the TAB, not to the document, so it survives a same-tab navigation to `?sheet=<other>` or a
+ * re-pasted `#sheet=` -- including the setup card's own `reload()`. Rehearse against a COPY of the
+ * workbook, then point that same tab at the live sheet, and the copy's baseline and sale log are restored
+ * against the live sheet: real player names at real prices on LAST PURCHASED that never sold tonight, and
+ * ON THE CLOCK several managers along, before the first fetch even returns. The 30-minute window does not
+ * help -- `savedAt` is refreshed on every poll, so the record is seconds old at the moment of the switch.
+ *
+ * WHY A DIGEST RATHER THAN THE ID ITSELF. Not secrecy: `localStorage['zwml:sheetId']` already holds the id
+ * in the clear (9.1), so this would add no new exposure on disk. It is repo containment. A key containing
+ * the id is a human-visible, copy-pasteable string, and the shape it invites -- a troubleshooting note
+ * reading "delete zwml:session:<id>" -- is one `no-committed-sheet-id.test.ts` cannot catch: there is no
+ * `/spreadsheets/d/` prefix, no `sheetId =` assignment, and its base64 pass is `[A-Za-z0-9+/]`, which a
+ * base64url id containing `-` or `_` never matches. So a raw-id key opens an unguarded route for the id
+ * into the tree. A digest cannot be pasted back into anything and separates two sheets just as well.
+ *
+ * FNV-1a twice rather than Web Crypto, because the key is needed synchronously at store construction:
+ * `crypto.subtle.digest` is async AND requires a secure context, and this board is opened over plain http
+ * on localhost and across the LAN during rehearsal. Collision resistance does not need to be
+ * cryptographic -- a collision costs one baseline, and the first reconcile absorbs rather than replays.
+ */
+export function sheetFingerprint(spreadsheetId: string, gid: string): string {
+  // `:` cannot appear in either input -- ids are `[A-Za-z0-9_-]` and gids are digits -- so the separator
+  // cannot be forged by shifting characters from one field into the other.
+  return fnv1a(`${spreadsheetId}:${gid}`, 2166136261) + fnv1a(`${gid}:${spreadsheetId}`, 16777619)
+}
+
+/** 32-bit FNV-1a as 8 hex characters. `Math.imul` because `*` would lose the low bits to a double. */
+function fnv1a(text: string, offsetBasis: number): string {
+  let hash = offsetBasis >>> 0
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+/**
+ * The `sessionStorage` key for one (spreadsheet, tab, year).
+ *
+ * `year` stays in the clear even though the fingerprint already covers the gid: it costs nothing, it is
+ * the one part an operator reading the DevTools Application panel at 8pm can act on, and
+ * `SessionRecord.year` plus `isRestorable` still check it independently.
+ */
+export function sessionKey(spreadsheetId: string, gid: string, year: number): string {
+  return `zwml:session:${year}:${sheetFingerprint(spreadsheetId, gid)}`
+}
+
 export interface SessionRecord {
   /** Refreshed on EVERY successful poll, not only on change -- see `isRestorable`. */
   savedAt: number
@@ -70,7 +121,9 @@ export interface SessionStore {
 /**
  * Is this record worth trusting?
  *
- * Age and year only. The *content* check -- does the sheet still match what we remember -- cannot
+ * Age and year only. WHICH SHEET is deliberately not checked here, because it cannot be got wrong here:
+ * a record is only ever reachable through `sessionKey()`, which folds the spreadsheet id and the gid into
+ * the storage key. The *content* check -- does the sheet still match what we remember -- cannot
  * happen here because it needs a parse; the store does it on the first poll after a restore and
  * absorbs anything unaccounted for rather than replaying it as sales (7.5 rule 2).
  */

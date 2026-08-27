@@ -3,6 +3,8 @@ import {
   SESSION_MAX_AGE_MS,
   browserSession,
   isRestorable,
+  sessionKey,
+  sheetFingerprint,
   type SessionRecord,
 } from './session'
 
@@ -131,5 +133,86 @@ describe('browserSession', () => {
     expect(store.read()?.adjustments).toEqual([{ afterSeq: 2, delta: 3 }])
     store.clear()
     expect(store.read()).toBeNull()
+  })
+})
+
+/*
+ * Session identity (7.5, 9.1).
+ *
+ * The record belongs to a SHEET and a TAB, not just to a year. The route that made this necessary:
+ * `sessionStorage` is scoped to the tab, so it survives a same-tab navigation to a different `?sheet=`
+ * or `#sheet=`. Rehearse against a copy of the workbook, then point the same tab at the live sheet, and
+ * a year-only key restored the copy's baseline and sale log -- phantom sales on LAST PURCHASED and ON
+ * THE CLOCK several managers along. The 30-minute window does not close it, because `savedAt` is
+ * refreshed on every successful poll, so the record is seconds old at the moment of the switch.
+ */
+describe('sessionKey', () => {
+  /** The fictional ids allowlisted in `config/no-committed-sheet-id.test.ts`. Never a real one. */
+  const SHEET_A = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-x'
+  const SHEET_B = '2ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210_-y'
+  const AUCTION_GID = '1565415907'
+  const PAST_GID = '599461641'
+
+  it('is stable, so an ordinary reload still restores', () => {
+    // The whole point of 7.5: a watchdog reload seconds later must find its own session again.
+    expect(sessionKey(SHEET_A, AUCTION_GID, 2026)).toBe(sessionKey(SHEET_A, AUCTION_GID, 2026))
+  })
+
+  it('separates two workbooks on the same tab and the same year', () => {
+    // The reported defect, at the identity layer.
+    expect(sessionKey(SHEET_A, AUCTION_GID, 2026)).not.toBe(sessionKey(SHEET_B, AUCTION_GID, 2026))
+  })
+
+  it('separates two tabs of one workbook, and two years', () => {
+    // gid follows year today, so the tab half is belt and braces -- until a season needs a second tab.
+    expect(sessionKey(SHEET_A, AUCTION_GID, 2026)).not.toBe(sessionKey(SHEET_A, PAST_GID, 2026))
+    expect(sessionKey(SHEET_A, AUCTION_GID, 2026)).not.toBe(sessionKey(SHEET_A, AUCTION_GID, 2025))
+  })
+
+  it('never writes the spreadsheet id, or any 12-character run of it, into the key (9.1)', () => {
+    /*
+     * This is the 9.1 decision enforced in code rather than only in a comment. A storage key is a string
+     * an operator can read straight off the DevTools Application panel and paste into a note, and a dozen
+     * characters of a real id is enough to find the sheet -- while `no-committed-sheet-id.test.ts` would
+     * not catch it in that shape (no URL prefix, no assignment, and base64url defeats its base64 pass).
+     */
+    const key = sessionKey(SHEET_A, AUCTION_GID, 2026)
+    expect(key).not.toContain(SHEET_A)
+    for (let index = 0; index + 12 <= SHEET_A.length; index += 1) {
+      expect(key).not.toContain(SHEET_A.slice(index, index + 12))
+    }
+  })
+
+  it('digests to a fixed-length hex string', () => {
+    // Fixed length means the key can never grow with its input, whatever a future id looks like.
+    expect(sheetFingerprint(SHEET_A, AUCTION_GID)).toMatch(/^[0-9a-f]{16}$/)
+    expect(sheetFingerprint(SHEET_B, PAST_GID)).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it('does not collide on ids differing in a single character', () => {
+    // A copy of a workbook gets an unrelated id, but a MISTYPED one differs by one character.
+    const near = `${SHEET_A.slice(0, -1)}y`
+    expect(sheetFingerprint(near, AUCTION_GID)).not.toBe(sheetFingerprint(SHEET_A, AUCTION_GID))
+  })
+
+  it('cannot be forged by shifting a character between the id and the gid', () => {
+    // The separator is `:`, which neither an id nor a gid can contain -- so the two fields cannot blur.
+    expect(sheetFingerprint(SHEET_A, AUCTION_GID)).not.toBe(
+      sheetFingerprint(`${SHEET_A}${AUCTION_GID.slice(0, 1)}`, AUCTION_GID.slice(1)),
+    )
+  })
+
+  it('keeps one sheet session invisible to another through a real Storage', () => {
+    /*
+     * The bug end to end at the storage layer: same tab, same year, two workbooks. Before this, both
+     * wrote and read `zwml:session:2026` and the second inherited the first's baseline and sale log.
+     */
+    const storage = fakeStorage()
+    const a = sessionKey(SHEET_A, AUCTION_GID, 2026)
+    const b = sessionKey(SHEET_B, AUCTION_GID, 2026)
+    browserSession(storage, a).write(record({ baselineCounts: { Kevin: 9 } }))
+
+    expect(browserSession(storage, b).read()).toBeNull()
+    expect(browserSession(storage, a).read()?.baselineCounts).toEqual({ Kevin: 9 })
   })
 })
