@@ -43,8 +43,6 @@ export interface ManagerState {
   /** `null` when the roster is full: no bid is possible, so render `FULL`. */
   maxBid: number | null
   pctRemaining: number
-  /** `null` when the roster is full, for the same reason as `maxBid`. */
-  avgPerSlot: number | null
   positionCounts: Record<Position, number>
   overspent: boolean
   overRostered: boolean
@@ -73,8 +71,26 @@ export interface LeagueState {
   leagueNeeds: number
   slotsFilled: number
   totalSlots: number
-  /** `null` once every roster is full: there is no pace left to report. */
-  avgPerRemainingSlot: number | null
+  /**
+   * Average price actually PAID per slot filled so far. `null` before the first pick.
+   *
+   * This replaced `avgPerRemainingSlot` (money left over slots left), which was on the header strip all
+   * night and told the room nothing. Simulated against the real 2025 price list, its value is dominated
+   * by nomination order rather than by the market: nominating stars first -- which is what an auction
+   * does -- decays it from $13.33 to $8.52 by slot 20, $3.83 by slot 60 and below zero by slot 160, so it
+   * was a restatement of the SLOTS counter beside it. Nominating cheap players first sends the same
+   * number UP to $50. A figure whose direction depends on the order players happen to be called in is not
+   * a fact about the auction.
+   *
+   * It could also go negative and reach the wall: the guard below covered `leagueNeeds === 0` but not a
+   * negative numerator, and the 2025 league really did overspend -- $2,411 against $2,400, five managers
+   * in the red.
+   *
+   * What is here now is the number people mean when they ask what players are going for, it is
+   * monotonically meaningful, and comparing it to the opening baseline of budget/totalSlots says whether
+   * the room is running hot or cold.
+   */
+  avgPaid: number | null
   draftComplete: boolean
 }
 
@@ -136,7 +152,6 @@ export function deriveManager(block: ManagerBlock & { name: string }): ManagerSt
      * league's $200 would make a manager with a bonus read as having more than 100%.
      */
     pctRemaining: remaining / budget,
-    avgPerSlot: needs > 0 ? remaining / needs : null,
     positionCounts,
     overspent: league.enforceBudgetCap && remaining < 0,
     overRostered: slotsFilled > auctionSlots,
@@ -209,9 +224,10 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
    *    holding $14 with a full roster is holding dead money -- counting it
    *    inflates "dollars still chasing players" exactly when the room is using
    *    that number to judge whether the last players will go cheap.
-   * 2. `avgPerRemainingSlot` must guard `leagueNeeds === 0`. It reaches zero the
-   *    instant the final slot fills, and the unguarded form renders `$Infinity`
-   *    at the most-watched moment of the draft.
+   * 2. The pace figure must guard a zero denominator, or the unguarded form renders
+   *    `$Infinity` at the most-watched moment of the draft. That applied to the old
+   *    `avgPerRemainingSlot` at the final slot; it applies to `avgPaid` before the
+   *    first one.
    */
   const active = managers.filter((m) => m.needs > 0)
   const leagueRemaining = active.reduce((sum, m) => sum + m.remaining, 0)
@@ -233,7 +249,7 @@ export function deriveLeague(blocks: ManagerBlock[]): LeagueState {
      * the denominator is never 0.
      */
     totalSlots: managers.length > 0 ? managers.length * league.auctionSlots : totalAuctionSlots,
-    avgPerRemainingSlot: leagueNeeds > 0 ? leagueRemaining / leagueNeeds : null,
+    avgPaid: slotsFilled > 0 ? leagueSpent / slotsFilled : null,
     draftComplete: managers.length > 0 && leagueNeeds === 0,
   }
 }

@@ -14,7 +14,6 @@ function manager(over: Partial<ManagerState> = {}): ManagerState {
     needs: league.auctionSlots,
     maxBid: 186,
     pctRemaining: 1,
-    avgPerSlot: 13,
     positionCounts: { QB: 0, RB: 0, WR: 0, TE: 0, K: 0 },
     overspent: false,
     overRostered: false,
@@ -31,7 +30,7 @@ describe('pressureLevel', () => {
      * appears on all twelve rows conveys nothing -- the same argument the leader highlight makes.
      */
     const fresh = manager()
-    for (const column of ['maxBid', 'left', 'needs', 'spent', 'perSlot'] as const) {
+    for (const column of ['maxBid', 'left', 'pctLeft', 'needs', 'spent'] as const) {
       expect(pressureLevel(column, fresh), column).toBe('none')
     }
   })

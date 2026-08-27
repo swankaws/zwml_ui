@@ -15,7 +15,6 @@ function managerState(overrides: Partial<ManagerState> = {}): ManagerState {
     needs: 15,
     maxBid: 186,
     pctRemaining: 1,
-    avgPerSlot: 200 / 15,
     positionCounts: counts,
     overspent: false,
     overRostered: false,
@@ -132,9 +131,14 @@ describe('selectColumns', () => {
     )
   })
 
-  it('leaves $/SLOT out unless it is opted in', () => {
-    expect(atWidth(1600)).not.toContain('perSlot')
-    expect(keys({ width: 1600, typePx: 47, enabled: ['perSlot'] })).toContain('perSlot')
+  it('shows nothing opt-in by default, and ignores an unknown opt-in', () => {
+    /*
+     * `$/SLOT` was the only opt-in column and has been removed -- it moved with nomination order rather
+     * than with the market. The MECHANISM is still worth a test: `enabled` naming a column that is not
+     * opt-in, or not present at all, must not add or drop anything.
+     */
+    expect(COLUMNS.filter((c) => c.optIn)).toEqual([])
+    expect(keys({ width: 1600, typePx: 47, enabled: ['spent'] })).toEqual(atWidth(1600))
   })
 
   it('drops columns least-important first as width shrinks', () => {
@@ -167,10 +171,10 @@ describe('selectColumns', () => {
     expect(order.indexOf('spent')).toBeLessThan(order.indexOf('needs'))
   })
 
-  it('keeps opted-in columns subject to the same priority drop', () => {
-    const narrow = keys({ width: 1300, typePx: 47, enabled: ['perSlot'] })
-    // $/SLOT is priority 6 -- the very first thing to go once it is on.
-    expect(narrow).not.toContain('perSlot')
+  it('gives every column a priority that can actually drop, except the two that cannot', () => {
+    // With no opt-in column left, the drop ladder is the whole default set. `% REM` is the cheapest.
+    const narrow = keys({ width: 1300, typePx: 47 })
+    expect(narrow).not.toContain('pctLeft')
     expect(narrow).toContain('spent')
   })
 
@@ -293,14 +297,6 @@ describe('COLUMNS', () => {
 describe('cellValue', () => {
   it('renders FULL rather than a dollar figure when no bid is possible', () => {
     expect(cellValue('maxBid', managerState({ maxBid: null }))).toBe('FULL')
-  })
-
-  it('renders an em dash for $/SLOT when the roster is full', () => {
-    expect(cellValue('perSlot', managerState({ avgPerSlot: null }))).toBe('—')
-  })
-
-  it('floors $/SLOT rather than rounding up, so it never overstates the ceiling', () => {
-    expect(cellValue('perSlot', managerState({ avgPerSlot: 13.9 }))).toBe('$13')
   })
 
   it('shows overspending honestly instead of flooring at zero', () => {

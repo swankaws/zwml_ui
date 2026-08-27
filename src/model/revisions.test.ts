@@ -13,7 +13,6 @@ function manager(name: string, over: Partial<ManagerState> = {}): ManagerState {
     needs: 15,
     maxBid: 186,
     pctRemaining: 1,
-    avgPerSlot: 13,
     positionCounts: { QB: 0, RB: 0, WR: 0, TE: 0, K: 0 },
     overspent: false,
     overRostered: false,
@@ -33,7 +32,7 @@ function state(...managers: ManagerState[]): LeagueState {
     leagueNeeds: 0,
     slotsFilled: 0,
     totalSlots: managers.length * 15,
-    avgPerRemainingSlot: null,
+    avgPaid: null,
     draftComplete: false,
   }
 }

@@ -1012,7 +1012,7 @@ phones and laptops (Q8), and as insurance if the projector changes on the day.
 | 3 | `NEEDS` | Needed to sanity-check max bid |
 | 4 | Position counts | Answers "what do they still need" |
 | 5 | `SPENT` | **Fully redundant** — `$200 − LEFT`. First to go. |
-| 6 | `$/SLOT` pace | Nice-to-have. Off by default — see below. |
+| 6 | `% REM` | Redundant with `REMAINING` until bonus money differs between managers — see below. |
 
 **Widths — measured in phase 3, not estimated.** The review flag below was correct: the paper widths
 gave the position matrix 430 px (**36% of the content width, to priority 4**) while `MAX BID` — priority
@@ -1028,7 +1028,7 @@ hold at any width:
 | `NEEDS` | 105 | 95 | two digits never needed 105 |
 | `MAX BID` | 185 | 190 | four glyphs at 1.4× type |
 | Positions (all five) | 430 | 370 | single digits; ~60 units recovered |
-| `$/SLOT` (opt-in) | — | 130 | |
+| `% REM` | — | 175 | added rev 8; `100%` measures 140 px |
 
 The default six still sum to 1180 units, so every drop threshold below is unchanged.
 
@@ -1080,9 +1080,15 @@ priority-1 columns as "split," but `SPENT → LEFT → NEEDS → MAX BID` reads 
 derivation that produces it, and the rightmost numeric column before the matrix gives the biggest
 number a clean right-aligned edge. That is a deliberate trade, not an oversight.
 
-**Per-row `$/SLOT` is built but off by default.** It fits at 1080p, and it is `LEFT ÷ NEEDS` — two
-columns already on the row — so a ninth number competes for attention while telling the room nothing
-new. The league-wide figure stays in the header totals, where pace actually reads as meaningful. A
+**`$/SLOT` has been removed outright, per row and from the header.** It was `LEFT ÷ NEEDS`, and
+simulating it against the real 2025 price list showed its value is dominated by *nomination order*
+rather than by the market: nominating stars first — which is what an auction does — decays it from
+$13.33 to $8.52 by slot 20, $3.83 by slot 60 and below zero by slot 160, making it a restatement of the
+`SLOTS` counter beside it. Nominating cheap players first sends the same number *up* to $50. A figure
+whose direction depends on the order players happen to be called in is not a fact about the auction. It
+could also reach the wall negative: the guard covered a zero denominator but not a negative numerator,
+and the 2025 league really did overspend. The header now carries `AVG` — total spent ÷ slots filled —
+which is what the room means when it asks what players are going for. A
 key toggles the column on if draft night proves otherwise.
 
 - **MAX BID** — largest type on the row, right-aligned for digit alignment. `FULL` when `needs = 0`.
@@ -1535,7 +1541,7 @@ export const league = {
 
 Display preferences live separately from league rules, so layout tuning on draft night never risks
 touching them: column priorities and measured widths in `ui/columns.ts`, aspect-ratio breakpoints in
-`ui/theme.css`, and the runtime-settable knobs — scale, forced columns, rail, `$/SLOT`, order — in
+`ui/theme.css`, and the runtime-settable knobs — scale, forced columns, rail, theme, order — in
 `config/displaySettings.ts` (§9.2). Only the last group is editable without a deploy, which is the
 whole point of it.
 
@@ -1634,7 +1640,7 @@ would shift every index.
 | `scale` | *(leave unset)* | Root type multiplier. Clamped to 0.6–2.0, snapped to 0.05. **Read the ceiling in §7.1 first — it buys ~15%, and the note below on who else is watching** |
 | `columns` | *(leave unset)* | Forces an exact set, overriding the priority system. Names are case-insensitive. **Costs you `POS` and `SPENT`** — see below |
 | `rail` | `on` / `off` | The nomination + sales rail. `off` returns *width* at 16:9, *height* at 4:3 |
-| `perslot` | `off` | The opt-in `$/SLOT` column (§7.2). Also spelled `$/slot` |
+| `perslot` | — | **Retired.** `$/SLOT` was removed (§7.2). Still *recognised* so an existing row does not raise an `unknown key` notice on the wall mid-draft; it simply does nothing |
 | `order` | `Jeff > Toby > …` | Nomination order (§7.5). Comma-, newline- or `>`-separated. Names are checked against the roster **the sheet reported**, so a new manager needs no deploy |
 
 **The example values above used to be filled in, and that was a mistake in this document.** The

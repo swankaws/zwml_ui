@@ -21,7 +21,6 @@ export type ColumnKey =
   | 'needs'
   | 'maxBid'
   | 'positions'
-  | 'perSlot'
 
 export interface Column {
   key: ColumnKey
@@ -47,7 +46,11 @@ export interface Column {
    * against a different type size.
    */
   narrow?: number
-  /** Off unless explicitly enabled -- see `perSlot` below. */
+  /**
+   * Off unless explicitly enabled. No column uses this today -- `$/SLOT` was the only one and it has
+   * been removed -- but the mechanism is kept because it is what lets a figure be built and proved on
+   * the wall before it is given a permanent place on it.
+   */
   optIn?: boolean
 }
 
@@ -123,12 +126,6 @@ export const COLUMNS: Column[] = [
    * and all twelve rows rendered `$2...` on a completed board -- unreadable, and the gate caught it.
    */
   { key: 'spent', label: 'SPENT', priority: 5, width: 158, narrow: 147, align: 'right' },
-  /*
-   * `$/SLOT` is built but off by default (7.2). It is LEFT / NEEDS -- two columns
-   * already on the row -- so a ninth number competes for attention while telling
-   * the room nothing new. A key toggles it on if draft night proves otherwise.
-   */
-  { key: 'perSlot', label: '$/SLOT', priority: 7, width: 130, narrow: 147, align: 'right', optIn: true },
 ]
 
 /**
@@ -149,7 +146,6 @@ const DISPLAY_ORDER: ColumnKey[] = [
   'left',
   'pctLeft',
   'spent',
-  'perSlot',
   'needs',
   'positions',
 ]
@@ -400,8 +396,6 @@ export function cellValue(column: ColumnKey, m: ManagerState): string {
       const pct = Math.round(m.pctRemaining * 100)
       return `${pct < 0 ? '−' : ''}${Math.abs(pct)}%`
     }
-    case 'perSlot':
-      return m.avgPerSlot === null ? '—' : money(Math.floor(m.avgPerSlot))
     case 'positions':
       return ''
   }

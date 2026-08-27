@@ -3,13 +3,13 @@
  *
  * `CHASING` (dollars still able to buy players) was removed on the designer's note. It was the most
  * derived figure on the strip and the least acted on: the room's questions are what has gone and how
- * much is left to go, which SPENT and SLOTS answer directly. `leagueRemaining` is still computed and
- * still feeds `$/SLOT`.
+ * much is left to go, which SPENT and SLOTS answer directly. `$/SLOT` followed it for the same reason,
+ * having turned out to be a restatement of the SLOTS counter -- `leagueRemaining` is still computed and
+ * still feeds MAX BID.
  *
- * One line, always on screen. `$/SLOT` here is the market pace -- dollars that can
- * still chase players over slots still to fill -- and it is `null` once every
- * roster is full. It renders as an em dash then, never as a number: section 6's
- * unguarded form put `$Infinity` on the wall at the loudest moment of the night.
+ * One line, always on screen. `AVG` is the average price actually paid per slot filled, and it is
+ * `null` before the first pick. It renders as an em dash then, never as a number: section 6's unguarded
+ * form put `$Infinity` on the wall at the loudest moment of the night.
  */
 
 import type { ReactNode } from 'react'
@@ -91,13 +91,13 @@ export function Header({
             {league.slotsFilled}/{league.totalSlots}
           </b>
         </span>
+        {/*
+          * AVG is what the room means by "what are players going for": total spent over slots filled.
+          * It replaced `$/SLOT` (money left over slots left), which moved with nomination order rather
+          * than with the market and could go negative -- see the note on `avgPaid` in `derive.ts`.
+          */}
         <span>
-          $/SLOT{' '}
-          <b>
-            {league.avgPerRemainingSlot === null
-              ? '—'
-              : money(Math.floor(league.avgPerRemainingSlot))}
-          </b>
+          AVG <b>{league.avgPaid === null ? '—' : money(Math.round(league.avgPaid))}</b>
         </span>
         <span className="status" data-state={feed}>
           <span className="dot" />

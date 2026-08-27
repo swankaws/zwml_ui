@@ -16,13 +16,12 @@ const tab = (...rows: string[][]) => [[SETTINGS_ANCHOR], ...rows]
 describe('parseSettingsGrid', () => {
   it('reads every supported key', () => {
     const { settings, warnings } = parseSettingsGrid(
-      tab(['scale', '1.1'], ['columns', 'manager, left, maxBid'], ['rail', 'off'], ['perSlot', 'on']),
+      tab(['scale', '1.1'], ['columns', 'manager, left, maxBid'], ['rail', 'off']),
     )
     expect(settings).toEqual({
       scale: 1.1,
       columns: ['manager', 'left', 'maxBid'],
       rail: false,
-      perSlot: true,
     })
     expect(warnings).toEqual([])
   })
@@ -67,7 +66,7 @@ describe('parseSettingsGrid', () => {
 
   it('accepts the spellings a human would use for on/off', () => {
     for (const on of ['on', 'ON', 'true', 'yes', '1', 'y']) {
-      expect(parseSettingsGrid(tab(['perSlot', on])).settings.perSlot).toBe(true)
+      expect(parseSettingsGrid(tab(['rail', on])).settings.rail).toBe(true)
     }
     for (const off of ['off', 'FALSE', 'no', '0', 'n']) {
       expect(parseSettingsGrid(tab(['rail', off])).settings.rail).toBe(false)

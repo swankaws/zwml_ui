@@ -60,7 +60,6 @@ describe('maxBid', () => {
     const full = deriveManager(blockWith(Array(15).fill(10)))
     expect(full.needs).toBe(0)
     expect(full.maxBid).toBeNull()
-    expect(full.avgPerSlot).toBeNull()
   })
 
   it('stays null when a roster is somehow over-filled', () => {
@@ -189,10 +188,13 @@ describe('league aggregates', () => {
   it('does not divide by zero when the draft completes', () => {
     expect(complete.draftComplete).toBe(true)
     expect(complete.leagueNeeds).toBe(0)
-    // The unguarded form yielded Infinity, which the header would have rendered
-    // as "$Infinity/slot" at the most-watched moment of the night.
-    expect(complete.avgPerRemainingSlot).toBeNull()
-    expect(Number.isFinite(complete.avgPerRemainingSlot ?? 0)).toBe(true)
+    /*
+     * The guard now lives at the other end. `avgPerRemainingSlot` divided by slots LEFT, so it blew up on
+     * the last pick; `avgPaid` divides by slots FILLED, so the dangerous moment is the first poll of the
+     * night rather than the last. A completed draft is simply the average of everything paid.
+     */
+    expect(complete.avgPaid).not.toBeNull()
+    expect(Number.isFinite(complete.avgPaid ?? 0)).toBe(true)
   })
 
   it('excludes dead money from dollars still chasing players', () => {
@@ -206,15 +208,20 @@ describe('league aggregates', () => {
     expect(state.leagueNeeds).toBe(14)
     // Kevin's $50 cannot chase anything: he can never bid again.
     expect(state.leagueRemaining).toBe(190)
-    expect(state.avgPerRemainingSlot).toBeCloseTo(190 / 14)
+    expect(state.avgPaid).toBeCloseTo(160 / 16)
     // leagueSpent still counts everyone -- money spent is money spent.
     expect(state.leagueSpent).toBe(160)
   })
 
-  it('reports no pace rather than a pace of zero when nobody can bid', () => {
-    const state = deriveLeague([blockWith(Array(15).fill(10), 'Kevin')])
-    expect(state.leagueRemaining).toBe(0)
-    expect(state.avgPerRemainingSlot).toBeNull()
+  it('reports no average before the first pick rather than dividing by zero', () => {
+    // The one moment `avgPaid` can blow up: an opening board with keepers not yet entered.
+    const empty = deriveLeague([blockWith([], 'Kevin')])
+    expect(empty.slotsFilled).toBe(0)
+    expect(empty.avgPaid).toBeNull()
+
+    // And it is a real number the instant anything has sold.
+    const one = deriveLeague([blockWith([10], 'Kevin')])
+    expect(one.avgPaid).toBe(10)
   })
 })
 
@@ -301,7 +308,7 @@ describe('missing and unmatched blocks', () => {
     const state = deriveLeague([])
     expect(state.managers).toEqual([])
     expect(state.draftComplete).toBe(false)
-    expect(state.avgPerRemainingSlot).toBeNull()
+    expect(state.avgPaid).toBeNull()
   })
 })
 

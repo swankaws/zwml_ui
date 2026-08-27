@@ -168,7 +168,7 @@ export function App({
   const columns = selectColumns({
     width: metrics.width || 1300,
     typePx: metrics.typePx || REFERENCE_TYPE_PX,
-    enabled: settings.perSlot ? [...enabledColumns, 'perSlot'] : enabledColumns,
+    enabled: enabledColumns,
     forced: settings.columns,
     // A URL is typed by someone looking at this screen; the sheet is not. Only the
     // former gets to overrule the fit test.

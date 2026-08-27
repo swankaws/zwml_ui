@@ -139,12 +139,12 @@ const CASES = [
    */
   {
     size: '1920x1080',
-    query: '?fixture=2026&demoOrder=1&scale=abc&order=Nobody&columns=bogus&perslot=maybe',
+    query: '?fixture=2026&demoOrder=1&scale=abc&order=Nobody&columns=bogus&theme=purple',
     label: '1080p with notices',
   },
   {
     size: '1024x768',
-    query: '?fixture=2026&demoOrder=1&scale=abc&order=Nobody&columns=bogus&perslot=maybe',
+    query: '?fixture=2026&demoOrder=1&scale=abc&order=Nobody&columns=bogus&theme=purple',
     label: '4:3 with notices',
   },
   {

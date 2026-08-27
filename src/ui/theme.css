@@ -462,8 +462,7 @@ body {
 /* The supporting figures. Still fully legible, just not competing with the answer. */
 .cell-spent,
 .cell-pctLeft,
-.cell-needs,
-.cell-perSlot {
+.cell-needs {
   color: var(--fg-soft);
 }
 

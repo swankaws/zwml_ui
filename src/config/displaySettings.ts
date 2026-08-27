@@ -34,8 +34,6 @@ export interface DisplaySettings {
   columns: readonly ColumnKey[] | null
   /** Show the nomination + sales rail at all. */
   rail: boolean
-  /** The opt-in `$/SLOT` column (§7.2). */
-  perSlot: boolean
   /** Nomination order (§7.5). `null` = fall back to `league.nominationOrder`. */
   order: readonly string[] | null
   /**
@@ -55,7 +53,6 @@ export const DEFAULT_SETTINGS: DisplaySettings = {
   scale: null,
   columns: null,
   rail: true,
-  perSlot: false,
   order: null,
   theme: null,
 }
@@ -174,20 +171,24 @@ export function parseSettingsGrid(
         break
       }
 
-      case 'perslot':
-      case '$/slot': {
-        const value = parseBoolean(raw)
-        if (value === null) warnings.push(`SETTINGS: perSlot "${raw}" is not on/off; ignoring.`)
-        else settings.perSlot = value
-        break
-      }
-
       case 'theme': {
         const value = raw.trim().toLowerCase()
         if (value === 'light' || value === 'dark') settings.theme = value
         else warnings.push(`SETTINGS: theme "${raw}" is not light/dark; ignoring.`)
         break
       }
+
+      /*
+       * Retired, and recognised only so it does not warn.
+       *
+       * `$/SLOT` was removed -- it moved with nomination order rather than with the market -- but the
+       * live SETTINGS tab may well still carry a `perslot` row, and the alternative to swallowing it is
+       * an amber `unknown key` notice on the wall on draft night for a setting that no longer exists.
+       * Silence is the kinder failure here; the row simply does nothing.
+       */
+      case 'perslot':
+      case '$/slot':
+        break
 
       case 'order': {
         const result = parseOrder(raw, roster)
@@ -218,7 +219,7 @@ export function settingsFromQuery(
 ): ParseResult {
   const params = new URLSearchParams(search.replace(/^\?/, ''))
   const rows: string[][] = [[SETTINGS_ANCHOR]]
-  for (const key of ['scale', 'columns', 'rail', 'perslot', 'order', 'theme']) {
+  for (const key of ['scale', 'columns', 'rail', 'order', 'theme']) {
     const value = params.get(key)
     if (value !== null) rows.push([key, value])
   }
