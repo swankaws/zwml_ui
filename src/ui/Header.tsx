@@ -1,6 +1,11 @@
 /**
  * League totals strip (docs/DESIGN.md sections 6, 7.2).
  *
+ * `CHASING` (dollars still able to buy players) was removed on the designer's note. It was the most
+ * derived figure on the strip and the least acted on: the room's questions are what has gone and how
+ * much is left to go, which SPENT and SLOTS answer directly. `leagueRemaining` is still computed and
+ * still feeds `$/SLOT`.
+ *
  * One line, always on screen. `$/SLOT` here is the market pace -- dollars that can
  * still chase players over slots still to fill -- and it is `null` once every
  * roster is full. It renders as an em dash then, never as a number: section 6's
@@ -79,9 +84,6 @@ export function Header({
       <div className="totals">
         <span>
           SPENT <b>{money(league.leagueSpent)}</b>
-        </span>
-        <span>
-          CHASING <b>{money(league.leagueRemaining)}</b>
         </span>
         <span>
           SLOTS{' '}

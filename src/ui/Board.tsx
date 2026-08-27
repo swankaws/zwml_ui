@@ -57,7 +57,9 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
             {column.key === 'positions' ? (
               <div className="positions">
                 {POSITION_COLUMNS.map((p) => (
-                  <span key={p}>{p}</span>
+                  <span key={p} data-position={p}>
+                    {p}
+                  </span>
                 ))}
               </div>
             ) : (
@@ -100,7 +102,17 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
                     {POSITION_COLUMNS.map((p) => {
                       const count = m.positionCounts[p]
                       return (
-                        <span key={p} className={count === 0 ? 'zero' : undefined}>
+                        <span
+                          key={p}
+                          className={count === 0 ? 'zero' : undefined}
+                          /*
+                           * Colour-coded per the designer's note, using the same palette as the
+                           * ticker and the roster view so a position means one colour everywhere.
+                           * The column HEADER carries the letters, which is what keeps 7.7's rule
+                           * that colour is never the only signal.
+                           */
+                          data-position={p}
+                        >
                           {/* A dim dot, not a 0: unfilled needs should pop out
                               rather than drown in a wall of zeros. */}
                           {count === 0 ? '·' : count}

@@ -136,7 +136,7 @@ export function Rail({
       </section>
 
       <section className="rail-sales">
-        <h2>LAST SOLD</h2>
+        <h2>LAST PURCHASED</h2>
         <div className="sales">
           {sales.length === 0 ? (
             <span className="empty">NO SALES YET</span>
@@ -159,9 +159,20 @@ export function Rail({
                 <div className="sale-player" data-position={sale.position ?? 'none'}>
                   {sale.player}
                 </div>
+                {/*
+                 * Position, then manager, then amount -- the designer's order. It reads as a sentence
+                 * ("a WR, to Kevin, for $61") where the previous arrangement led with the money.
+                 */}
+                {/*
+                 * A flex row, not inline text. Written as adjacent JSX elements it rendered
+                 * `WRKevin$4` -- JSX drops the whitespace between elements on separate lines, so the
+                 * three parts ran together and "Kevin$61" read as one token. Explicit gaps cannot have
+                 * that bug.
+                 */}
                 <div className="sale-price">
                   {sale.position && <span className="sale-pos">{sale.position}</span>}
-                  <b>{money(sale.price)}</b> {sale.manager}
+                  <span className="sale-manager">{sale.manager}</span>
+                  <b className="sale-amount">{money(sale.price)}</b>
                 </div>
               </SaleEntry>
             ))

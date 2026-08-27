@@ -56,7 +56,16 @@ const PROBE = `(() => {
    * standby screen have no .rows at all, and an unguarded probe threw there -- which
    * reported as a harness crash rather than as the layout answer it was asked for.
    */
-  const truncated = (el) => !!el && el.scrollWidth > el.clientWidth + 1
+  /*
+   * No tolerance on the width, deliberately.
+   *
+   * This used to allow 1px, and that let a VISIBLE ellipsis through: the browser draws one as soon as
+   * content exceeds the box by any amount at all, so a header reading "REMAININ..." on the wall
+   * measured as clean. Sub-pixel noise is what the tolerance was for, and rounding the two values
+   * handles that without hiding a real crop.
+   */
+  const truncated = (el) =>
+    !!el && Math.round(el.scrollWidth) > Math.round(el.clientWidth)
   const clipped = (el) => !!el && el.scrollHeight > el.clientHeight + 1
 
   const rows = [...document.querySelectorAll('.rows .row')]

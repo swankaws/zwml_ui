@@ -42,11 +42,25 @@ export interface Column {
 export const COLUMNS: Column[] = [
   { key: 'manager', label: 'MANAGER', priority: 1, width: 210, align: 'left' },
   { key: 'maxBid', label: 'MAX BID', priority: 1, width: 190, align: 'right' },
-  { key: 'left', label: 'LEFT', priority: 2, width: 170, align: 'right' },
-  { key: 'needs', label: 'NEEDS', priority: 3, width: 95, align: 'right' },
+  /*
+   * `REMAINING`, not `LEFT`. The designer's call, and it matches the sheet's own wording -- the block
+   * label the maintainer reads every day says Remaining. `width` goes up with it: the header label is
+   * more than twice as long and the fit test sizes columns from the widest thing in them.
+   */
+  { key: 'left', label: 'REMAINING', priority: 2, width: 185, align: 'right' },
+  /*
+   * 115, not 95. `REMAINING` replacing `LEFT` widened its own column, which came out of this one --
+   * and the header LABEL is what needs the room here, not the value: a one- or two-digit count is the
+   * narrowest thing on the row while `NEEDS` is five characters.
+   */
+  { key: 'needs', label: 'NEEDS', priority: 3, width: 115, align: 'right' },
   { key: 'positions', label: 'POS', priority: 4, width: 370, align: 'center' },
   // Fully redundant with LEFT ($200 - LEFT), so it is the first to go.
-  { key: 'spent', label: 'SPENT', priority: 5, width: 145, align: 'right' },
+  /*
+   * 160, not 145. Widening `left` for the longer `REMAINING` label squeezed this below its own content
+   * and all twelve rows rendered `$2...` on a completed board -- unreadable, and the gate caught it.
+   */
+  { key: 'spent', label: 'SPENT', priority: 5, width: 160, align: 'right' },
   /*
    * `$/SLOT` is built but off by default (7.2). It is LEFT / NEEDS -- two columns
    * already on the row -- so a ninth number competes for attention while telling

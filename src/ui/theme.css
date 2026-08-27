@@ -30,8 +30,19 @@
   --bg-row: #0e1216;
   --bg-row-alt: #121821;
   --fg: #f4f7fa;
+  /*
+   * Between `--fg` and `--fg-dim`, and it exists to rebuild a hierarchy that used to be carried by
+   * size. With every figure at one size (the designer's note) MAX BID's only remaining distinction was
+   * a 700-to-800 weight step, which is invisible at 25 feet -- so the supporting figures step back to
+   * this instead and MAX BID keeps full white. Contrast survives a dim projector bulb far better than
+   * either size or weight does.
+   */
+  --fg-soft: #cbd6e2;
   --fg-dim: #7c8b9c;
   --rule: #1e2833;
+  /* The header's own surface and the line between rows -- both added on the designer's note. */
+  --bg-head: #161d26;
+  --row-rule: #202b38;
 
   --accent: #37d67a; /* the top max bid: who can still swing */
   --warn: #ff5c5c; /* overspent, over-rostered, negative money */
@@ -276,11 +287,45 @@ body {
   background: var(--bg-row-alt);
 }
 
+/*
+ * A ruled separator on every row as well as the stripe, on the designer's note.
+ *
+ * The stripe alone relies on a brightness difference that a projector flattens -- the two row colours
+ * are four points apart and a dim bulb renders them as one surface. A line survives that, and it gives
+ * the eye something to track along when reading a single manager's figures across five columns.
+ *
+ * `inset` box-shadow rather than `border-bottom`, because a border would add a pixel to every row and
+ * the twelve-row budget has none to give.
+ */
+.rows .row {
+  box-shadow: inset 0 -1px 0 var(--row-rule);
+}
+
+.rows .row:last-child {
+  box-shadow: none;
+}
+
+/*
+ * The header row gets its own surface, per the designer's note, so the column labels read as a header
+ * rather than as a dimmer twelfth row. It sits above `.rows` and outside the alternating stripe, which
+ * is what made it ambiguous before.
+ */
 .head {
   font-size: 0.5em;
-  letter-spacing: 0.14em;
+  /*
+   * 0.06em, down from 0.14em. `REMAINING` replacing `LEFT` made the header the widest thing in its own
+   * column, and wide tracking on a nine-character label is what pushed it into an ellipsis -- the wall
+   * read "SPENT REMAININ... NEEDS", with REMAINING and NEEDS running together as one word.
+   *
+   * Tracking is decoration on a label; the label itself is not.
+   */
+  letter-spacing: 0.06em;
   color: var(--fg-dim);
-  padding-bottom: 0.3em;
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+  background: var(--bg-head);
+  border-bottom: 2px solid var(--rule);
+  border-radius: 0.2em 0.2em 0 0;
 }
 
 .cell {
@@ -297,34 +342,45 @@ body {
   text-align: center;
 }
 
-.cell-manager {
-  font-size: 0.94em;
+/*
+ * ONE size for every figure on the row, on the designer's note.
+ *
+ * This replaces a deliberate hierarchy -- MAX BID was 1.4em, REMAINING 1.06, MANAGER 0.94, the position
+ * counts 0.84 -- built on 7.1's physical-size table so the eye landed on MAX BID first. The designer's
+ * argument is the stronger one for a wall: five different sizes on one row is five baselines to
+ * re-focus on, and the columns nobody could read from the back were the small ones.
+ *
+ * It also BUYS something. MAX BID at 1.4em was what set a row's minimum height, so flattening frees
+ * vertical budget -- which is spent putting every column UP to 1.18em rather than dropping four of them
+ * down to 1em. Measured: twelve rows still fit at 1080p, 4:3, 5:4 and on a laptop, and MAX BID keeps
+ * its weight and colour so the hierarchy survives without the size difference.
+ */
+.cell {
+  font-size: 1.18em;
 }
 
-/* MAX BID gets the largest type on the row: 1.4x, per 7.1's physical-size table. */
+/*
+ * The answer column. Same size as the rest now, so it wins the glance on contrast and weight: full
+ * white against `--fg-soft` for the supporting figures.
+ */
 .cell-maxBid {
-  font-size: 1.4em;
+  color: var(--fg);
   font-weight: 800;
   letter-spacing: -0.01em;
 }
 
-/*
- * 4:3 is short, not narrow. 1024x768 leaves ~47px per row against ~78px at 1080p,
- * and MAX BID at 1.4em is what sets a row's minimum height -- at 1.4em the rows
- * land exactly on that minimum with nothing spare. Measured with tools/measure.mjs.
- *
- * This block has to come *after* the rule above: a media query carries no extra
- * specificity, so the override only wins on source order. It was written higher up
- * first and did nothing at all.
- */
-@media (aspect-ratio < 16 / 10) {
-  .cell-maxBid {
-    font-size: 1.2em;
-  }
+/* The supporting figures. Still fully legible, just not competing with the answer. */
+.cell-spent,
+.cell-needs,
+.cell-perSlot {
+  color: var(--fg-soft);
 }
 
-.cell-left {
-  font-size: 1.06em;
+/* 4:3 is short, not narrow: ~47px per row against ~78px at 1080p, so the common size comes down. */
+@media (aspect-ratio < 16 / 10) {
+  .cell {
+    font-size: 1.04em;
+  }
 }
 
 .negative {
@@ -336,7 +392,27 @@ body {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 0 0.2em;
-  font-size: 0.84em;
+}
+
+/*
+ * Centred in their own sub-column and colour-coded, per the designer's note, using the same palette as
+ * the ticker, the roster and the history -- so a position means one colour everywhere in the app. The
+ * column HEADER still spells the letters out, which is what keeps 7.7's rule that colour is never the
+ * only signal.
+ */
+.positions > span {
+  text-align: center;
+}
+
+.positions > span[data-position='QB'] { color: var(--pos-qb); }
+.positions > span[data-position='RB'] { color: var(--pos-rb); }
+.positions > span[data-position='WR'] { color: var(--pos-wr); }
+.positions > span[data-position='TE'] { color: var(--pos-te); }
+.positions > span[data-position='K'] { color: var(--pos-k); }
+
+/* An unfilled slot stays quiet whatever its position colour would have been. */
+.positions > span.zero[data-position] {
+  color: var(--rule);
 }
 
 /* Zero is a dim dot, not a 0, so unfilled needs pop out of a wall of digits. */
@@ -351,8 +427,15 @@ body {
   color: var(--fg-dim);
 }
 
+/*
+ * `FULL` is a word where every other row has a number, so it only needs the letter-spacing.
+ *
+ * It used to set `font-size: 1.1em` as well, written when `.cell` was 1em and MAX BID was 1.4em -- so
+ * it was a small reduction from the headline size. Once every cell went to 1.18em the same rule became
+ * a reduction BELOW the rest of the row, and MAX BID ended up the smallest and dimmest thing on a
+ * finished board: 51.7px against 55.4px for everything else. A stale override, not a design choice.
+ */
 .row[data-state='full'] .cell-maxBid {
-  font-size: 1.1em;
   letter-spacing: 0.08em;
 }
 
@@ -523,10 +606,27 @@ body {
 .sale-player[data-position='K'] { color: var(--pos-k); }
 
 .sale-price {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 0.45em;
   padding-left: 0.7em;
   font-size: 0.86em;
   color: var(--fg-dim);
+  min-width: 0;
+}
+
+.sale-manager {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pushed to the end so the prices line up down the list whatever the manager names are. */
+.sale-amount {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--fg);
 }
 
 /*
@@ -1509,8 +1609,11 @@ kbd {
   --bg-row: #ffffff;
   --bg-row-alt: #e9eef4;
   --fg: #0a0f14;
+  --fg-soft: #33424f;
   --fg-dim: #5b6a7a;
   --rule: #c3cedb;
+  --bg-head: #dde5ee;
+  --row-rule: #ccd6e2;
 
   --accent: #0a7a3c;
   --warn: #c0261f;
