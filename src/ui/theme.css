@@ -65,7 +65,13 @@
   --pos-rb: #ffb020;
   --pos-wr: #4fc3f7;
   --pos-te: #37d67a;
-  --pos-k: #ff8a65;
+  /*
+   * Neutral, not orange-red. `#ff8a65` sat 47 units from `--warn` in a 441-unit space -- close enough
+   * to read as the same colour for NORMAL vision at 25 feet, so a kicker count and an overspend
+   * warning looked alike. K is the one position that is always exactly one slot and always labelled by
+   * its column header, so it is the one that can afford to be uncoloured.
+   */
+  --pos-k: #dfe6ef;
   --pos-none: var(--fg);
 
   color-scheme: dark;
@@ -204,7 +210,12 @@ body {
 .totals {
   display: flex;
   align-items: baseline;
-  gap: 0.62em;
+  /*
+   * 1.7em between pairs against ~0.35em inside one. It was 0.62em, which is only 1.6x the internal
+   * gap -- not enough separation for `SPENT $2,411 SLOTS 180/180 $/SLOT —` to read as three facts
+   * rather than one grey string.
+   */
+  gap: 1.7em;
   font-size: 0.78em;
   color: var(--fg-dim);
   white-space: nowrap;
@@ -259,7 +270,12 @@ body {
   display: grid;
   align-items: center;
   gap: 0 0.5em;
-  padding: 0 0.42em;
+  /*
+   * `rem`, not `em`. The header row is `font-size: 0.5em`, so an em-based inset gave it HALF the
+   * padding of the data rows -- measured, the MANAGER label started 9.8px left of the names beneath it,
+   * the only misaligned column on the board. Root-relative units make the two agree by construction.
+   */
+  padding: 0 0.42rem;
 }
 
 .rows {
@@ -439,12 +455,34 @@ body {
   letter-spacing: 0.08em;
 }
 
+/*
+ * The leader's MAX BID is no longer coloured.
+ *
+ * It used `--accent`, which is the same green as `--pos-te` -- so on a single row green meant both
+ * "this manager can outbid everyone" and "this manager has two tight ends", six columns apart. And it
+ * is now redundant: MAX BID already carries full white against `--fg-soft` for every other figure, so
+ * the top bid is the brightest thing on the brightest column. Green is left meaning one thing on this
+ * screen: something just happened.
+ */
 .row[data-state='leader'] .cell-maxBid {
-  color: var(--accent);
+  color: var(--fg);
 }
 
-.row[data-invalid='true'] {
-  box-shadow: inset 0.16em 0 0 var(--warn);
+/*
+ * A left bar with vertical breathing room, so two adjacent overspent rows read as two marks rather than
+ * one continuous bracket -- which is what `inset` box-shadow gave, since a shadow cannot be inset on
+ * one axis only. `::before`, because `::after` is the flash overlay.
+ */
+.row[data-invalid='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 0.16em;
+  background: var(--warn);
+  border-radius: 0 0.1em 0.1em 0;
+  pointer-events: none;
 }
 
 .row[data-invalid='true'] .cell-manager {
@@ -1212,8 +1250,19 @@ body {
   border-bottom: 1px solid var(--rule);
 }
 
+/*
+ * The block's title, and the only wayfinding on a screen of twelve near-identical panels -- so it
+ * gets the brightest ink here and the player names step down to `--fg-soft` below.
+ *
+ * It used to inherit `--fg` exactly as the player rows did, differing by weight alone, which left
+ * the manager's name the least distinguished thing in his own block: `Drake Maye` at the same size
+ * and the same white read as the heading and `Kevin` read as a label on it. Hierarchy has to come
+ * from colour rather than size because `.roster-slots` has ZERO vertical slack (see `.roster`) --
+ * growing the head by even 0.15em crops the fifteenth slot off every block.
+ */
 .roster-name {
   font-weight: 700;
+  color: var(--fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1270,6 +1319,7 @@ body {
  */
 .roster-player {
   min-width: 0;
+  color: var(--fg-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1284,8 +1334,24 @@ body {
   color: var(--stale);
 }
 
-/* Unfilled slots: present, countable, and quiet. */
-.roster-empty .roster-player,
+/*
+ * Unfilled slots: present, countable, and no longer drawn twice.
+ *
+ * Each empty slot used to render BOTH a `·` in the position column and an em dash where the player
+ * goes. Nine picks into a draft that is 342 marks against 9 names, and the dashes -- the wider glyph
+ * of the two, repeated down every block -- line up into columns that read as content from across the
+ * room. The first hour of the night is the worst case and it is also the longest.
+ *
+ * `visibility: hidden` rather than removing the dash from the markup, because the empty rows have to
+ * keep their exact height: `.roster-slot` is `line-height: 1` and the surviving `·` is 0.78em, so an
+ * empty row with nothing full-size in it would collapse and all fifteen slots would re-flow upward as
+ * real picks landed. Hidden elements still build their line box, so the block is dimensionally
+ * identical to the old one -- verified by the gate reporting the same zero slack.
+ */
+.roster-empty .roster-player {
+  visibility: hidden;
+}
+
 .roster-empty .roster-pos {
   color: var(--rule);
 }
@@ -1625,7 +1691,7 @@ kbd {
   --pos-rb: #9a5300;
   --pos-wr: #0a5fa8;
   --pos-te: #0a7a3c;
-  --pos-k: #b23c14;
+  --pos-k: #2c3a48;
   --pos-none: var(--fg);
 }
 
@@ -1654,8 +1720,16 @@ kbd {
   color: var(--stale);
 }
 
+/*
+ * Amber, not red. Red is reserved for a NEGATIVE figure -- money that cannot exist, i.e. a data error
+ * -- and `.negative` still carries it.
+ *
+ * `$0 left` is the normal end state for a manager who bid their budget out, not a fault. On a finished
+ * board the old rule painted all twelve REMAINING cells the alarm colour while MAX BID read a calm grey
+ * `FULL`, so the loudest thing on the wall was twelve managers behaving correctly.
+ */
 .cell[data-pressure='critical'] {
-  color: var(--warn);
+  color: var(--stale);
 }
 
 /*
@@ -1671,10 +1745,7 @@ kbd {
   opacity: 1;
 }
 
-/* The leader's accent must not be overridden by a pressure rule it cannot be in. */
-.row[data-state='leader'] .cell-maxBid[data-pressure='none'] {
-  color: var(--accent);
-}
+/* The leader cannot be under pressure by definition, so nothing to reconcile here any more. */
 
 /* ------------------------------------------------------- sale history (7.3) */
 
