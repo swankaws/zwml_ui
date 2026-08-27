@@ -249,7 +249,7 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * and the fixture's own stand-in sales are enough -- `nominatorBySeq` only needs an order and
        * a log. `?cursor=` still pins the on-clock highlight; see the note in `App`.
        */
-      pointer={{ baselineCounts: {}, log: fixture.sales, offset: 0 }}
+      pointer={{ baselineCounts: {}, log: fixture.sales, adjustments: [] }}
       /*
        * `?flash=N` marks the first N managers as just-changed, for the layout gate.
        *

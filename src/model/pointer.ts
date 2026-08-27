@@ -36,7 +36,38 @@ import type { SaleEvent } from './diff'
 export interface PointerBasis {
   baselineCounts: Readonly<Record<string, number>>
   log: readonly SaleEvent[]
-  offset: number
+  /**
+   * The operator's corrections, each stamped with WHEN it was made.
+   *
+   * A running total would be enough for the live pointer, and that is all this used to be. It is not
+   * enough for the history view, which has to name whoever was on the clock ON SCREEN at the moment a
+   * pick was entered -- and a single number cannot say whether a correction was made before or after
+   * any given sale. Stamping each one lets both questions be answered from the same record: the live
+   * pointer sums them all, and history sums only those already in force.
+   */
+  adjustments: readonly CursorAdjustment[]
+}
+
+export interface CursorAdjustment {
+  /**
+   * The highest sale sequence that existed when the key was pressed.
+   *
+   * So a correction applies to sales with a GREATER seq -- the ones nominated after the operator fixed
+   * the board -- and not to anything already logged. `0` means it was pressed before the first sale.
+   */
+  afterSeq: number
+  /** `+1` for `N`, `-1` for `Shift+N`. */
+  delta: number
+}
+
+/** Every correction, for the live pointer. */
+export function totalOffset(adjustments: readonly CursorAdjustment[]): number {
+  return adjustments.reduce((sum, a) => sum + a.delta, 0)
+}
+
+/** Only the corrections already in force when `seq` was nominated, for the history view. */
+export function offsetAt(adjustments: readonly CursorAdjustment[], seq: number): number {
+  return adjustments.reduce((sum, a) => (a.afterSeq < seq ? sum + a.delta : sum), 0)
 }
 
 export interface PointerInput {
@@ -53,14 +84,13 @@ export interface PointerInput {
   /** Chronological, oldest first. */
   log: readonly SaleEvent[]
   /**
-   * The operator's running correction, in eligible positions. Positive is forward.
+   * The operator's corrections, each stamped with when it was made. See `CursorAdjustment`.
    *
-   * 7.5: "`N` advances, `Shift+N` retreats. The manual offset persists alongside the
-   * pointer." Persisting is the whole point -- a one-shot nudge would be undone by the very
-   * next sale, so the operator would have to re-correct after every player, all night. As
-   * an offset, one keystroke fixes the rotation for good.
+   * 7.5: "`N` advances, `Shift+N` retreats. The manual offset persists alongside the pointer."
+   * Persisting is the whole point -- a one-shot nudge would be undone by the very next sale, so the
+   * operator would have to re-correct after every player, all night.
    */
-  offset?: number
+  adjustments?: readonly CursorAdjustment[]
 }
 
 /**
@@ -71,8 +101,9 @@ export interface PointerInput {
  * order with nobody highlighted, which is what the room read off the wall for years.
  */
 export function derivePointer(input: PointerInput): number | null {
-  const { order, baselineCounts, log, offset = 0 } = input
+  const { order, baselineCounts, log, adjustments = [] } = input
   if (order.length === 0) return null
+  const offset = totalOffset(adjustments)
 
   const counts = new Map<string, number>(Object.entries(baselineCounts))
   const slots = league.auctionSlots
@@ -108,20 +139,20 @@ export function derivePointer(input: PointerInput): number | null {
  * answerable at all: the sheet records the BUYER of every pick and nothing about who put the player
  * up. The nominator of sale *k* is simply where the rotation stood before sale *k* was credited.
  *
- * Two honest limits, and they are the reason this returns `null` rather than guessing:
+ * It applies each correction only to the sales that came AFTER it, so every row names whoever the
+ * wall was showing on the clock when that pick was entered. That is the maintainer's rule, and it is
+ * the right one: the earlier version ignored corrections entirely and therefore printed names the
+ * operator had already told the board were wrong, while blindly applying today's total would rewrite
+ * an hour of history to match a late fix. Stamping each correction is what lets it do neither.
  *
- *   - It is only ever as right as `order`. A placeholder rotation makes every name here wrong in
- *     the same way it makes ON THE CLOCK wrong.
- *   - It ignores the operator's `offset`. That offset is a correction to where the pointer is NOW,
- *     applied because the replay drifted from the room; it says nothing about which manager
- *     nominated a player an hour ago. Retro-applying it would silently rewrite history to match a
- *     late correction.
+ * One honest limit remains: it is only ever as right as `order`. A placeholder rotation makes every
+ * name here wrong in the same way it makes ON THE CLOCK wrong.
  *
  * Keyed by `seq` rather than positional, so the caller cannot mis-align it with a log that has had
  * a retraction removed from the middle.
  */
-export function nominatorBySeq(input: Omit<PointerInput, 'offset'>): Map<number, string> {
-  const { order, baselineCounts, log } = input
+export function nominatorBySeq(input: PointerInput): Map<number, string> {
+  const { order, baselineCounts, log, adjustments = [] } = input
   const nominators = new Map<number, string>()
   if (order.length === 0) return nominators
 
@@ -132,7 +163,12 @@ export function nominatorBySeq(input: Omit<PointerInput, 'offset'>): Map<number,
   if (index === null) return nominators
 
   for (const sale of [...log].sort((a, b) => a.seq - b.seq)) {
-    const nominator = order[index]
+    /*
+     * The corrections already in force when this pick was entered -- not the running total, and not
+     * zero. Applied to the replayed position, this is literally what the rail was showing.
+     */
+    const shown = applyOffset(order, index, offsetAt(adjustments, sale.seq), isFull)
+    const nominator = order[shown]
     if (nominator !== undefined) nominators.set(sale.seq, nominator)
 
     counts.set(sale.manager, (counts.get(sale.manager) ?? 0) + 1)

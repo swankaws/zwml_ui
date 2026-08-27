@@ -17,6 +17,7 @@ import { parseCsv } from '../data/csv'
 import { league } from '../config/league'
 import { parseAuctionGrid } from '../data/gridParser'
 import { snapshotSlots } from '../model/diff'
+import { totalOffset } from '../model/pointer'
 import type { SessionRecord } from './session'
 
 /** Minimal CSV writer, so a test can doctor a fixture and feed it back through the real parser. */
@@ -657,7 +658,7 @@ describe('surviving a reload', () => {
       baselineCounts: {},
       slots: {},
       saleLog: [],
-      cursorOffset: 0,
+      adjustments: [],
       ...over,
     }
   }
@@ -737,7 +738,7 @@ describe('surviving a reload', () => {
       { slot: '1:5', seq: 1, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'RB' as const },
       { slot: '7:5', seq: 2, player: 'Puka Nacua', price: 44, manager: 'Corky', position: 'WR' as const },
     ]
-    const session = fakeSession(seed({ slots: slots2026, saleLog: log, cursorOffset: 2 }))
+    const session = fakeSession(seed({ slots: slots2026, saleLog: log, adjustments: [{ afterSeq: 0, delta: 2 }] }))
     const h = harness({ session: session.store })
     h.answer(GID, { text: raw2026 })
 
@@ -747,7 +748,7 @@ describe('surviving a reload', () => {
     const snapshot = h.store.getSnapshot()
     // Newest first on the wall, oldest first in the log the pointer replays.
     expect(snapshot.sales.map((s) => s.seq)).toEqual([2, 1])
-    expect(snapshot.pointer.offset).toBe(2)
+    expect(totalOffset(snapshot.pointer.adjustments)).toBe(2)
     // The sheet matched what we remembered, so nothing was absorbed and nobody is told anything.
     expect(snapshot.warnings.some((w) => w.includes('absorbed'))).toBe(false)
   })
@@ -795,11 +796,11 @@ describe('surviving a reload', () => {
     await h.settle()
 
     h.store.nudgeCursor(1)
-    expect(session.current()?.cursorOffset).toBe(1)
+    expect(totalOffset(session.current()?.adjustments ?? [])).toBe(1)
   })
 
   it('clears the stored session on X, so the reset actually sticks', async () => {
-    const session = fakeSession(seed({ slots: slots2026, cursorOffset: 4 }))
+    const session = fakeSession(seed({ slots: slots2026, adjustments: [{ afterSeq: 0, delta: 4 }] }))
     const h = harness({ session: session.store })
     h.answer(GID, { text: raw2026 })
     h.store.start()
@@ -808,7 +809,7 @@ describe('surviving a reload', () => {
     h.store.resetSession()
     await h.settle()
 
-    expect(h.store.getSnapshot().pointer.offset).toBe(0)
+    expect(totalOffset(h.store.getSnapshot().pointer.adjustments)).toBe(0)
     expect(h.store.getSnapshot().sales).toEqual([])
   })
 })

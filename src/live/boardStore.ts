@@ -37,7 +37,7 @@ import {
   type SaleEvent,
   type SlotMap,
 } from '../model/diff'
-import { countsFromSlots, type PointerBasis } from '../model/pointer'
+import { countsFromSlots, type CursorAdjustment, type PointerBasis } from '../model/pointer'
 import { NO_REVISIONS, bumpRevisions, type Revisions } from '../model/revisions'
 import { RESYNC_NOTICE_MS, isRestorable, type SessionStore } from './session'
 import type { ManagerBlock } from '../data/gridParser'
@@ -162,6 +162,7 @@ export interface BoardHealth {
  */
 const NO_SALES: readonly SaleEvent[] = []
 const NO_COUNTS: Readonly<Record<string, number>> = {}
+const NO_ADJUSTMENTS: readonly CursorAdjustment[] = []
 
 /**
  * Shown before the first fetch returns, so the wall is never blank and never lying.
@@ -177,7 +178,7 @@ export function initialSnapshot(year: number): BoardSnapshot {
     state: null,
     order: [],
     sales: NO_SALES,
-    pointer: { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 },
+    pointer: { baselineCounts: NO_COUNTS, log: NO_SALES, adjustments: NO_ADJUSTMENTS },
     revisions: NO_REVISIONS,
     sheetSettings: {},
     feed: 'stale',
@@ -294,12 +295,21 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   let saleLog: readonly SaleEvent[] = NO_SALES
   /** `saleLog` reversed, memoized. Rebuilt only when the log changes -- see `NO_SALES`. */
   let salesView: readonly SaleEvent[] = NO_SALES
-  /** The operator's running correction (7.5). Survives every later sale, by design. */
-  let cursorOffset = 0
+  /**
+   * The operator's corrections, each stamped with the highest sale seq at the time (7.5).
+   *
+   * A running total was enough for the live pointer and is not enough for the history view, which has
+   * to name whoever the wall was SHOWING on the clock when each pick was entered.
+   */
+  let adjustments: readonly CursorAdjustment[] = NO_ADJUSTMENTS
   /** Replaced only when a manager actually moves, so `===` means "nothing flashed". */
   let revisions: Revisions = NO_REVISIONS
   /** Replaced wholesale whenever any of its three parts changes, so `===` is meaningful. */
-  let pointerBasis: PointerBasis = { baselineCounts: NO_COUNTS, log: NO_SALES, offset: 0 }
+  let pointerBasis: PointerBasis = {
+    baselineCounts: NO_COUNTS,
+    log: NO_SALES,
+    adjustments: NO_ADJUSTMENTS,
+  }
   /**
    * A restored session has not yet been checked against the sheet, and until it has, the next
    * parse must not be diffed normally -- see `reconcile`.
@@ -347,7 +357,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     lastSlots = saved.slots
     saleLog = saved.saleLog
     salesView = [...saved.saleLog].reverse()
-    cursorOffset = saved.cursorOffset
+    adjustments = saved.adjustments
     pendingReconcile = true
     setPointerBasis()
   }
@@ -628,7 +638,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
   }
 
   function setPointerBasis() {
-    pointerBasis = { baselineCounts, log: saleLog, offset: cursorOffset }
+    pointerBasis = { baselineCounts, log: saleLog, adjustments }
   }
 
   function saveSession() {
@@ -639,7 +649,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       baselineCounts: { ...baselineCounts },
       slots: lastSlots,
       saleLog: [...saleLog],
-      cursorOffset,
+      adjustments: [...adjustments],
     })
   }
 
@@ -847,7 +857,12 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
      */
     nudgeCursor(delta: number) {
       if (!Number.isFinite(delta) || delta === 0) return
-      cursorOffset += Math.trunc(delta)
+      /*
+       * Stamped with the highest sale seq that exists right now, so it applies to what is nominated
+       * NEXT and not to anything already in the log. That is what lets the history view name whoever
+       * was on screen at the time rather than rewriting the night to match a late correction.
+       */
+      adjustments = [...adjustments, { afterSeq: nextSequence(saleLog) - 1, delta: Math.trunc(delta) }]
       setPointerBasis()
       saveSession()
       publish()
@@ -865,7 +880,7 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
       baselineCounts = NO_COUNTS
       saleLog = NO_SALES
       salesView = NO_SALES
-      cursorOffset = 0
+      adjustments = NO_ADJUSTMENTS
       pendingReconcile = false
       resyncedAt = null
       resyncedCount = 0

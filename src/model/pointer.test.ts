@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countsFromSlots, derivePointer, nominatorBySeq } from './pointer'
+import { countsFromSlots, derivePointer, nominatorBySeq, offsetAt, totalOffset } from './pointer'
 import { league } from '../config/league'
 import type { SaleEvent } from './diff'
 
@@ -79,16 +79,16 @@ describe('derivePointer', () => {
   })
 })
 
-describe('the operator offset (7.5)', () => {
+describe('the operator correction (7.5)', () => {
   it('advances the pointer without touching the log', () => {
     const log = [sale(1, 'Alice')]
     expect(derivePointer({ order: ORDER, baselineCounts: {}, log })).toBe(at('Bob'))
-    expect(derivePointer({ order: ORDER, baselineCounts: {}, log, offset: 1 })).toBe(at('Cara'))
+    expect(derivePointer({ order: ORDER, baselineCounts: {}, log, adjustments: [{ afterSeq: 0, delta: 1 }] })).toBe(at('Cara'))
   })
 
   it('retreats', () => {
     const log = [sale(1, 'Alice')]
-    expect(derivePointer({ order: ORDER, baselineCounts: {}, log, offset: -1 })).toBe(at('Alice'))
+    expect(derivePointer({ order: ORDER, baselineCounts: {}, log, adjustments: [{ afterSeq: 0, delta: -1 }] })).toBe(at('Alice'))
   })
 
   /*
@@ -97,12 +97,12 @@ describe('the operator offset (7.5)', () => {
    * the rest of the night.
    */
   it('persists across later sales rather than being consumed by them', () => {
-    const one = derivePointer({ order: ORDER, baselineCounts: {}, log: [sale(1, 'Alice')], offset: 1 })
+    const one = derivePointer({ order: ORDER, baselineCounts: {}, log: [sale(1, 'Alice')], adjustments: [{ afterSeq: 0, delta: 1 }] })
     const two = derivePointer({
       order: ORDER,
       baselineCounts: {},
       log: [sale(1, 'Alice'), sale(2, 'Bob')],
-      offset: 1,
+      adjustments: [{ afterSeq: 0, delta: 1 }],
     })
 
     expect(one).toBe(at('Cara'))
@@ -115,24 +115,24 @@ describe('the operator offset (7.5)', () => {
 
   it('counts in eligible positions, so one press never lands on a full manager', () => {
     const counts = { Bob: league.auctionSlots }
-    expect(derivePointer({ order: ORDER, baselineCounts: counts, log: [], offset: 1 })).toBe(at('Cara'))
+    expect(derivePointer({ order: ORDER, baselineCounts: counts, log: [], adjustments: [{ afterSeq: 0, delta: 1 }] })).toBe(at('Cara'))
   })
 
   it('wraps around the order', () => {
-    expect(derivePointer({ order: ORDER, baselineCounts: {}, log: [], offset: 3 })).toBe(at('Alice'))
-    expect(derivePointer({ order: ORDER, baselineCounts: {}, log: [], offset: -1 })).toBe(at('Cara'))
+    expect(derivePointer({ order: ORDER, baselineCounts: {}, log: [], adjustments: [{ afterSeq: 0, delta: 3 }] })).toBe(at('Alice'))
+    expect(derivePointer({ order: ORDER, baselineCounts: {}, log: [], adjustments: [{ afterSeq: 0, delta: -1 }] })).toBe(at('Cara'))
   })
 
   it('is a no-op when only one manager can still nominate', () => {
     // Endgame: they nominate every remaining player, so nudging cannot mean anything.
     const counts = { Alice: league.auctionSlots, Bob: league.auctionSlots }
     const input = { order: ORDER, baselineCounts: counts, log: [] }
-    expect(derivePointer({ ...input, offset: 1 })).toBe(at('Cara'))
-    expect(derivePointer({ ...input, offset: -4 })).toBe(at('Cara'))
+    expect(derivePointer({ ...input, adjustments: [{ afterSeq: 0, delta: 1 }] })).toBe(at('Cara'))
+    expect(derivePointer({ ...input, adjustments: [{ afterSeq: 0, delta: -4 }] })).toBe(at('Cara'))
   })
 
   it('survives a large offset without spinning', () => {
-    expect(derivePointer({ order: ORDER, baselineCounts: {}, log: [], offset: 300 })).toBe(at('Alice'))
+    expect(derivePointer({ order: ORDER, baselineCounts: {}, log: [], adjustments: [{ afterSeq: 0, delta: 300 }] })).toBe(at('Alice'))
   })
 })
 
@@ -202,5 +202,129 @@ describe('nominatorBySeq (the history view)', () => {
   it('stops rather than looping once every roster is full', () => {
     const counts = Object.fromEntries(ORDER.map((n) => [n, league.auctionSlots]))
     expect(nominatorBySeq({ order: ORDER, baselineCounts: counts, log: [sale(1, 'Alice')] }).size).toBe(0)
+  })
+})
+
+/*
+ * The bug the maintainer found on 2026-08-26, and the rule that settles it: the history view must name
+ * whoever the wall was SHOWING on the clock when each pick was entered.
+ *
+ * The first version ignored corrections entirely, so history printed names the operator had already
+ * told the board were wrong. Blindly applying the running total would have gone too far the other way
+ * and rewritten an hour of history to match a late fix. Stamping each correction with the sale it
+ * followed is what lets it do neither.
+ */
+describe('history and a mid-draft correction', () => {
+  const log = [sale(1, 'Alice'), sale(2, 'Bob'), sale(3, 'Cara'), sale(4, 'Alice')]
+
+  it('leaves sales made before the correction alone', () => {
+    // `N` pressed after sale 2. Sales 1 and 2 were nominated under the old, uncorrected pointer.
+    const nominators = nominatorBySeq({
+      order: ORDER,
+      baselineCounts: {},
+      log,
+      adjustments: [{ afterSeq: 2, delta: 1 }],
+    })
+    const uncorrected = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    expect(nominators.get(1)).toBe(uncorrected.get(1))
+    expect(nominators.get(2)).toBe(uncorrected.get(2))
+  })
+
+  it('applies it to sales made after', () => {
+    const nominators = nominatorBySeq({
+      order: ORDER,
+      baselineCounts: {},
+      log,
+      adjustments: [{ afterSeq: 2, delta: 1 }],
+    })
+    const uncorrected = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    expect(nominators.get(3)).not.toBe(uncorrected.get(3))
+    expect(nominators.get(4)).not.toBe(uncorrected.get(4))
+  })
+
+  it('matches what the live pointer showed at the time, sale for sale', () => {
+    /*
+     * The strongest form of the rule, and the one worth having: replay the night one sale at a time,
+     * asking the LIVE pointer who was on the clock just before each pick, and check the history agrees.
+     * If these two ever diverge, the history is lying about something the room watched happen.
+     */
+    const adjustments = [{ afterSeq: 2, delta: 1 }]
+    const nominators = nominatorBySeq({ order: ORDER, baselineCounts: {}, log, adjustments })
+
+    for (const entry of log) {
+      const before = log.filter((s) => s.seq < entry.seq)
+      const onClockThen = derivePointer({
+        order: ORDER,
+        baselineCounts: {},
+        log: before,
+        // Only the corrections that existed at that moment.
+        adjustments: adjustments.filter((a) => a.afterSeq < entry.seq),
+      })
+      expect(nominators.get(entry.seq), `seq ${entry.seq}`).toBe(ORDER[onClockThen!])
+    }
+  })
+
+  it('handles a correction made before the first sale', () => {
+    // `afterSeq: 0` -- pressed while the board was still empty, so it applies to everything.
+    const nominators = nominatorBySeq({
+      order: ORDER,
+      baselineCounts: {},
+      log,
+      adjustments: [{ afterSeq: 0, delta: 1 }],
+    })
+    expect(nominators.get(1)).toBe(at('Bob') === 1 ? 'Bob' : ORDER[1])
+  })
+
+  it('accumulates several corrections in the order they were made', () => {
+    const nominators = nominatorBySeq({
+      order: ORDER,
+      baselineCounts: {},
+      log,
+      adjustments: [
+        { afterSeq: 1, delta: 1 },
+        { afterSeq: 3, delta: -1 },
+      ],
+    })
+    const plain = nominatorBySeq({ order: ORDER, baselineCounts: {}, log })
+    // Sale 1: nothing yet. Sales 2-3: +1. Sale 4: +1 then -1, back to the plain replay.
+    expect(nominators.get(1)).toBe(plain.get(1))
+    expect(nominators.get(2)).not.toBe(plain.get(2))
+    expect(nominators.get(4)).toBe(plain.get(4))
+  })
+
+  it('sums every correction for the LIVE pointer, whenever they were made', () => {
+    // The live pointer is about now, so timing does not matter to it -- only the total does.
+    const adjustments = [
+      { afterSeq: 1, delta: 1 },
+      { afterSeq: 9, delta: 1 },
+    ]
+    expect(totalOffset(adjustments)).toBe(2)
+    expect(derivePointer({ order: ORDER, baselineCounts: {}, log, adjustments })).toBe(
+      derivePointer({
+        order: ORDER,
+        baselineCounts: {},
+        log,
+        adjustments: [{ afterSeq: 0, delta: 2 }],
+      }),
+    )
+  })
+})
+
+describe('offsetAt', () => {
+  const adjustments = [
+    { afterSeq: 2, delta: 1 },
+    { afterSeq: 5, delta: -1 },
+  ]
+
+  it('counts only what was already in force', () => {
+    expect(offsetAt(adjustments, 1)).toBe(0)
+    expect(offsetAt(adjustments, 2)).toBe(0)
+    expect(offsetAt(adjustments, 3)).toBe(1)
+    expect(offsetAt(adjustments, 5)).toBe(1)
+    expect(offsetAt(adjustments, 6)).toBe(0)
+  })
+
+  it('is zero with no corrections', () => {
+    expect(offsetAt([], 7)).toBe(0)
   })
 })

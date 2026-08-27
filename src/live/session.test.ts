@@ -15,7 +15,7 @@ function record(over: Partial<SessionRecord> = {}): SessionRecord {
     baselineCounts: { Kevin: 4 },
     slots: { '1:5': { player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'RB', suspect: false } },
     saleLog: [],
-    cursorOffset: 0,
+    adjustments: [],
     ...over,
   }
 }
@@ -102,7 +102,10 @@ describe('browserSession', () => {
     ['JSON but not an object', '42'],
     ['null', 'null'],
     ['an object missing fields', '{"savedAt":1}'],
-    ['a saleLog that is not an array', '{"savedAt":1,"year":2026,"cursorOffset":0,"baselineCounts":{},"slots":{},"saleLog":{}}'],
+    [
+      'a saleLog that is not an array',
+      '{"savedAt":1,"year":2026,"adjustments":[],"baselineCounts":{},"slots":{},"saleLog":{}}',
+    ],
   ])('treats %s as no session rather than throwing', (_label, raw) => {
     // `sessionStorage` can hold whatever a previous version of this app wrote.
     const storage = fakeStorage()
@@ -124,8 +127,8 @@ describe('browserSession', () => {
     // Private browsing throws on ACCESS, so the caller hands us null. An in-memory store still
     // makes a reload-free session behave, and costs nothing.
     const store = browserSession(null)
-    store.write(record({ cursorOffset: 3 }))
-    expect(store.read()?.cursorOffset).toBe(3)
+    store.write(record({ adjustments: [{ afterSeq: 2, delta: 3 }] }))
+    expect(store.read()?.adjustments).toEqual([{ afterSeq: 2, delta: 3 }])
     store.clear()
     expect(store.read()).toBeNull()
   })

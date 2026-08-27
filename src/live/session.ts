@@ -25,6 +25,7 @@
  */
 
 import type { SaleEvent, SlotMap } from '../model/diff'
+import type { CursorAdjustment } from '../model/pointer'
 
 /**
  * Refused if older than this. 7.5's reasoning: a genuine mid-draft reload is seconds old, so a
@@ -53,8 +54,11 @@ export interface SessionRecord {
    */
   slots: SlotMap
   saleLog: SaleEvent[]
-  /** The operator's `N`/`Shift+N` correction. A reload must not silently undo it. */
-  cursorOffset: number
+  /**
+   * The operator's `N`/`Shift+N` corrections, each stamped with when it was made. A reload must not
+   * silently undo them, and the history view needs to know WHEN each one happened.
+   */
+  adjustments: CursorAdjustment[]
 }
 
 export interface SessionStore {
@@ -85,13 +89,33 @@ function looksLikeRecord(value: unknown): value is SessionRecord {
   return (
     typeof record.savedAt === 'number' &&
     typeof record.year === 'number' &&
-    typeof record.cursorOffset === 'number' &&
     typeof record.baselineCounts === 'object' &&
     record.baselineCounts !== null &&
     typeof record.slots === 'object' &&
     record.slots !== null &&
-    Array.isArray(record.saleLog)
+    Array.isArray(record.saleLog) &&
+    Array.isArray(record.adjustments)
   )
+}
+
+/**
+ * Upgrade a record written before corrections were stamped.
+ *
+ * Older sessions stored a single `cursorOffset` number. Rejecting them outright would be safe but
+ * costly in the one case that matters: a watchdog reload moments after a deploy would drop the night's
+ * ticker and the pointer for no reason. Converting instead keeps the correction, dated to `afterSeq: 0`
+ * -- i.e. treated as though it had always been in force, which is the only reading available once the
+ * timing has been lost, and the same reading the old code used everywhere.
+ */
+function migrate(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value
+  const record = value as Partial<SessionRecord> & { cursorOffset?: unknown }
+  if (Array.isArray(record.adjustments) || typeof record.cursorOffset !== 'number') return value
+  const offset = record.cursorOffset
+  return {
+    ...record,
+    adjustments: offset === 0 ? [] : [{ afterSeq: 0, delta: offset }],
+  }
 }
 
 /**
@@ -116,7 +140,7 @@ export function browserSession(storage: Storage | null, key = 'zwml:session'): S
       try {
         const raw = storage.getItem(key)
         if (raw === null) return null
-        const parsed: unknown = JSON.parse(raw)
+        const parsed: unknown = migrate(JSON.parse(raw))
         return looksLikeRecord(parsed) ? parsed : null
       } catch {
         return null

@@ -68,8 +68,14 @@ describe('a sheet edit reaching the nomination pointer', () => {
   const baseline = slotsOf(grid())
   const baselineCounts = countsFromSlots(baseline)
   const at = (name: string) => ORDER.indexOf(name)
+  /** `offset` here is a correction made BEFORE any sale, i.e. in force for the whole log. */
   const pointer = (log: readonly SaleEvent[], offset = 0) =>
-    derivePointer({ order: ORDER, baselineCounts, log, offset })
+    derivePointer({
+      order: ORDER,
+      baselineCounts,
+      log,
+      adjustments: offset === 0 ? [] : [{ afterSeq: 0, delta: offset }],
+    })
 
   it('treats everything already in the sheet as the baseline, not as sales', () => {
     /*
