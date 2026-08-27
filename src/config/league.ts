@@ -40,6 +40,16 @@ export const league = {
   positions: ['QB', 'RB', 'WR', 'TE', 'K'] as const,
 
   /**
+   * The most a roster may hold at a position. Absent means the only limit is the roster itself.
+   *
+   * League rules, not arithmetic -- RB and WR are capped only by the fifteen slots, which is why they are
+   * not listed rather than listed with a 15. Reaching a limit is a legitimate state, not an error: the
+   * board colours the count so a bidder can see at a glance that a manager cannot take another, which
+   * matters most for K, where two is already one more than anybody wants.
+   */
+  positionLimits: { QB: 3, TE: 3, K: 2 } as const,
+
+  /**
    * Grid template. Verified identical in the 2025 and 2026 tabs, and identical
    * across all three manager bands: zero violations across 24 blocks.
    *

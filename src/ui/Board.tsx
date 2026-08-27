@@ -7,7 +7,7 @@
  * at-a-glance comparison that is the entire point.
  */
 
-import { POSITION_COLUMNS, cellValue, pressureLevel, type Column } from './columns'
+import { POSITION_COLUMNS, atPositionLimit, cellValue, pressureLevel, type Column } from './columns'
 import type { ManagerState } from '../model/derive'
 import { league } from '../config/league'
 
@@ -113,6 +113,7 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
                   <div className="positions">
                     {POSITION_COLUMNS.map((p) => {
                       const count = m.positionCounts[p]
+                      const full = atPositionLimit(p, count)
                       return (
                         <span
                           key={p}
@@ -124,6 +125,16 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
                            * that colour is never the only signal.
                            */
                           data-position={p}
+                          /*
+                           * At the league's cap for this position: QB 3, TE 3, K 2. Red, because the
+                           * useful thing for a bidder is that this manager CANNOT take another.
+                           */
+                          data-limit={full ? '' : undefined}
+                          /*
+                           * The one place the state is available as text. Colour is the signal on the
+                           * wall, but a walk-up reader on a laptop gets the sentence.
+                           */
+                          title={full ? `${m.name} is at the ${p} limit (${count})` : undefined}
                         >
                           {/* A dim dot, not a 0: unfilled needs should pop out
                               rather than drown in a wall of zeros. */}

@@ -748,10 +748,26 @@ rather than leaving the paragraph above to imply otherwise: both are populated, 
 tests, and both currently reach nobody but a reader of `LeagueState`. §5.5 and this section promise the
 room gets told. That wiring is a phase-4 item, alongside the warning surface the error boundary needs.
 
-**Not validated: position counts.** Roster construction is unrestricted for bench slots, and while
-the league does have some positional caps, they are **not encoded in the sheet** (Q9). The display
-therefore reports position counts as facts and never flags one as "too many" — inventing a rule the
-league doesn't enforce would be worse than saying nothing.
+**Position caps — added rev 8, and this section previously said the opposite.** It read: "while the
+league does have some positional caps, they are **not encoded in the sheet** (Q9) … the display
+therefore reports position counts as facts and never flags one as 'too many' — inventing a rule the
+league doesn't enforce would be worse than saying nothing."
+
+That reasoning was right and its premise was wrong: the caps are real and the maintainer supplied them —
+**QB 3, TE 3, K 2**. RB and WR are bounded only by the fifteen roster slots, so they carry no cap at
+all. They live in `league.positionLimits`, not in the sheet, which is the honest place for a league rule
+the spreadsheet does not express.
+
+A count **at or above** its cap renders in `--warn`. At the cap is a legitimate state rather than an
+error — the useful thing for a bidder is that this manager *cannot take another* — and `>=` rather than
+`===` is deliberate: the board mirrors a spreadsheet somebody is typing into, so a fourth QB reaches the
+wall before anyone notices, and rendering it in ordinary ink because it failed an equality test would be
+the board hiding the one thing worth saying.
+
+The red was measured, not assumed, because the TE band is itself a brick red. In CIEDE2000 against the
+composited band it sits on, the worst case is 37.1 (TE on an alternate row) in dark mode and 76.7 in
+light — both better than the *ordinary* TE digit manages on that same band (21.7 and 54.9). A `title`
+carries the state as a sentence for a walk-up reader, since colour is the only signal on the wall.
 
 ---
 

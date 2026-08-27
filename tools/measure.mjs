@@ -449,6 +449,21 @@ const PROBE = `(() => {
      * own overflow:hidden made it invisible to every other probe here.
      */
     /*
+     * Position counts sitting at the league cap (QB 3, TE 3, K 2), which render red.
+     *
+     * Counted rather than colour-sampled: the assertion worth making is that the rule MATCHES something
+     * on a board that has managers at a cap, because a selector that quietly matches nothing is the way
+     * this feature would fail. NO BACKTICKS in this comment -- it is inside the PROBE template literal.
+     */
+    positionLimits: (() => {
+      const spans = [...document.querySelectorAll('.rows .row .positions > span[data-limit]')]
+      if (document.querySelector('.rows .row .positions') === null) return null
+      return {
+        count: spans.length,
+        positions: [...new Set(spans.map((el) => el.getAttribute('data-position')))].sort(),
+      }
+    })(),
+    /*
      * The celebration overlay (7.3). NO BACKTICKS IN THIS COMMENT -- it is inside the PROBE template
      * literal, so one would end the string and Node would parse the rest of the file as code.
      *

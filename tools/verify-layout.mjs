@@ -33,10 +33,15 @@ const BASE = process.env.ZWML_URL ?? 'http://localhost:8731/index.html'
  */
 const CASES = [
   { size: '1920x1080', query: '?fixture=2026&demoOrder=1', label: '1080p mid-draft' },
-  { size: '1920x1080', query: '?fixture=2025&demoOrder=1', label: '1080p draft complete' },
+  /*
+   * `posLimits: 3` -- the completed 2025 board has one manager at the QB cap and two at the TE cap, and
+   * no kicker reaches two. It is asserted because a selector that quietly matches NOTHING is how this
+   * feature would fail: the board would look correct and simply never colour anything.
+   */
+  { size: '1920x1080', query: '?fixture=2025&demoOrder=1', label: '1080p draft complete', posLimits: 3 },
   { size: '1920x1080', query: '?fixture=2026', label: '1080p order unset' },
   { size: '1024x768', query: '?fixture=2026&demoOrder=1', label: '4:3 mid-draft' },
-  { size: '1024x768', query: '?fixture=2025&demoOrder=1', label: '4:3 draft complete' },
+  { size: '1024x768', query: '?fixture=2025&demoOrder=1', label: '4:3 draft complete', posLimits: 3 },
   { size: '1280x1024', query: '?fixture=2026&demoOrder=1', label: '5:4 mid-draft' },
   { size: '390x844', query: '?fixture=2026&demoOrder=1', label: 'phone portrait' },
   { size: '1440x900', query: '?fixture=2026&demoOrder=1', label: 'laptop' },
@@ -436,6 +441,17 @@ for (const testCase of CASES) {
   const problems = []
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
+
+  if (testCase.posLimits !== undefined) {
+    if (m.positionLimits === null) {
+      problems.push('no position matrix rendered, so the cap colouring cannot be checked')
+    } else if (m.positionLimits.count !== testCase.posLimits) {
+      problems.push(
+        `${m.positionLimits.count} counts at a position cap, expected ${testCase.posLimits}` +
+          ` (found on ${m.positionLimits.positions.join(', ') || 'nothing'})`,
+      )
+    }
+  }
 
   if (testCase.moment !== undefined) {
     /*

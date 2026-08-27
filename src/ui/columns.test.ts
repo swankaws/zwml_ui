@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLUMNS, POSITION_COLUMNS, cellValue, money, selectColumns } from './columns'
+import { COLUMNS, POSITION_COLUMNS, atPositionLimit, cellValue, money, selectColumns } from './columns'
 import { league, type Position } from '../config/league'
 import type { ManagerState } from '../model/derive'
 
@@ -328,6 +328,46 @@ describe('cellValue', () => {
 
   it('renders nothing for the positions cell -- Board draws the matrix', () => {
     expect(cellValue('positions', managerState())).toBe('')
+  })
+})
+
+describe('atPositionLimit', () => {
+  it('marks a roster at the league cap for QB, TE and K', () => {
+    // League rules: QB 3, TE 3, K 2. The kicker cap is the one that matters most, because two is already
+    // one more than anybody wants -- see the extraKicker moment.
+    expect(atPositionLimit('QB', 3)).toBe(true)
+    expect(atPositionLimit('TE', 3)).toBe(true)
+    expect(atPositionLimit('K', 2)).toBe(true)
+  })
+
+  it('leaves a roster below the cap alone', () => {
+    expect(atPositionLimit('QB', 2)).toBe(false)
+    expect(atPositionLimit('TE', 2)).toBe(false)
+    expect(atPositionLimit('K', 1)).toBe(false)
+    expect(atPositionLimit('K', 0)).toBe(false)
+  })
+
+  it('treats an OVER-cap roster as at the cap, rather than failing an equality test', () => {
+    /*
+     * Not hypothetical. The board mirrors a spreadsheet somebody is typing into, so a fourth QB reaches
+     * the wall before anyone notices -- and rendering it in ordinary ink because `=== 3` was false would
+     * be the board hiding the one thing worth saying.
+     */
+    expect(atPositionLimit('QB', 4)).toBe(true)
+    expect(atPositionLimit('K', 9)).toBe(true)
+  })
+
+  it('never caps a position the league does not limit', () => {
+    // RB and WR are bounded only by the fifteen roster slots, which is why they carry no limit at all.
+    expect(atPositionLimit('RB', 15)).toBe(false)
+    expect(atPositionLimit('WR', 15)).toBe(false)
+  })
+
+  it('limits only positions the board actually renders', () => {
+    // A limit for a position that is not in the matrix would never be seen. DEF is drafted separately.
+    for (const position of Object.keys(league.positionLimits)) {
+      expect(POSITION_COLUMNS).toContain(position)
+    }
   })
 })
 

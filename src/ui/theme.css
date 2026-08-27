@@ -596,6 +596,20 @@ body {
 .positions > span[data-position='TE'] { color: var(--pos-te); }
 .positions > span[data-position='K'] { color: var(--pos-k); }
 
+/*
+ * At the league's cap for that position -- QB 3, TE 3, K 2 -- so this manager cannot take another.
+ *
+ * `--warn` rather than a new red, and measured rather than assumed, because the TE band is itself a brick
+ * red and a red digit on it was the obvious thing to get wrong. In CIEDE2000 against the composited band
+ * it sits on, the worst case is 37.1 (TE on an alternate row), which is BETTER than the ordinary TE digit
+ * manages on its own band (21.7) -- and it stays 14.8 from the position hue it replaces.
+ *
+ * After the per-position rules on purpose: same specificity, so source order is what lets this win.
+ */
+.positions > span[data-limit] {
+  color: var(--warn);
+}
+
 /* An unfilled slot stays quiet whatever its position colour would have been. */
 .positions > span.zero[data-position] {
   color: var(--rule);

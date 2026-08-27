@@ -11,7 +11,7 @@
  */
 
 import type { ManagerState } from '../model/derive'
-import { league } from '../config/league'
+import { league, type Position } from '../config/league'
 
 export type ColumnKey =
   | 'manager'
@@ -362,6 +362,21 @@ export function pressureLevel(column: ColumnKey, m: ManagerState): Pressure {
        */
       return 'none'
   }
+}
+
+/**
+ * Is this manager out of room at this position?
+ *
+ * `>=`, not `===`, so an over-limit roster reads the same as a full one. That is not hypothetical: the
+ * board is a mirror of a spreadsheet somebody is typing into, so a fourth QB will appear on the wall
+ * before anybody notices, and showing it in ordinary ink because it failed an equality test would be the
+ * board hiding the one thing worth saying.
+ *
+ * Positions with no listed limit are capped only by the fifteen roster slots, so they are never at one.
+ */
+export function atPositionLimit(position: Position, count: number): boolean {
+  const limit = (league.positionLimits as Partial<Record<Position, number>>)[position]
+  return limit !== undefined && count >= limit
 }
 
 /** $5 or less: technically able to bid, practically out of the running for anyone worth having. */
