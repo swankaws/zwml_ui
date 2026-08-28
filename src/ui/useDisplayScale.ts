@@ -25,6 +25,14 @@ import { useEffect, useRef, useState } from 'react'
 const MIN = 0.6
 const MAX = 2
 const STEP = 0.05
+
+/**
+ * How long the scale readout stays up after the last adjustment.
+ *
+ * 6s: long enough to read the number and press again, short enough that it is gone before anybody looks
+ * back at the board. The badge is feedback, not state -- the scale itself persists in `localStorage`.
+ */
+const SCALE_BADGE_MS = 6_000
 const STORAGE_KEY = 'zwml:scale'
 
 export function clampScale(value: number): number {
@@ -81,13 +89,38 @@ export function useDisplayScale(sheetScale: number | null = null): {
       return readInitialScale(search, null, sheetScale)
     }
   })
+  /**
+   * Drives the `SCALE 1.05` badge, and it is TRANSIENT -- see `SCALE_BADGE_MS`.
+   *
+   * Deliberately separate from `nudgedRef` below, because the two have different lifetimes and conflating
+   * them is what left the badge on the wall for the rest of the night. Whether the operator has taken
+   * control is permanent; whether to show them a readout of what they just did is not.
+   */
   const [nudged, setNudged] = useState(false)
-  // Ref, not state: the keydown handler must not be re-bound every nudge.
+  /**
+   * Ref, not state, for two reasons: the keydown handler must not be re-bound on every nudge, and this
+   * flag must OUTLIVE the badge. It is what stops a later SETTINGS-tab scale yanking the wall out from
+   * under an operator who has already adjusted it by hand.
+   */
   const nudgedRef = useRef(false)
 
   useEffect(() => {
     document.documentElement.style.setProperty('--scale', String(scale))
   }, [scale])
+
+  /*
+   * The badge fades. It is a confirmation of a keypress, not a status, and this display runs unattended
+   * for four hours -- so leaving it up meant the last thing anyone pressed at 6pm was still on the wall
+   * at 10pm, occupying a footer that 7.1's row budget has no slack to spend on chrome.
+   *
+   * Keyed on `scale` as well as `nudged`, so holding `+` restarts the clock rather than letting the first
+   * press time out mid-adjustment.
+   */
+  useEffect(() => {
+    if (!nudged) return
+    const timer = window.setTimeout(() => setNudged(false), SCALE_BADGE_MS)
+    return () => window.clearTimeout(timer)
+  }, [nudged, scale])
 
   /*
    * Phase 4 fetches the SETTINGS tab, so its scale arrives *after* the first

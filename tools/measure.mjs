@@ -92,6 +92,19 @@ const dpr = Number(arg('dpr', '1'))
  * smoke-testing the deployed URL wants to wait out a real round trip to Google.
  */
 const settle = Number(arg('settle', '400'))
+/*
+ * Keys to press after the page settles, comma-separated -- `--press r,r`.
+ *
+ * Added because the harness could only ever measure a FIRST render, and the bug that motivated it was
+ * invisible on one: switching to the roster and back re-attached the metrics ref to a different element,
+ * left the ResizeObserver on a detached node, and packed seven columns into a 374px phone. Every static
+ * case passed throughout. A view transition is a state this display really enters, so it is one the gate
+ * has to be able to reach.
+ */
+const press = arg('press', '')
+  .split(',')
+  .map((key) => key.trim())
+  .filter(Boolean)
 
 /** Runs in the page. Returns everything worth asserting about the layout. */
 const PROBE = `(() => {
@@ -680,6 +693,16 @@ await new Promise((resolve) => {
   }, 100)
 })
 await new Promise((r) => setTimeout(r, settle))
+
+/*
+ * Each keypress gets its own settle, because the point is to let React remount, re-measure and re-select
+ * columns between them -- measuring mid-transition would be measuring nothing in particular.
+ */
+for (const key of press) {
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key, text: key })
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key })
+  await new Promise((r) => setTimeout(r, Math.max(settle, 600)))
+}
 
 const { result, exceptionDetails } = await call('Runtime.evaluate', {
   expression: PROBE,

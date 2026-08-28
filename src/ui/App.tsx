@@ -98,20 +98,40 @@ interface Metrics {
  * `scale` is a dependency, not decoration: nudging the type scale changes the root
  * font size without changing the table's width, so the ResizeObserver never fires
  * and the fit test would keep using the type size from before the keypress.
+ *
+ * A CALLBACK ref, not a `useRef`, and that is the fix for a real bug rather than a style choice.
+ *
+ * This ref lands on TWO different elements -- `.table-area` on the board and `.stage` on the roster --
+ * and a `useRef` mutation does not re-run an effect. So switching to the roster and back left the
+ * ResizeObserver watching the DETACHED board node, which fires once with a width of 0. Combined with the
+ * `|| 1300` fallback at the call site, that measured 0 became a confident 1300px, and the fit test packed
+ * seven columns into a 374px phone: MAX BID rendered as `$18…` on every row, with `% REM` and `SPENT`
+ * along for the ride. On a 1920 board the same fault silently DROPPED `% REM` instead.
+ *
+ * A callback ref is called with `null` on unmount and the new node on mount, so keeping it in state makes
+ * the node an effect dependency and the observer always watches the element actually on screen.
  */
-function useTableMetrics<T extends HTMLElement>(scale: number): [React.RefObject<T | null>, Metrics] {
-  const ref = useRef<T>(null)
+function useTableMetrics<T extends HTMLElement>(scale: number): [(node: T | null) => void, Metrics] {
+  const [node, setNode] = useState<T | null>(null)
   const [metrics, setMetrics] = useState<Metrics>({ width: 0, typePx: 0 })
 
   useEffect(() => {
-    const node = ref.current
     if (!node) return
 
-    const measure = () =>
+    const measure = () => {
+      const width = node.getBoundingClientRect().width
+      /*
+       * A detached node measures 0, and 0 is not a measurement -- it is the absence of one. Discarding it
+       * keeps the last good width instead of handing the fit test a number it will treat as fact. Belt
+       * and braces with the dependency above: either alone fixes the reported bug, and the pair also
+       * covers a node that is merely display:none for a frame.
+       */
+      if (width === 0) return
       setMetrics({
-        width: node.getBoundingClientRect().width,
+        width,
         typePx: Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
       })
+    }
     measure()
 
     if (typeof ResizeObserver === 'undefined') {
@@ -121,9 +141,10 @@ function useTableMetrics<T extends HTMLElement>(scale: number): [React.RefObject
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [scale])
+    /* `node` is what makes this re-run when the ref moves between the board and the roster. */
+  }, [node, scale])
 
-  return [ref, metrics]
+  return [setNode, metrics]
 }
 
 export function App({

@@ -410,13 +410,37 @@ const CASES = [
   { size: '390x844', query: '?fixture=2026&moment=done', label: 'roster full on a phone', moment: 'rosterFull' },
   /* The kill switch. If this ever renders, the SETTINGS tab cannot turn the feature off on the night. */
   { size: '1920x1080', query: '?fixture=2026&moment=done&eggs=off', label: 'eggs off', noMoment: true },
+
+  /*
+   * BOARD -> ROSTER -> BOARD, which is the first case in this file that measures anything other than a
+   * first render -- and it exists because a real bug lived exactly there.
+   *
+   * The metrics ref lands on `.table-area` on the board and on `.stage` on the roster. A `useRef` does not
+   * re-run an effect, so the round trip left the ResizeObserver watching the DETACHED board node, which
+   * fires once with width 0; the `|| 1300` fallback then turned that into a confident 1300px. On a phone
+   * the fit test packed seven columns into 374px and MAX BID rendered `$18…` on every row; at 1920 the
+   * same fault silently dropped `% REM` instead. Every static case in this file passed throughout.
+   *
+   * Two presses of `r`, then the ordinary board assertions -- twelve rows, nothing truncated, no overflow.
+   */
+  { size: '390x844', query: '?fixture=2026', press: 'r,r', label: 'phone after roster round trip', mobile: true },
+  { size: '1920x1080', query: '?fixture=2026', press: 'r,r', label: '1080p after roster round trip' },
+  { size: '1024x768', query: '?fixture=2026', press: 'r,r', label: '4:3 after roster round trip' },
 ]
 
-function measure(size, query) {
+function measure(size, query, press) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [join(HERE, 'measure.mjs'), '--size', size, '--url', `${BASE}${query}`],
+      [
+        join(HERE, 'measure.mjs'),
+        '--size',
+        size,
+        '--url',
+        `${BASE}${query}`,
+        /* Keys to press before measuring, so a case can reach a state a first render never shows. */
+        ...(press ? ['--press', press] : []),
+      ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let out = ''
@@ -437,7 +461,7 @@ function measure(size, query) {
 const failures = []
 
 for (const testCase of CASES) {
-  const m = await measure(testCase.size, testCase.query)
+  const m = await measure(testCase.size, testCase.query, testCase.press)
   const problems = []
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
