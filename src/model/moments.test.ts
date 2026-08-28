@@ -16,6 +16,7 @@ import {
   detectMoments,
   firedFromLog,
   NAMED_PLAYERS,
+  HOARDER_OVER,
   namedPlayerFor,
   pinnedClip,
   pinnedMomentKind,
@@ -37,6 +38,15 @@ function sale(over: Partial<SaleEvent> = {}): SaleEvent {
 function slot(over: Partial<SlotState> = {}): SlotState {
   return { player: 'Harrison Butker', price: 1, manager: 'Kevin', position: 'K', suspect: false, ...over }
 }
+
+/**
+ * Positions for a plausible full roster: everything except K.
+ *
+ * Cycling through all five gave a fifteen-slot roster three kickers, which then fired `extraKicker` and
+ * outranked the moment the test was actually about. Excluding K keeps a full roster free of both kicker
+ * jokes, so a test that wants one can add exactly the kicker it means to.
+ */
+const FILLER_POSITIONS = league.positions.filter((position) => position !== 'K')
 
 const detect = (input: {
   sales: readonly SaleEvent[]
@@ -87,14 +97,15 @@ describe('firstKicker', () => {
     expect(detect({ sales: [sale({ seq: 2 })], slots: { '1:9': slot() }, fired })).toBeNull()
   })
 
-  it('does not fire when the sheet holds a kicker nobody watched sell', () => {
+  it('FIRES even though a kept kicker is already on the board', () => {
     /*
-     * Trap 2: the board opened late, or was reopened in a fresh tab. `sessionStorage` dies with the tab
-     * and the 30-minute window expires, so the log opens empty and the earlier kicker is absorbed into
-     * the baseline -- making the SECOND kicker of the night look like the first.
+     * This asserted the OPPOSITE until the maintainer pointed out the league keeps a kicker.
      *
-     * Consuming as well as suppressing is the point: otherwise the third kicker fires instead, which is
-     * the same false claim one poll later.
+     * An `everyKickerWatched` guard used to suppress the punt whenever the sheet held a creditable kicker
+     * nobody had watched sell, reasoning that the one just sold could not then claim to be the first. A KEPT
+     * kicker is exactly that shape -- so the guard made this moment unreachable in the only season it runs in.
+     *
+     * The honest event is the first kicker DRAFTED. A keeper was not drafted tonight.
      */
     const fired = new Set<string>()
     const moment = detect({
@@ -102,8 +113,18 @@ describe('firstKicker', () => {
       slots: { '1:9': slot(), '7:9': slot({ manager: 'Toby' }) },
       fired,
     })
-    expect(moment).toBeNull()
+    expect(moment?.kind).toBe('firstKicker')
     expect(fired.has('firstKicker')).toBe(true)
+  })
+
+  it('still refuses once a kicker has sold TONIGHT, which is the check that survived', () => {
+    // The log is the honest record of what this board has watched sell. One kicker in it is enough.
+    const moment = detect({
+      sales: [sale({ slot: '7:9', manager: 'Toby', seq: 4 })],
+      log: [sale({ slot: '1:9', seq: 1 })],
+      slots: { '1:9': slot(), '7:9': slot({ manager: 'Toby' }) },
+    })
+    expect(moment).toBeNull()
   })
 
   it('refuses when the log already holds a kicker, even with an empty fired set', () => {
@@ -242,10 +263,11 @@ describe('playerTag', () => {
   })
 
   it('yields to a finished roster, since DONE is the moment the room stops for', () => {
+    /* Positions cycled, so a full roster is not also a hoarding roster -- see `rosterOf` above. */
     const slots: SlotMap = Object.fromEntries(
       Array.from({ length: league.auctionSlots }, (_, i) => [
         `1:${i + 2}`,
-        slot({ manager: 'Kevin', position: 'RB' }),
+        slot({ manager: 'Kevin', position: FILLER_POSITIONS[i % FILLER_POSITIONS.length]! }),
       ]),
     )
     slots['7:2'] = slot({ manager: 'Corky' })
@@ -304,10 +326,11 @@ describe('namedPlayer', () => {
 
   it('yields to a finished roster', () => {
     // Kelce completing somebody is still primarily them being DONE.
+    /* Positions cycled, so a full roster is not also a hoarding roster -- see `rosterOf` above. */
     const slots: SlotMap = Object.fromEntries(
       Array.from({ length: league.auctionSlots }, (_, i) => [
         `1:${i + 2}`,
-        slot({ manager: 'Kevin', position: 'RB' }),
+        slot({ manager: 'Kevin', position: FILLER_POSITIONS[i % FILLER_POSITIONS.length]! }),
       ]),
     )
     slots['7:2'] = slot({ manager: 'Corky', position: 'RB' })
@@ -321,6 +344,91 @@ describe('namedPlayer', () => {
       expect(entry.headline.trim()).not.toBe('')
       expect(entry.clip).toMatch(/\.(gif|webp|png)$/)
     }
+  })
+})
+
+describe('hoarder', () => {
+  /** `count` slots of `position` for one manager, plus a bystander so nothing else trips. */
+  const stack = (manager: string, position: 'QB' | 'RB' | 'WR' | 'TE' | 'K', count: number): SlotMap => ({
+    ...Object.fromEntries(
+      Array.from({ length: count }, (_, i) => [`1:${i + 2}`, slot({ manager, position })]),
+    ),
+    '7:2': slot({ manager: 'Bystander', position: 'QB' }),
+  })
+
+  const bought = (position: 'QB' | 'RB' | 'WR' | 'TE' | 'K', over: Partial<SaleEvent> = {}) =>
+    sale({ manager: 'Kevin', position, player: 'Javonte Williams', price: 4, slot: '1:2', ...over })
+
+  it('fires at SEVEN, the first offending number', () => {
+    expect(HOARDER_OVER).toBe(6)
+    const moment = detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 7) })
+    expect(moment?.kind).toBe('hoarder')
+    expect(moment?.count).toBe(7)
+  })
+
+  it('does not fire at six, which is merely a lot', () => {
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 6) })).toBeNull()
+  })
+
+  it('counts the position of the sale, not the biggest stack on the roster', () => {
+    /*
+     * A manager with eight running backs who then buys a receiver is not being accused over the receiver.
+     * The sale names what the accusation is about.
+     */
+    const slots: SlotMap = {
+      ...Object.fromEntries(
+        Array.from({ length: 8 }, (_, i) => [`1:${i + 2}`, slot({ manager: 'Kevin', position: 'RB' })]),
+      ),
+      '1:12': slot({ manager: 'Kevin', position: 'WR' }),
+      '7:2': slot({ manager: 'Bystander', position: 'QB' }),
+    }
+    expect(detect({ sales: [bought('WR', { slot: '1:12' })], slots })).toBeNull()
+  })
+
+  it('counts keepers, because the joke is about the roster not the auction', () => {
+    // Six kept plus one bought is seven on the roster, however they got there.
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 7) })?.count).toBe(7)
+  })
+
+  it('fires once per manager AND position, so eight does not repeat seven', () => {
+    const fired = new Set<string>()
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 7), fired })?.kind).toBe('hoarder')
+    expect(fired.has('hoarder:Kevin:RB')).toBe(true)
+    expect(detect({ sales: [bought('RB', { seq: 2 })], slots: stack('Kevin', 'RB', 8), fired })).toBeNull()
+  })
+
+  it('accuses the same manager separately for a different position', () => {
+    const fired = new Set(['hoarder:Kevin:RB'])
+    const slots: SlotMap = {
+      ...Object.fromEntries(
+        Array.from({ length: 7 }, (_, i) => [`1:${i + 2}`, slot({ manager: 'Kevin', position: 'WR' })]),
+      ),
+      '7:2': slot({ manager: 'Bystander', position: 'QB' }),
+    }
+    expect(detect({ sales: [bought('WR')], slots, fired })?.kind).toBe('hoarder')
+  })
+
+  it('yields to a finished roster', () => {
+    /*
+     * BELOW roster full, unlike the two-kicker joke. If one sale both completes a roster and tips somebody
+     * into hoarding, DONE is the moment the room stops for -- and the stack is still on the board after.
+     */
+    const slots: SlotMap = {
+      ...Object.fromEntries(
+        Array.from({ length: league.auctionSlots }, (_, i) => [
+          `1:${i + 2}`,
+          slot({ manager: 'Kevin', position: 'RB' }),
+        ]),
+      ),
+      '7:2': slot({ manager: 'Bystander', position: 'QB' }),
+    }
+    const moment = detect({ sales: [bought('RB')], slots })
+    expect(moment?.kind).toBe('rosterFull')
+  })
+
+  it('ignores a sale with no position at all', () => {
+    // A bench pick whose Pos cell has not been typed yet. Nothing to accuse them of.
+    expect(detect({ sales: [bought('RB', { position: null })], slots: stack('Kevin', 'RB', 9) })).toBeNull()
   })
 })
 
@@ -376,10 +484,11 @@ describe('firstBroke', () => {
      * consumed so the broke joke is not told separately one poll later.
      */
     const fired = new Set<string>()
+    /* Positions cycled, so a full roster is not also a hoarding roster -- see `rosterOf` above. */
     const slots: SlotMap = Object.fromEntries(
       Array.from({ length: league.auctionSlots }, (_, i) => [
         `1:${i + 2}`,
-        slot({ manager: 'Kevin', position: 'RB' }),
+        slot({ manager: 'Kevin', position: FILLER_POSITIONS[i % FILLER_POSITIONS.length]! }),
       ]),
     )
     slots['7:2'] = slot({ manager: 'Corky', position: 'RB' })
@@ -475,11 +584,19 @@ describe('bigSpender', () => {
 
 describe('rosterFull', () => {
   /** `count` picks for `manager`, keyed so each is its own slot. */
+  /*
+   * A roster with a PLAUSIBLE spread of positions, cycling through the five.
+   *
+   * It used to fill every slot with the same position, which the hoarder rule then correctly flagged -- a
+   * fifteen-running-back roster is hoarding, so these tests started asserting the wrong moment. Rather than
+   * exempt them, the fixture is now a roster somebody could actually have: fifteen slots across five
+   * positions is three each, under every cap.
+   */
   const rosterOf = (manager: string, count: number, col = 1): SlotMap =>
     Object.fromEntries(
       Array.from({ length: count }, (_, i) => [
         `${col}:${i + 2}`,
-        slot({ manager, position: 'RB', player: `P${i}` }),
+        slot({ manager, position: FILLER_POSITIONS[i % FILLER_POSITIONS.length]!, player: `P${i}` }),
       ]),
     )
 
@@ -616,16 +733,19 @@ describe('a poll that earns both', () => {
     expect([...fired].sort()).toEqual(['bigSpender:7:3', 'firstKicker'])
   })
 
-  it('falls back to the spend when the kicker is suppressed as unaccounted', () => {
+  it('still prefers the kicker when a kept kicker is also on the board', () => {
+    /*
+     * The inverse of the removed guard. A keeper sitting in the sheet no longer demotes the punt to the
+     * spend -- the kicker sale is the event, and it outranks the money.
+     */
     const moment = detect({
       sales: [
         sale({ slot: '1:9', seq: 1 }),
         sale({ slot: '7:3', player: 'Justin Jefferson', position: 'WR', price: 72, seq: 2 }),
       ],
-      // A second kicker in the sheet that nobody watched sell.
       slots: { '1:9': slot(), '13:9': slot({ manager: 'Toby' }) },
     })
-    expect(moment?.kind).toBe('bigSpender')
+    expect(moment?.kind).toBe('firstKicker')
   })
 })
 

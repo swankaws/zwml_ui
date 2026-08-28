@@ -16,6 +16,7 @@ import { Roster } from './Roster'
 import { History } from './History'
 import { Complete } from './Complete'
 import { Help } from './Help'
+import { ConfirmReset } from './ConfirmReset'
 import { MomentOverlay } from './MomentOverlay'
 import type { Moment, MomentKind } from '../model/moments'
 import { useHelp, useView } from './useView'
@@ -84,6 +85,13 @@ export interface AppProps {
   momentClip?: number | null
   /** Manager -> team name for the board's tooltip. Empty means no tooltip, which is the default. */
   teams?: Readonly<Record<string, string>>
+  /**
+   * Re-baseline, for `X`. Absent on the fixture path, where the prompt still opens so it can be measured but
+   * confirming has nothing to act on.
+   */
+  onResetSession?: () => void
+  /** `?confirmReset=1`, fixture-only, so the gate can measure the card without a keypress. */
+  pinnedConfirmReset?: boolean
 }
 
 /**
@@ -170,6 +178,8 @@ export function App({
   pinnedMoment = null,
   momentClip = null,
   teams = {},
+  onResetSession,
+  pinnedConfirmReset = false,
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
@@ -365,6 +375,7 @@ export function App({
        * Beside `Help`, the app's other overlay, and OUTSIDE `.stage` on purpose: it covers the board
        * rather than living in it, so it must not be a grid item competing for the row budget.
        */}
+      <ConfirmReset onConfirm={onResetSession} pinned={pinnedConfirmReset} />
       <MomentOverlay
         moment={moment}
         pinned={pinnedMoment}

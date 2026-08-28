@@ -470,6 +470,23 @@ const PROBE = `(() => {
      * own overflow:hidden made it invisible to every other probe here.
      */
     /*
+     * The re-baseline confirmation (7.9). NO BACKTICKS in this comment -- PROBE template literal.
+     *
+     * Measured because X is destructive and the prompt is the only thing standing between a stray keystroke
+     * and the night's ticker: a card that does not fit is a question the operator cannot read.
+     */
+    confirm: (() => {
+      const card = document.querySelector('.confirm-card')
+      if (!card) return null
+      const r = card.getBoundingClientRect()
+      const view = { w: window.innerWidth, h: window.innerHeight }
+      return {
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+        clipped: r.left < -1 || r.top < -1 || r.right > view.w + 1 || r.bottom > view.h + 1,
+      }
+    })(),
+    /*
      * The team tooltip (7.2). NO BACKTICKS -- inside the PROBE template literal.
      *
      * Two halves, because they fail differently: titled is the desktop half and is native, while tip

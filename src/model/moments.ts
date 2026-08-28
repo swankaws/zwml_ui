@@ -23,9 +23,19 @@
  *
  *   1. Reading the log AFTER the new sales are appended answers "has a kicker already sold?" with the
  *      very kicker being asked about, so the egg never fires. The caller must pass the log as it was.
- *   2. A board opened LATE, or reopened in a fresh tab, starts with an empty log and absorbs the
- *      kicker that already sold into its baseline -- so the SECOND kicker of the night would read as
- *      the first. Closed by `everyKickerWatched`.
+ *   2. WAS closed by an `everyKickerWatched` guard, which has been REMOVED -- and the removal is the
+ *      maintainer's call, correctly. That guard suppressed the punt whenever the sheet held a creditable
+ *      kicker nobody had watched sell, on the reasoning that the one just sold could not then claim to be
+ *      the first. But a KEPT kicker is exactly that shape, and this league keeps one -- so the guard made
+ *      the moment unreachable in the only season it would ever run in.
+ *
+ *      The honest event is the first kicker DRAFTED, not the first kicker on the board. A keeper was not
+ *      drafted tonight. What survives is the narrower and more useful check: a kicker already in this
+ *      tab's log means one has already sold tonight, so this is not the first sale.
+ *
+ *      The residual exposure, stated rather than hidden: a fresh tab opened mid-draft, after a kicker has
+ *      sold and with no restorable session, would announce the second one as the first. That is a mild
+ *      wrong claim against a moment that otherwise never fires at all.
  *   3. A row inserted into the sheet re-keys every slot below it and reads as dozens of new sales, one
  *      of which will be a kicker. Closed by `MOMENT_MAX_BATCH`, the same reasoning `revisions.ts`
  *      already applies to the value flash.
@@ -41,6 +51,7 @@ export type MomentKind =
   | 'firstKicker'
   | 'extraKicker'
   | 'rosterFull'
+  | 'hoarder'
   | 'firstBroke'
   | 'namedPlayer'
   | 'playerTag'
@@ -51,7 +62,7 @@ export interface Moment {
   /** The sale that earned it. The overlay names the player, the manager and the price. */
   sale: SaleEvent
   /**
-   * How many kickers that manager now holds. `extraKicker` only.
+   * A count the headline needs: kickers held for `extraKicker`, players at that position for `hoarder`.
    *
    * Carried on the moment rather than recomputed in the UI, because the overlay would have to be handed
    * the whole slot map to work it out -- and the headline says the number, so a second opinion about it
@@ -83,6 +94,7 @@ export const MOMENT_HOLD_MS: Record<MomentKind, number> = {
   firstKicker: 5_000,
   /* Longer than the first kicker: it is the better joke, and it is much rarer. */
   extraKicker: 8_000,
+  hoarder: 6_000,
   /* Once a night, like the kicker, and it lands mid-flow rather than in a pause. */
   firstBroke: 5_000,
   namedPlayer: 6_000,
@@ -176,6 +188,15 @@ export const MAX_PLAUSIBLE_PRICE = league.budget
 export const MOMENT_MAX_BATCH = 2
 
 /**
+ * Strictly more than this at one position and it is hoarding. Seven is the first offending number.
+ *
+ * In practice this is an RB/WR accusation and cannot be anything else: `positionLimits` caps QB and TE at
+ * three and K at two, so those cannot reach seven without the sheet being wrong. Which is the right shape --
+ * stockpiling running backs is the actual behaviour worth mocking.
+ */
+export const HOARDER_OVER = 6
+
+/**
  * Stable id for the fired set. One kicker-moment ever, one per slot for big spends, one per manager for
  * a finished roster.
  */
@@ -193,6 +214,12 @@ function idOf(kind: MomentKind, sale: SaleEvent): string {
       return `bigSpender:${sale.slot}`
     case 'rosterFull':
       return `rosterFull:${sale.manager}`
+    /*
+     * Per manager AND per position, so hoarding running backs and hoarding receivers are two separate
+     * accusations -- and going from seven to eight does not repeat the first one.
+     */
+    case 'hoarder':
+      return `hoarder:${sale.manager}:${sale.position ?? '?'}`
     /* Once for the night, not once per manager: the joke is being FIRST to run out. */
     case 'firstBroke':
       return 'firstBroke'
@@ -212,27 +239,6 @@ function picksByManager(slots: SlotMap): Map<string, number> {
     counts.set(slot.manager, (counts.get(slot.manager) ?? 0) + 1)
   }
   return counts
-}
-
-/**
- * Every creditable kicker the sheet currently holds has a sale we watched.
- *
- * The guard for trap 2. If the sheet shows two kickers and we only ever saw one sold, the one we saw is
- * not the first -- somebody's kicker was already there when this tab opened, whether as a keeper or from
- * a session this tab never had. It fails in the safe direction by construction: an unaccounted kicker
- * suppresses the moment rather than guessing.
- */
-function everyKickerWatched(
-  slots: SlotMap,
-  log: readonly SaleEvent[],
-  sales: readonly SaleEvent[],
-): boolean {
-  const watched = new Set([...log, ...sales].map((sale) => sale.slot))
-  for (const [key, slot] of Object.entries(slots)) {
-    // `creditable` is diff.ts's own predicate: exactly the slots it would emit a sale for.
-    if (slot.position === 'K' && creditable(slot) && !watched.has(key)) return false
-  }
-  return true
 }
 
 export interface MomentInput {
@@ -275,19 +281,35 @@ export function detectMoments(input: MomentInput): Moment | null {
   const kicker = sales.find((sale) => sale.position === 'K') ?? null
 
   /*
-   * Kickers per manager, INCLUDING keepers, because the joke is about the roster rather than about the
-   * auction: a manager who kept one and then bought another has two kickers, however they got there.
+   * Positions per manager, INCLUDING keepers, because both roster jokes below are about the roster rather
+   * than about the auction: a manager who kept one kicker and then bought another has two, however they got
+   * there, and the same reasoning applies to a stack of running backs.
    */
+  const held = new Map<string, number>()
+  const countKey = (manager: string, position: string) => `${manager}\u0000${position}`
+  for (const slot of Object.values(slots)) {
+    if (slot.position === null || !creditable(slot)) continue
+    const key = countKey(slot.manager, slot.position)
+    held.set(key, (held.get(key) ?? 0) + 1)
+  }
+  const heldBy = (manager: string, position: string | null) =>
+    position === null ? 0 : (held.get(countKey(manager, position)) ?? 0)
+
   const kickersHeld = new Map<string, number>()
-  for (const held of Object.values(slots)) {
-    if (held.position === 'K' && creditable(held)) {
-      kickersHeld.set(held.manager, (kickersHeld.get(held.manager) ?? 0) + 1)
+  for (const slot of Object.values(slots)) {
+    if (slot.position === 'K' && creditable(slot)) {
+      kickersHeld.set(slot.manager, (kickersHeld.get(slot.manager) ?? 0) + 1)
     }
   }
   /* A kicker sale to somebody who already had one. Two on a roster is poor strategy and fair game. */
   const doubles = sales
     .filter((sale) => sale.position === 'K' && (kickersHeld.get(sale.manager) ?? 0) >= 2)
     .map((sale) => ({ sale, count: kickersHeld.get(sale.manager) ?? 2 }))
+
+  /* Seven or more at one position after this sale. See HOARDER_OVER. */
+  const hoards = sales
+    .filter((sale) => heldBy(sale.manager, sale.position) > HOARDER_OVER)
+    .map((sale) => ({ sale, count: heldBy(sale.manager, sale.position) }))
 
   /*
    * Reduced to minimum bids: MAX BID has hit the floor, so this manager cannot outbid anybody on anything.
@@ -374,6 +396,14 @@ export function detectMoments(input: MomentInput): Moment | null {
       candidates.push({ kind: 'rosterFull', sale })
     }
   }
+  /*
+   * BELOW roster full, unlike the two-kicker joke above it. If one sale both completes a roster and tips
+   * somebody into hoarding, DONE is the moment the room stops for -- the stack of running backs will still
+   * be on the board afterwards, and their roster being finished will not be news again.
+   */
+  for (const { sale, count } of hoards) {
+    if (!fired.has(idOf('hoarder', sale))) candidates.push({ kind: 'hoarder', sale, count })
+  }
   if (!fired.has('firstBroke')) {
     const broke = brokeNow[0]
     if (broke !== undefined) candidates.push({ kind: 'firstBroke', sale: broke })
@@ -400,17 +430,6 @@ export function detectMoments(input: MomentInput): Moment | null {
   if (sales.length > MOMENT_MAX_BATCH) {
     consume()
     return null
-  }
-
-  const kickerMoment = candidates.find((moment) => moment.kind === 'firstKicker')
-  if (kickerMoment && !everyKickerWatched(slots, log, sales)) {
-    /*
-     * Suppressed AND consumed. Consuming matters: without it the next kicker to sell would be announced
-     * as the first, which is the same wrong claim one poll later. Anything else this poll earned still
-     * stands -- the guard is about the kicker's claim to be first, not about the poll.
-     */
-    consume()
-    return candidates.find((moment) => moment.kind !== 'firstKicker') ?? null
   }
 
   consume()
@@ -494,6 +513,8 @@ export function pinnedMomentKind(search: string): MomentKind | null {
       return 'rosterFull'
     case 'broke':
       return 'firstBroke'
+    case 'hoarder':
+      return 'hoarder'
     case 'named':
       return 'namedPlayer'
     case 'tag':

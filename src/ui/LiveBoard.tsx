@@ -39,6 +39,8 @@ export interface LiveBoardProps {
    * it; until then it is `null` unless `?cursor=` says otherwise -- see `nominations.ts`.
    */
   cursor?: number | null
+  /** Re-baseline, for `X`. Passed down so the confirmation lives in the UI and the store stays keyless. */
+  onResetSession?: () => void
   /**
    * The sheet source, for the one-shot team-names read. `null` skips it entirely.
    *
@@ -48,7 +50,7 @@ export interface LiveBoardProps {
   source?: SheetSource | null
 }
 
-export function LiveBoard({ store, search, cursor = null, source = null }: LiveBoardProps) {
+export function LiveBoard({ store, search, cursor = null, source = null, onResetSession }: LiveBoardProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const teams = useTeamNames(source)
 
@@ -66,7 +68,13 @@ export function LiveBoard({ store, search, cursor = null, source = null }: LiveB
       onBroken={store.noteRenderError}
       onRecovered={store.clearRenderError}
     >
-      <BoardSurface snapshot={snapshot} search={search} cursor={cursor} teams={teams} />
+      <BoardSurface
+        snapshot={snapshot}
+        search={search}
+        cursor={cursor}
+        teams={teams}
+        onResetSession={onResetSession}
+      />
     </ErrorBoundary>
   )
 }
@@ -81,13 +89,14 @@ interface SurfaceProps {
    * recovery, which is the same mistake the moments' fired-set avoided by living in the store.
    */
   teams: Readonly<Record<string, string>>
+  onResetSession?: () => void
 }
 
 /**
  * A pure function of the snapshot: no subscription, no store, nothing to unmount. This
  * is the part allowed to throw, and the boundary above catches it.
  */
-function BoardSurface({ snapshot, search, cursor, teams }: SurfaceProps) {
+function BoardSurface({ snapshot, search, cursor, teams, onResetSession }: SurfaceProps) {
   /*
    * The roster comes from the parsed sheet, not `league.managers`, so `?order=` accepts
    * whoever is actually playing. Validating against the committed list would reject a
@@ -152,6 +161,7 @@ function BoardSurface({ snapshot, search, cursor, teams }: SurfaceProps) {
       feedLabel={snapshot.feedLabel}
       notices={notices}
       teams={teams}
+      onResetSession={onResetSession}
       moment={snapshot.moment}
       /*
        * Fixture-only by construction, so a `?moment=` left in a bookmark cannot strand the projector on

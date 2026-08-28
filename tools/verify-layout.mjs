@@ -405,6 +405,9 @@ const CASES = [
   { size: '1920x1080', query: '?fixture=2026&moment=spender', label: 'big spender', moment: 'bigSpender' },
   { size: '1024x768', query: '?fixture=2026&moment=spender', label: 'big spender at 4:3', moment: 'bigSpender' },
   { size: '390x844', query: '?fixture=2026&moment=spender', label: 'big spender on a phone', moment: 'bigSpender' },
+  { size: '1920x1080', query: '?fixture=2026&moment=hoarder', label: 'hoarder', moment: 'hoarder' },
+  { size: '1024x768', query: '?fixture=2026&moment=hoarder', label: 'hoarder at 4:3', moment: 'hoarder' },
+  { size: '390x844', query: '?fixture=2026&moment=hoarder', label: 'hoarder on a phone', moment: 'hoarder' },
   { size: '1920x1080', query: '?fixture=2026&moment=tag', label: 'tag moment', moment: 'playerTag' },
   { size: '1024x768', query: '?fixture=2026&moment=tag', label: 'tag moment at 4:3', moment: 'playerTag' },
   { size: '390x844', query: '?fixture=2026&moment=tag', label: 'tag moment on a phone', moment: 'playerTag' },
@@ -435,6 +438,14 @@ const CASES = [
   { size: '390x844', query: '?fixture=2026', press: 'r,r', label: 'phone after roster round trip', mobile: true },
   { size: '1920x1080', query: '?fixture=2026', press: 'r,r', label: '1080p after roster round trip' },
   { size: '1024x768', query: '?fixture=2026', press: 'r,r', label: '4:3 after roster round trip' },
+
+  /*
+   * The re-baseline confirmation (7.9). `X` is destructive and now asks first, so the card has to fit --
+   * including on a phone, where the operator may well be the one holding it.
+   */
+  { size: '1920x1080', query: '?fixture=2026&confirmReset=1', label: 'confirm reset', confirm: true },
+  { size: '1024x768', query: '?fixture=2026&confirmReset=1', label: 'confirm reset at 4:3', confirm: true },
+  { size: '390x844', query: '?fixture=2026&confirmReset=1', label: 'confirm reset on a phone', confirm: true },
 
   /*
    * The team tooltip (7.2), in both halves, because they fail differently.
@@ -501,6 +512,14 @@ for (const testCase of CASES) {
   const problems = []
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
+
+  if (testCase.confirm) {
+    if (m.confirm === null) {
+      problems.push('the re-baseline confirmation did not render')
+    } else if (m.confirm.clipped) {
+      problems.push('the re-baseline confirmation does not fit the screen')
+    }
+  }
 
   if (testCase.teamTitles !== undefined) {
     if (m.teamTip === null) {
@@ -719,7 +738,9 @@ for (const testCase of CASES) {
   const status = problems.length === 0 ? 'ok  ' : 'FAIL'
   console.log(
     `${status} ${testCase.size.padEnd(10)} ${testCase.label.padEnd(24)} ` +
-      (testCase.teamTitles !== undefined
+      (testCase.confirm
+        ? `confirm=${m.confirm ? `${m.confirm.w}x${m.confirm.h}` : 'none'}`
+        : testCase.teamTitles !== undefined
         ? `titles=${m.teamTip?.titled}/${m.teamTip?.total} tip=${m.teamTip?.tipText ?? 'none'}`
         : testCase.moment !== undefined || testCase.noMoment
         ? m.moment === null

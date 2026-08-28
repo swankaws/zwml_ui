@@ -2621,3 +2621,57 @@ kbd {
   text-decoration-thickness: 1px;
   text-underline-offset: 0.14em;
 }
+
+/* ------------------------------------------ re-baseline confirmation (7.9) */
+
+/*
+ * `X` asks before it throws away the night's ticker and the pointer correction.
+ *
+ * Above everything, `--warn` bordered, and NOT dismissible by clicking away: it is asking a question whose
+ * wrong answer costs the room the sales history, so it wants a deliberate keystroke rather than a stray tap
+ * on a projector-adjacent trackpad. `z-index: 11` puts it over the help card too -- if both are somehow
+ * open, the destructive question is the one that needs answering.
+ */
+.confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  font-size: min(1em, 5vh);
+  text-align: center;
+}
+
+.confirm-card {
+  display: grid;
+  gap: 0.5em;
+  max-width: min(88vw, 20em);
+  padding: 0.9em 1.1em;
+  background: var(--bg-row);
+  /* The only `--warn` border in the app. Red here means "this one does not come back". */
+  border: 2px solid var(--warn);
+  border-radius: 0.3em;
+}
+
+.confirm-label {
+  font-size: 0.5em;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+}
+
+.confirm-body {
+  font-size: 0.34em;
+  line-height: 1.45;
+  color: var(--fg-soft);
+}
+
+.confirm-keys {
+  font-size: 0.34em;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+
+.confirm-keys b {
+  color: var(--fg);
+}

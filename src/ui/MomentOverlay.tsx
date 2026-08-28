@@ -23,7 +23,14 @@
  */
 
 import { useEffect, useState } from 'react'
-import { MOMENT_HOLD_MS, NAMED_PLAYERS, namedPlayerFor, type Moment, type MomentKind } from '../model/moments'
+import {
+  HOARDER_OVER,
+  MOMENT_HOLD_MS,
+  NAMED_PLAYERS,
+  namedPlayerFor,
+  type Moment,
+  type MomentKind,
+} from '../model/moments'
 import { PLAYER_TAGS } from '../model/playerTags'
 import { money } from './columns'
 
@@ -37,6 +44,7 @@ import { money } from './columns'
 const DONE_GIFS = ['done_1.gif', 'done_2.gif', 'done_3.gif', 'done_4.gif', 'done_5.gif'] as const
 const MONEY_GIFS = ['money.gif', 'money_2.gif', 'money_3.gif'] as const
 const BROKE_GIFS = ['broke_1.gif'] as const
+const HOARDER_GIFS = ['hoarder_1.gif'] as const
 /*
  * Every clip the tag TABLE knows about, so the preload picks them up for free -- the overlay does not need
  * to hard-code any of them. `PLAYER_TAGS` lives in `playerTags.ts`.
@@ -48,7 +56,15 @@ const TAG_LABEL = 'FOR THE RECORD'
 /* Taken from the table, so a new named player needs no edit here. */
 const NAMED_GIFS = NAMED_PLAYERS.map((entry) => entry.clip)
 const PUNT_GIFS = ['punting.gif'] as const
-const ALL_GIFS = [...PUNT_GIFS, ...MONEY_GIFS, ...BROKE_GIFS, ...NAMED_GIFS, ...TAG_GIFS, ...DONE_GIFS]
+const ALL_GIFS = [
+  ...PUNT_GIFS,
+  ...MONEY_GIFS,
+  ...BROKE_GIFS,
+  ...HOARDER_GIFS,
+  ...NAMED_GIFS,
+  ...TAG_GIFS,
+  ...DONE_GIFS,
+]
 
 /**
  * Which clip this moment gets. Deterministic on a name rather than `Math.random()`.
@@ -73,6 +89,8 @@ function choicesFor(moment: Moment): readonly string[] {
       return DONE_GIFS
     case 'firstBroke':
       return BROKE_GIFS
+    case 'hoarder':
+      return HOARDER_GIFS
     case 'namedPlayer':
       return NAMED_GIFS
     /*
@@ -115,7 +133,8 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
   switch (moment.kind) {
     case 'firstKicker':
       return {
-        label: 'FIRST KICKER OFF THE BOARD',
+        /* DRAFTED, not 'off the board': a kept kicker was already on the board and was not drafted. */
+        label: 'FIRST KICKER DRAFTED',
         headline: 'A KICKER. REALLY.',
         who: `${manager} — ${player}`,
         price: money$,
@@ -128,6 +147,14 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
          * the word "two": a third kicker is funnier than the second and the headline should say so.
          */
         headline: `${moment.count ?? 2} KICKERS?!`,
+        who: `${manager} — ${player}`,
+        price: money$,
+      }
+    case 'hoarder':
+      return {
+        /* The position is on the sale, so the accusation names what they are stockpiling. */
+        label: `${moment.count ?? HOARDER_OVER + 1} ${moment.sale.position ?? ''}`.trim().toUpperCase(),
+        headline: 'HOARDER!',
         who: `${manager} — ${player}`,
         price: money$,
       }

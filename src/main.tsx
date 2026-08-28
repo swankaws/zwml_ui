@@ -178,7 +178,12 @@ function renderLive(root: ReturnType<typeof createRoot>) {
      * toggle, and deliberately not a URL parameter: a `?reset=1` left in the address bar
      * would re-clear on every watchdog reload, all night.
      */
-    if (event.key === 'x' || event.key === 'X') return store.resetSession()
+    /*
+     * `X` is NOT handled here any more. `ui/ConfirmReset` owns it, because it is destructive -- it drops the
+     * sale log and the pointer correction with no undo -- and a single unshifted keystroke should not be able
+     * to do that on a machine sitting in a room full of people. It asks first; anything other than `Y`
+     * cancels.
+     */
   })
 
   /*
@@ -199,7 +204,16 @@ function renderLive(root: ReturnType<typeof createRoot>) {
    * store keeps its own; sharing the object costs nothing and means the tooltip cannot be pointed at a
    * different workbook than the board.
    */
-  root.render(<LiveBoard store={store} search={search} cursor={readCursor()} source={source} />)
+  root.render(
+    <LiveBoard
+      store={store}
+      search={search}
+      cursor={readCursor()}
+      source={source}
+      /* `X` asks first; see `ui/ConfirmReset`. */
+      onResetSession={() => store.resetSession()}
+    />,
+  )
 }
 
 /**
@@ -299,6 +313,8 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * unless a fixture is loaded: a `?moment=` in a bookmark would otherwise strand the projector.
        */
       pinnedMoment={pinnedMomentKind(search)}
+      /* Fixture-only, so the gate can measure the re-baseline prompt without pressing a key. */
+      pinnedConfirmReset={params.get('confirmReset') !== null}
       /* `?clip=N` cycles the preview, since a pinned moment always names the same stand-in player. */
       momentClip={pinnedClip(search)}
       /*

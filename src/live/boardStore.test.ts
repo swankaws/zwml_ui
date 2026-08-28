@@ -1072,6 +1072,34 @@ describe('in-draft moments', () => {
     expect(h.store.getSnapshot().moment).toBeNull()
   })
 
+  it('punts the first kicker SOLD even when a keeper kicker is already on the board', async () => {
+    /*
+     * The maintainer's actual situation: this league keeps a kicker, so one is in the sheet at 7pm.
+     *
+     * An `everyKickerWatched` guard used to suppress the punt in exactly this shape -- a creditable kicker
+     * nobody had watched sell -- which made the moment unreachable for the only season it runs in. The honest
+     * event is the first kicker DRAFTED, and a keeper was not drafted tonight. Verified end to end, because
+     * the unit test for `detectMoments` cannot see that the baseline really does hold the keeper.
+     */
+    const h = harness()
+    h.answer(GID, { text: withKicker('$1') })
+    h.store.start()
+    await h.settle()
+    /* Baseline: the keeper is here, and it is not a sale. */
+    expect(h.store.getSnapshot().sales).toEqual([])
+    expect(h.store.getSnapshot().moment).toBeNull()
+
+    /* Now Corky drafts one. That IS the first kicker of the auction. */
+    const g = parseCsv(withKicker('$1')).map((r) => [...r])
+    pick(g, KICKER_ROW, blockStartCols[1]!, 'Cameron Dicker', '$2')
+    h.answer(GID, { text: toCsv(g) })
+    await h.advance(INTERVAL)
+
+    const moment = h.store.getSnapshot().moment
+    expect(moment?.kind).toBe('firstKicker')
+    expect(moment?.sale.player).toBe('Cameron Dicker')
+  })
+
   it('punts the first kicker sold after the board opened', async () => {
     const h = harness()
     h.answer(GID, { text: raw2026 })
