@@ -1210,6 +1210,85 @@ describe('in-draft moments', () => {
     expect(h.store.getSnapshot().moment).toBeNull()
   })
 
+  it('fires a DONE moment for each manager who finishes, not just the first', async () => {
+    /*
+     * The maintainer asked for this to be verified rather than assumed, and it is verified through the REAL
+     * parser and the REAL diff engine rather than against `detectMoments` alone -- that unit test already
+     * passes, and would have kept passing even if the store spent the moment on the wrong poll.
+     *
+     * Filled a pick or two at a time on purpose. Adding the last several slots in one body would trip
+     * MOMENT_MAX_BATCH, which SUPPRESSES AND CONSUMES -- so a lazier version of this test would burn the
+     * very moment it is trying to observe and then assert on the wrong thing. The first draft of it did
+     * exactly that by overshooting to fifteen inside a two-pick poll.
+     */
+    const BAND = bandRows[0]!
+    const CORKY_COL = blockStartCols[1]!
+    const [startFirst, startLast] = rowOffsets.starters
+    const [benchFirst, benchLast] = rowOffsets.bench
+
+    /** Every slot row in a block, in grid order: seven starters then eight bench. */
+    const slotRows = [
+      ...Array.from({ length: startLast - startFirst + 1 }, (_, i) => BAND + startFirst + i),
+      ...Array.from({ length: benchLast - benchFirst + 1 }, (_, i) => BAND + benchFirst + i),
+    ]
+
+    const g = grid()
+    const countFor = (manager: string) =>
+      Object.values(snapshotSlots(parseAuctionGrid(parseCsv(toCsv(g))).blocks)).filter(
+        (slot) => slot.manager === manager,
+      ).length
+
+    /** Adds up to `count` picks at $1 into a block's empty slots. Returns how many it managed. */
+    const addPicks = (col: number, count: number) => {
+      let added = 0
+      for (const row of slotRows) {
+        if (added >= count) break
+        if (((g[row] ?? [])[col + colOffsets.player] ?? '').trim() !== '') continue
+        pick(g, row, col, `P${row}-${col}`, '$1')
+        added += 1
+      }
+      return added
+    }
+
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    /** Walks a block to one-short-of-full, never more than two picks per poll. */
+    async function fillToPenultimate(manager: string, col: number) {
+      while (countFor(manager) < league.auctionSlots - 1) {
+        const room = league.auctionSlots - 1 - countFor(manager)
+        expect(addPicks(col, Math.min(2, room))).toBeGreaterThan(0)
+        h.answer(GID, { text: toCsv(g) })
+        await h.advance(INTERVAL)
+      }
+      expect(countFor(manager)).toBe(league.auctionSlots - 1)
+    }
+
+    /** The single pick that finishes them, and whoever the resulting DONE names. */
+    async function finish(manager: string, col: number) {
+      expect(addPicks(col, 1)).toBe(1)
+      expect(countFor(manager)).toBe(league.auctionSlots)
+      h.answer(GID, { text: toCsv(g) })
+      await h.advance(INTERVAL)
+      const moment = h.store.getSnapshot().moment
+      return moment?.kind === 'rosterFull' ? moment.sale.manager : (moment?.kind ?? null)
+    }
+
+    await fillToPenultimate('Kevin', KEVIN)
+    const first = await finish('Kevin', KEVIN)
+
+    /* Corky's own DONE has to fire even though Kevin's already has -- the point of the test. */
+    await fillToPenultimate('Corky', CORKY_COL)
+    const second = await finish('Corky', CORKY_COL)
+
+    expect([first, second]).toEqual(['Kevin', 'Corky'])
+
+    /* And Kevin is not announced twice: he is full, so he produces no further sale to fire on. */
+    expect(h.store.getSnapshot().moment?.sale.manager).toBe('Corky')
+  })
+
   it('cannot be fired by a wrong-tab body, which never reaches the diff at all', async () => {
     const h = harness()
     h.answer(GID, { text: raw2026 })

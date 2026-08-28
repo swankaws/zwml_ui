@@ -334,6 +334,36 @@ describe('rosterFull', () => {
     expect(moment?.sale.manager).toBe('Corky')
   })
 
+  it('shows only ONE of two managers finishing in the SAME poll, and consumes both', () => {
+    /*
+     * A KNOWN LIMITATION, pinned so it is a decision rather than a surprise.
+     *
+     * Two sales in one poll is within MOMENT_MAX_BATCH, so the batch guard does not suppress them -- but
+     * `detectMoments` returns a single moment, and `consume()` spends every candidate it found. So the
+     * second manager to finish in that same three-second window is never announced.
+     *
+     * It needs two rosters to fill inside one poll, which takes two sales landing together late in the
+     * draft. Fixing it means a QUEUE in the overlay -- moments waiting their turn behind one another -- and
+     * that is a real amount of machinery for a rare case. Left as is deliberately; this test is the record.
+     */
+    const fired = new Set<string>()
+    const slots = {
+      ...rosterOf('Kevin', league.auctionSlots),
+      ...rosterOf('Corky', league.auctionSlots, 7),
+      ...rosterOf('Toby', 4, 13),
+    }
+    const moment = detect({
+      sales: [lastPick('Kevin', { seq: 1 }), lastPick('Corky', { slot: '7:16', seq: 2 })],
+      slots,
+      fired,
+    })
+
+    expect(moment?.kind).toBe('rosterFull')
+    expect(moment?.sale.manager).toBe('Kevin')
+    /* Corky's was spent without being shown -- which is the limitation, stated. */
+    expect([...fired].sort()).toEqual(['rosterFull:Corky', 'rosterFull:Kevin'])
+  })
+
   it('does not fire for a manager who was already full when the board opened', () => {
     // They have no further sale to fire on -- the baseline rule does this for free. Asserted because a
     // future caller feeding the baseline in as `sales` would be a very quiet mistake.
