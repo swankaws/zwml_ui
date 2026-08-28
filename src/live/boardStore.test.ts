@@ -1311,7 +1311,7 @@ describe('in-draft moments', () => {
     expect(snap.sales[0]?.player).toBe('Josh Allen')
     expect(snap.sales[0]?.tags).toEqual(['h'])
     expect(snap.moment?.kind).toBe('playerTag')
-    expect(snap.moment?.tag?.headline).toBe('Homer Pick!')
+    expect(snap.moment?.tag?.headline).toBe('HOMER')
   })
 
   it('cannot be fired by a wrong-tab body, which never reaches the diff at all', async () => {

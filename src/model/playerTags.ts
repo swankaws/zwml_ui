@@ -17,14 +17,21 @@
 export interface PlayerTag {
   /** The letter inside the parentheses, lower case. */
   tag: string
+  /**
+   * The joke, and the only thing the room reads. Upper case to match the other moments' headlines.
+   *
+   * There is deliberately no per-tag BANNER here: the small line above the headline is one shared string
+   * (`TAG_LABEL` in `MomentOverlay`), so every tag moment reads the same way by construction rather than by
+   * somebody remembering to keep them in step.
+   */
   headline: string
   /** Clips to choose between, so the same joke twice in a night is not the same picture twice. */
   clips: readonly string[]
 }
 
 export const PLAYER_TAGS: readonly PlayerTag[] = [
-  { tag: 'h', headline: 'Homer Pick!', clips: ['homer_1.gif', 'homer_2.gif', 'homer_3.gif'] },
-  { tag: 'd', headline: 'Dick Move Bro!', clips: ['dick_move_1.gif', 'dick_move_2.gif'] },
+  { tag: 'h', headline: 'HOMER', clips: ['homer_1.gif', 'homer_2.gif', 'homer_3.gif'] },
+  { tag: 'd', headline: 'DICK MOVE', clips: ['dick_move_1.gif', 'dick_move_2.gif'] },
 ]
 
 /**

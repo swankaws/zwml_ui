@@ -42,6 +42,9 @@ const BROKE_GIFS = ['broke_1.gif'] as const
  * to hard-code any of them. `PLAYER_TAGS` lives in `playerTags.ts`.
  */
 const TAG_GIFS = PLAYER_TAGS.flatMap((entry) => entry.clips)
+
+/** The banner over every tag moment. Says a judgement was recorded, without naming the marker. */
+const TAG_LABEL = 'FOR THE RECORD'
 /* Taken from the table, so a new named player needs no edit here. */
 const NAMED_GIFS = NAMED_PLAYERS.map((entry) => entry.clip)
 const PUNT_GIFS = ['punting.gif'] as const
@@ -145,8 +148,15 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
       }
     case 'playerTag':
       return {
-        /* Small label ABOVE the joke, so the room knows which tag fired without having to read the gif. */
-        label: `TAG (${moment.tag?.tag ?? ''})`.toUpperCase(),
+        /*
+         * ONE shared banner for every tag, and never the letter itself.
+         *
+         * `TAG (h)` leaked the mechanism: the marker is the recorder's private mark on the sheet, and the
+         * room should see the joke, not the plumbing that fired it. And the banner is shared rather than
+         * per-tag so the family reads consistently by construction -- a per-tag banner is one more string
+         * to keep in step every time a marker is added.
+         */
+        label: TAG_LABEL,
         headline: moment.tag?.headline ?? 'TAGGED',
         who: `${manager} — ${player}`,
         price: money$,

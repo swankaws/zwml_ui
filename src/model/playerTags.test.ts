@@ -67,8 +67,8 @@ describe('readTaggedPlayer', () => {
 
 describe('playerTagFor', () => {
   it('finds a known tag', () => {
-    expect(playerTagFor('h')?.headline).toBe('Homer Pick!')
-    expect(playerTagFor('D')?.headline).toBe('Dick Move Bro!')
+    expect(playerTagFor('h')?.headline).toBe('HOMER')
+    expect(playerTagFor('D')?.headline).toBe('DICK MOVE')
   })
 
   it('returns null for anything else', () => {

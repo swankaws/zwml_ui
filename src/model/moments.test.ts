@@ -228,7 +228,7 @@ describe('playerTag', () => {
     const moment = detect({ sales: [tagged()] })
     expect(moment?.kind).toBe('playerTag')
     expect(moment?.tag?.tag).toBe('h')
-    expect(moment?.tag?.headline).toBe('Homer Pick!')
+    expect(moment?.tag?.headline).toBe('HOMER')
   })
 
   it('does not fire without a tag', () => {

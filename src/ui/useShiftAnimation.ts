@@ -60,17 +60,27 @@ export function useShiftAnimation(ref: React.RefObject<HTMLElement | null>, curs
 
     const [first, second] = children as [HTMLElement, HTMLElement]
     /*
-     * Which way the list runs, observed rather than assumed. A second child lower down means the rail is
-     * stacked (the projector); level with the first means it is a row (a phone).
+     * Which axis the LIST advances along, and this is subtler than "which one is bigger".
+     *
+     * On a phone the rail is a wrapping flex row, so the first two children can sit on the same line -- or
+     * two pixels apart on baselines, depending on the font -- while the row itself runs left to right. An
+     * earlier version compared `offsetTop` and picked the winner: it saw the 2px baseline drop and animated
+     * `translateY(2px)`, which is invisible and reads as "no animation".
+     *
+     * The honest signal is the horizontal delta being LARGER than the vertical: on the projector's stacked
+     * list the horizontal delta is 0, so `vertical` wins by default. `>` rather than `>=` for the tie so
+     * the projector case stays vertical when both are zero (which happens on the first paint).
      */
-    const vertical = second.offsetTop > first.offsetTop
-    const delta = vertical ? second.offsetTop - first.offsetTop : second.offsetLeft - first.offsetLeft
-    if (delta <= 0) return
+    const step = shiftStep(first, second)
+    if (step === null) return
 
     element.animate(
       [
         /* Start where the list WAS -- one slot further along -- and settle to where it now is. */
-        { transform: vertical ? `translateY(${delta}px)` : `translateX(${delta}px)` },
+        {
+          transform:
+            step.axis === 'y' ? `translateY(${step.delta}px)` : `translateX(${step.delta}px)`,
+        },
         { transform: 'none' },
       ],
       { duration: SHIFT_MS, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
@@ -175,4 +185,25 @@ export function isVisibleNominee(full: boolean, leaving: boolean): boolean {
  */
 export function isLeavingNominee(full: boolean, leaving: boolean): boolean {
   return full && leaving
+}
+
+/**
+ * Which axis a list advances along, and by how much.
+ *
+ * Extracted so the rule is testable, and the rule matters. On the projector the rail is a stacked list --
+ * vDelta 47, hDelta 0 -- and on a phone it is a wrapping flex row -- vDelta 2 (baseline drop), hDelta 42.
+ * Comparing `top` alone picked VERTICAL on the phone and animated a 2px shift, which is invisible; the
+ * larger-absolute-delta rule picks horizontal there and vertical everywhere else.
+ *
+ * `null` for a first paint or a shift into a wrapped position -- either way there is nothing to animate.
+ */
+export function shiftStep(
+  first: { offsetTop: number; offsetLeft: number },
+  second: { offsetTop: number; offsetLeft: number },
+): { axis: 'x' | 'y'; delta: number } | null {
+  const vDelta = second.offsetTop - first.offsetTop
+  const hDelta = second.offsetLeft - first.offsetLeft
+  const axis = Math.abs(vDelta) >= Math.abs(hDelta) ? 'y' : 'x'
+  const delta = axis === 'y' ? vDelta : hDelta
+  return delta > 0 ? { axis, delta } : null
 }

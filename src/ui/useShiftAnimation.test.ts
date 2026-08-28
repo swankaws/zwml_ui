@@ -12,6 +12,7 @@ import {
   SHIFT_MS,
   isLeavingNominee,
   isVisibleNominee,
+  shiftStep,
   shouldAnimateShift,
 } from './useShiftAnimation'
 
@@ -104,5 +105,49 @@ describe('who appears in ON THE CLOCK', () => {
   it('leaves an ordinary nominee alone in both respects', () => {
     expect(isVisibleNominee(false, false)).toBe(true)
     expect(isLeavingNominee(false, false)).toBe(false)
+  })
+})
+
+describe('shiftStep -- which way the list runs', () => {
+  it('picks VERTICAL for a stacked list (projector)', () => {
+    // vDelta 47, hDelta 0 -- observed on the deployed board at 1080p.
+    expect(shiftStep({ offsetTop: 100, offsetLeft: 0 }, { offsetTop: 147, offsetLeft: 0 })).toEqual({
+      axis: 'y',
+      delta: 47,
+    })
+  })
+
+  it('picks HORIZONTAL for a wrapping flex row (phone)', () => {
+    /*
+     * The reason this rule exists. On the phone the flex row leaves a 2px baseline drop between the first
+     * and second child, so `top > top` is true -- but the LIST runs left to right, 42px per name. Picking
+     * the larger absolute delta answers the geometric question rather than the arithmetic one.
+     */
+    expect(shiftStep({ offsetTop: 662, offsetLeft: 8 }, { offsetTop: 664, offsetLeft: 50 })).toEqual({
+      axis: 'x',
+      delta: 42,
+    })
+  })
+
+  it('returns null when neither axis moved (a first paint)', () => {
+    expect(shiftStep({ offsetTop: 0, offsetLeft: 0 }, { offsetTop: 0, offsetLeft: 0 })).toBeNull()
+  })
+
+  it('returns null when the second wrapped BEHIND the first on the winning axis', () => {
+    /*
+     * A wrapped flex row is a plausible edge: item 1 at x=300, item 2 wraps to x=0 one line lower. The
+     * larger absolute delta is the horizontal one (300 > 30), so this file's rule picks horizontal -- and
+     * the delta is negative, so `null`. Which is correct: the LIST advances forward and this list did not.
+     *
+     * That is not a scenario the animation should fire in anyway. The caller runs `useShiftAnimation` on a
+     * cursor change, and a cursor change never leaves the second item at a NEGATIVE offset relative to the
+     * first -- the second is the one that just came into second place.
+     */
+    expect(shiftStep({ offsetTop: 100, offsetLeft: 300 }, { offsetTop: 130, offsetLeft: 0 })).toBeNull()
+  })
+
+  it('returns null when the second is BEHIND the first on both axes', () => {
+    /* Whatever this is, it is not the list advancing. Nothing to animate. */
+    expect(shiftStep({ offsetTop: 100, offsetLeft: 100 }, { offsetTop: 80, offsetLeft: 60 })).toBeNull()
   })
 })
