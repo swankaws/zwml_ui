@@ -13,7 +13,7 @@ import { money } from './columns'
 import type { ManagerState } from '../model/derive'
 import type { SaleEvent } from '../model/diff'
 import { highestSeq, newSaleSeqs } from '../model/revisions'
-import { useShiftAnimation } from './useShiftAnimation'
+import { useExiting, useShiftAnimation } from './useShiftAnimation'
 
 export interface RailProps {
   managers: ManagerState[]
@@ -79,6 +79,14 @@ export function Rail({
    */
   const seenSeq = useRef<number | null>(demoFlash ? 0 : null)
   const seenOnClock = useRef<string | null>(demoFlash ? '\u0000' : null)
+  /*
+   * Who was already finished last commit, so a name can be animated INTO the struck-through state at the
+   * moment their roster fills rather than simply appearing that way.
+   *
+   * `null` on the first render, same as the two above and for the same reason: after a watchdog reload
+   * every manager who is already full would otherwise play their finishing animation at once.
+   */
+  const seenFull = useRef<ReadonlySet<string> | null>(demoFlash ? new Set() : null)
 
   const top = highestSeq(sales)
   const fresh = newSaleSeqs(sales, seenSeq.current)
@@ -86,11 +94,22 @@ export function Rail({
   const onClockName = entries.find((entry) => entry.onClock)?.name ?? null
   const clockMoved = seenOnClock.current !== null && onClockName !== seenOnClock.current
 
+  /*
+   * Whose roster filled since the last commit. Read during render from the previous COMMIT's value, which
+   * is the same trick the flash uses -- what the room was looking at a moment ago.
+   */
+  const justFinished =
+    seenFull.current === null
+      ? new Set<string>()
+      : new Set([...full].filter((name) => !(seenFull.current as ReadonlySet<string>).has(name)))
+
+  const fullKey = [...full].sort().join('|')
   useEffect(() => {
     if (top !== null) seenSeq.current = top
     // Only once somebody IS on the clock: going from "nobody knows" to a name is not a hand-off.
     if (onClockName !== null) seenOnClock.current = onClockName
-  }, [top, onClockName])
+    seenFull.current = new Set(fullKey === '' ? [] : fullKey.split('|'))
+  }, [top, onClockName, fullKey])
   /*
    * The list slides up when the rotation advances, so the hand-off is visible from the corner of an eye.
    * Animating this container rather than remounting it is deliberate -- a remount would re-fire every
@@ -98,6 +117,18 @@ export function Rail({
    */
   const nominationRef = useRef<HTMLDivElement>(null)
   useShiftAnimation(nominationRef, cursor)
+
+  /*
+   * A finished manager LEAVES this list, and the animation is what makes that legible.
+   *
+   * `nominations.ts` still emits them, struck through -- that is where the window and the lap are worked
+   * out, and it has no business knowing about animation. The Rail drops them once they have finished
+   * leaving, and `useExiting` is what keeps the element alive long enough to do so: React has no exit
+   * animation, so without the hold the name would be gone on the very next publish, which the age tick
+   * fires every second.
+   */
+  const exiting = useExiting(justFinished)
+  const visible = entries.filter((entry) => !entry.full || exiting.has(entry.name))
 
 
   return (
@@ -124,10 +155,10 @@ export function Rail({
            */}
           {order.length === 0 ? (
             <span className="empty">NOMINATION ORDER NOT SET</span>
-          ) : entries.length === 0 ? (
+          ) : visible.length === 0 ? (
             <span className="empty">DRAFT COMPLETE</span>
           ) : (
-            entries.map((entry) => (
+            visible.map((entry) => (
               <Nominee
                 /*
                  * Keyed on the on-clock flag as well as the name, so a manager moving from ON DECK to
@@ -138,6 +169,7 @@ export function Rail({
                 key={`${entry.name}:${entry.onClock}`}
                 entry={entry}
                 flash={entry.onClock && clockMoved}
+                finished={exiting.has(entry.name)}
               />
             ))
           )}
@@ -198,7 +230,22 @@ export function Rail({
  * A component rather than a bare span purely so the flash can be frozen at mount -- see
  * `useFlashOnce`. The wash marks a HAND-OFF: whoever just came on the clock.
  */
-function Nominee({ entry, flash }: { entry: NominationEntry; flash: boolean }) {
+function Nominee({
+  entry,
+  flash,
+  finished = false,
+}: {
+  entry: NominationEntry
+  flash: boolean
+  /**
+   * Their roster filled on this poll. Drives a one-shot animation INTO the struck-through state.
+   *
+   * Not a removal: `nominations.ts` keeps a finished manager in the list on purpose, because the room
+   * knows the order by heart and a name silently vanishing reads as a bug rather than as "they are done".
+   * So this animates the transition to that state instead of animating an exit.
+   */
+  finished?: boolean
+}) {
   const washing = useFlashOnce(flash)
   return (
     <span
@@ -206,6 +253,12 @@ function Nominee({ entry, flash }: { entry: NominationEntry; flash: boolean }) {
       data-onclock={entry.onClock}
       data-full={entry.full}
       data-flash={washing ? '' : undefined}
+      /*
+       * A CSS animation DOES start when the property first applies to an existing element -- it is only
+       * re-firing the same one that needs a remount, which is what the value flash works around. So a
+       * plain attribute is enough here and the element keeps its identity and its captured wash.
+       */
+      data-finished={finished ? '' : undefined}
     >
       {entry.name}
       {entry.full && <span className="tag">FULL</span>}

@@ -93,6 +93,8 @@
    * only inherited the row striping and `--bg-row` and `--bg-row-alt` are themselves close together. The
    * band needs its own step to show the banding the rest of the row shows.
    */
+  /* How long a finished manager takes to leave ON THE CLOCK. Mirrored in `NOMINEE_EXIT_MS`. */
+  --nominee-exit: 620ms;
   --pos-tint: 30%;
   --pos-tint-alt: 44%;
 
@@ -797,6 +799,51 @@ body {
   color: var(--fg-dim);
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+/*
+ * The moment a roster fills: the name shrinks away and leaves ON THE CLOCK.
+ *
+ * THIS REVERSES A DELIBERATE DECISION, so the old reasoning is worth keeping visible.
+ * `nominations.ts` kept a finished manager in the list struck through, on the grounds that "the room knows
+ * the order by heart, and a name silently vanishing reads as a bug, not as their roster is full". The
+ * maintainer's call is that ON THE CLOCK should list who can actually nominate -- a struck-through name is
+ * noise in a five-line window -- and the animation is what answers the original objection: the name does
+ * not silently vanish, it visibly leaves. They remain on the board's manager table throughout, which is
+ * where the room reads the order off.
+ *
+ * `scale` does nothing to an inline element, hence `inline-block`. Applied only while animating, so the
+ * element participates in the flex row or the grid exactly as before for its whole visible life.
+ */
+@keyframes nominee-finished {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  30% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+}
+
+.nominee[data-finished] {
+  display: inline-block;
+  animation: nominee-finished var(--nominee-exit) cubic-bezier(0.4, 0, 0.7, 0.2) both;
+}
+
+/*
+ * Anyone who has asked not to be moved is not moved -- they simply see the name go. The list is still
+ * correct either way; the animation is emphasis, not information.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .nominee[data-finished] {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .nominee .tag {

@@ -15,7 +15,7 @@
  * breakpoint that decided it. Duplicating a media query in JS is how the two drift apart.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /** Long enough to read as a movement, short enough to be over before the next thing happens. */
 export const SHIFT_MS = 320
@@ -77,3 +77,46 @@ export function useShiftAnimation(ref: React.RefObject<HTMLElement | null>, curs
     )
   }, [ref, cursor])
 }
+
+/**
+ * How long a finished manager takes to leave ON THE CLOCK. Mirrors `--nominee-exit` in theme.css.
+ *
+ * Duplicated rather than read from the stylesheet because the value has to hold the element in the React
+ * tree, and reading a custom property means a layout query on every poll for a number that changes when
+ * somebody edits CSS -- which a test can catch instead.
+ */
+export const NOMINEE_EXIT_MS = 620
+
+/**
+ * Names to keep rendering while their exit animation plays.
+ *
+ * React has no exit animation: the moment a manager is no longer in the list, their element is gone and
+ * there is nothing left to animate. So the departing name is HELD here for the length of the animation,
+ * independently of renders -- which matters because the board re-publishes on the age tick every second,
+ * and something as ordinary as that would otherwise cut the animation off part-way through.
+ */
+export function useExiting(justFinished: ReadonlySet<string>, ms = NOMINEE_EXIT_MS): ReadonlySet<string> {
+  const [exiting, setExiting] = useState<ReadonlySet<string>>(EMPTY)
+
+  /* A stable key, so an effect can depend on the CONTENTS of the set rather than its identity. */
+  const key = [...justFinished].sort().join('|')
+
+  useEffect(() => {
+    if (key === '') return
+    const names = key.split('|')
+    setExiting((held) => new Set([...held, ...names]))
+    const timer = window.setTimeout(() => {
+      setExiting((held) => {
+        const next = new Set(held)
+        for (const name of names) next.delete(name)
+        return next.size === 0 ? EMPTY : next
+      })
+    }, ms)
+    return () => window.clearTimeout(timer)
+  }, [key, ms])
+
+  return exiting
+}
+
+/** Shared empty set, so an unchanged result is referentially stable and cannot cause a re-render. */
+const EMPTY: ReadonlySet<string> = new Set()

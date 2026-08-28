@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { SHIFT_MS, shouldAnimateShift } from './useShiftAnimation'
+import { NOMINEE_EXIT_MS, SHIFT_MS, shouldAnimateShift } from './useShiftAnimation'
 
 describe('shouldAnimateShift', () => {
   it('slides when the rotation advances', () => {
@@ -53,5 +53,19 @@ describe('shouldAnimateShift', () => {
      * would queue or fight. 320ms against a 3s poll leaves an order of magnitude.
      */
     expect(SHIFT_MS).toBeLessThan(1000)
+  })
+})
+
+describe('useExiting timing', () => {
+  it('matches the CSS animation duration', async () => {
+    /*
+     * The hold and the animation are two numbers that have to agree: too short and the name is unmounted
+     * part-way through, too long and a slot sits empty after the animation has finished. `--nominee-exit`
+     * is the CSS half, and this is the only thing that would notice them drifting apart.
+     */
+    const { readFile } = await import('node:fs/promises')
+    const css = await readFile('src/ui/theme.css', 'utf8')
+    const match = css.match(/--nominee-exit:\s*(\d+)ms/)
+    expect(match?.[1]).toBe(String(NOMINEE_EXIT_MS))
   })
 })

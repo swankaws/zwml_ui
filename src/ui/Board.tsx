@@ -178,7 +178,18 @@ export function Board({ managers, columns, revisions = {}, teams = {} }: BoardPr
                     title={teams[m.name]}
                     onPointerUp={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect()
-                      setTip({ team: teams[m.name] as string, x: rect.left, y: rect.bottom })
+                      const team = teams[m.name] as string
+                      /*
+                       * Toggles. Tapping the same name again closes it -- a tooltip you can only wait out
+                       * is a tooltip in the way, and on a phone there is no hover to move away.
+                       * Compared on the team text and the position, so tapping a DIFFERENT manager moves
+                       * the bubble rather than dismissing it.
+                       */
+                      setTip((open) =>
+                        open !== null && open.team === team && open.x === rect.left
+                          ? null
+                          : { team, x: rect.left, y: rect.bottom },
+                      )
                     }}
                   >
                     {cellValue(column.key, m)}
