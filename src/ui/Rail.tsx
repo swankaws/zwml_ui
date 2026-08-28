@@ -13,6 +13,7 @@ import { money } from './columns'
 import type { ManagerState } from '../model/derive'
 import type { SaleEvent } from '../model/diff'
 import { highestSeq, newSaleSeqs } from '../model/revisions'
+import { useShiftAnimation } from './useShiftAnimation'
 
 export interface RailProps {
   managers: ManagerState[]
@@ -90,6 +91,14 @@ export function Rail({
     // Only once somebody IS on the clock: going from "nobody knows" to a name is not a hand-off.
     if (onClockName !== null) seenOnClock.current = onClockName
   }, [top, onClockName])
+  /*
+   * The list slides up when the rotation advances, so the hand-off is visible from the corner of an eye.
+   * Animating this container rather than remounting it is deliberate -- a remount would re-fire every
+   * `Nominee`'s own hand-off wash, not just the one that changed. See `useShiftAnimation`.
+   */
+  const nominationRef = useRef<HTMLDivElement>(null)
+  useShiftAnimation(nominationRef, cursor)
+
 
   return (
     <aside className="rail">
@@ -106,7 +115,7 @@ export function Rail({
          * replays the rotation. `NOMINATION ORDER` promises only what is on screen.
          */}
         <h2>{cursor === null ? 'NOMINATION ORDER' : 'ON THE CLOCK'}</h2>
-        <div className="nomination">
+        <div className="nomination" ref={nominationRef}>
           {/*
            * Three states, not two. An unset order is a configuration gap and says
            * so -- it must never take the board down with it (8) -- while an order

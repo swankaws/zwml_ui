@@ -157,7 +157,7 @@ export const league = {
    * Cosmetic only now: `Jeffrey` appears solely in the Divisional Draft
    * columns, which the display no longer reads. Kept because it costs a line.
    */
-  aliases: { Jeffrey: 'Jeff' } as Record<string, string>,
+  aliases: { Jeffrey: 'Jeff', Eric: 'Corky' } as Record<string, string>,
 
   /**
    * Nomination order (DESIGN.md 7.5). Rotates strictly; a manager whose roster
