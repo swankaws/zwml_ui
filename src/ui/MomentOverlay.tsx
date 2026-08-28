@@ -155,9 +155,19 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
       }
     case 'hoarder':
       return {
-        /* The position is on the sale, so the accusation names what they are stockpiling. */
-        label: `${moment.count ?? HOARDER_OVER + 1} ${moment.sale.position ?? ''}`.trim().toUpperCase(),
-        headline: 'HOARDER!',
+        /*
+         * Category in the label, the specific accusation in the headline -- the same shape as `rosterFull`
+         * (`ROSTER FULL` over `KEVIN IS DONE`). The count and the position both come off the moment, so the
+         * headline says WHICH condition fired rather than leaving the room to guess from the gif.
+         *
+         * `hoarder` cannot fire without a position -- the count is looked up by it -- so the fallback here is
+         * belt and braces rather than a real case.
+         */
+        label: 'HOARDER!',
+        headline: `YOU HAVE ${moment.count ?? HOARDER_OVER + 1} ${moment.sale.position ?? ''}!`.replace(
+          ' !',
+          '!',
+        ),
         who: `${manager} — ${player}`,
         price: money$,
       }
