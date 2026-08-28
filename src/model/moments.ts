@@ -183,7 +183,13 @@ export const MAX_PLAUSIBLE_PRICE = league.budget
  * arbitrary player. The batch still CONSUMES the moment, because the alternative is firing on the next
  * ordinary sale and claiming a kicker was the first when it was the third.
  *
- * 2, not 1: two players genuinely can be entered between two three-second polls.
+ * 2, not 1: two players genuinely can be entered between two three-second polls -- a recorder catching up
+ * after typing one pick late.
+ *
+ * Worth recording that this and the single-moment-per-poll behaviour cover the same ground from opposite
+ * ends. A pick is a nomination, then bidding, then the sale being typed, which is longer than one poll -- so
+ * several sales arriving together is always the SHEET moving rather than the auction, which is exactly what
+ * this suppresses.
  */
 export const MOMENT_MAX_BATCH = 2
 

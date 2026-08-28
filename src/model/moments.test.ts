@@ -647,15 +647,21 @@ describe('rosterFull', () => {
 
   it('shows only ONE of two managers finishing in the SAME poll, and consumes both', () => {
     /*
-     * A KNOWN LIMITATION, pinned so it is a decision rather than a surprise.
+     * A KNOWN LIMITATION, pinned so it is a decision rather than a surprise -- and one the maintainer has
+     * since confirmed cannot occur in play.
      *
      * Two sales in one poll is within MOMENT_MAX_BATCH, so the batch guard does not suppress them -- but
-     * `detectMoments` returns a single moment, and `consume()` spends every candidate it found. So the
-     * second manager to finish in that same three-second window is never announced.
+     * `detectMoments` returns a single moment and `consume()` spends every candidate it found, so the second
+     * manager to finish inside that same three-second window is never announced.
      *
-     * It needs two rosters to fill inside one poll, which takes two sales landing together late in the
-     * draft. Fixing it means a QUEUE in the overlay -- moments waiting their turn behind one another -- and
-     * that is a real amount of machinery for a rare case. Left as is deliberately; this test is the record.
+     * WHY IT DOES NOT HAPPEN: a pick is a nomination, then bidding, then the sale being typed. That is
+     * comfortably longer than one three-second poll, so two rosters cannot fill within one. Which means the
+     * only thing that ever delivers several sales at once is the SHEET changing under us -- a row inserted
+     * above the grid, or a poll landing after an outage -- and those are precisely what MOMENT_MAX_BATCH
+     * exists to suppress. The two rules turn out to cover the same ground from opposite ends.
+     *
+     * So the fix -- a queue in the overlay, moments waiting their turn -- would be machinery for a case the
+     * format rules out. Left as is deliberately.
      */
     const fired = new Set<string>()
     const slots = {
