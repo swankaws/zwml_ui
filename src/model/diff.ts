@@ -45,7 +45,12 @@ export interface SlotState {
   position: Position | null
   /** The price cell did not parse and was read as $0 (gridParser). Held back -- see below. */
   suspect: boolean
+  /** Recorder tags. Optional so a factory does not have to spell it out; treated as empty when absent. */
+  tags?: readonly string[]
 }
+
+/** Frozen empty tags, so the default in `snapshotSlots` and `display` costs one allocation for the process. */
+const NO_TAGS: readonly string[] = Object.freeze([])
 
 /** Serializable slot map, addressed `${col}:${row}`. This is 7.5's `baseline`. */
 export type SlotMap = Record<string, SlotState>
@@ -59,6 +64,8 @@ export interface SaleEvent {
   position: Position | null
   /** 1-based observation order. The pointer counts these; the ticker sorts by them. */
   seq: number
+  /** Recorder tags, carried through from the parse. Empty is the ordinary case. */
+  tags?: readonly string[]
 }
 
 export interface DiffResult {
@@ -110,6 +117,7 @@ export function snapshotSlots(blocks: readonly ManagerBlock[]): SlotMap {
         manager,
         position: pick.position,
         suspect: pick.priceSuspect,
+        tags: pick.tags ?? NO_TAGS,
       }
     }
   }
@@ -195,7 +203,8 @@ export function diffSlots(previous: SlotMap, next: SlotMap, nextSeq: number): Di
     if (
       before.player !== state.player ||
       before.price !== state.price ||
-      before.position !== state.position
+      before.position !== state.position ||
+      (before.tags ?? NO_TAGS).join('|') !== (state.tags ?? NO_TAGS).join('|')
     ) {
       // seq 0 is a placeholder: the caller keeps the entry's original sequence, since
       // this is the same sale with better information, not a later one.
@@ -216,6 +225,7 @@ function display(state: SlotState): Omit<SaleEvent, 'slot' | 'seq'> {
     price: state.price,
     manager: state.manager,
     position: state.position,
+    tags: state.tags ?? NO_TAGS,
   }
 }
 

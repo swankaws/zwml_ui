@@ -12,12 +12,14 @@
  */
 
 import { league, type Position } from '../config/league'
+import { readTaggedPlayer } from '../model/playerTags'
 import { cell } from './csv'
 import { readInt, readManagerName, readPosition, readPrice } from './normalize'
 
 export interface Pick {
   /** `null` when the Pos cell is blank -- normal for an unlabeled bench row. */
   position: Position | null
+  /** The CLEAN name: recorder tags are stripped here at the parse boundary. See `model/playerTags.ts`. */
   player: string
   price: number
   /** 0-indexed row in the parsed grid, for warnings and the debug overlay. */
@@ -25,6 +27,13 @@ export interface Pick {
   slot: 'starter' | 'bench'
   /** True when the price cell held something unparseable and was read as $0. */
   priceSuspect: boolean
+  /**
+   * Recorder tags that were on the player cell, table order. Empty is the ordinary case.
+   *
+   * Optional in the type so a test fixture does not have to spell it out, and defaulted to an empty array at
+   * the one place picks turn into slots -- `snapshotSlots`. Real picks from the grid always populate it.
+   */
+  tags?: readonly string[]
 }
 
 /** What the sheet's own formulas say. Kept strictly apart from what we compute (D6). */
@@ -238,7 +247,10 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
     const collect = (from: number, to: number, slot: 'starter' | 'bench') => {
       for (let offset = from; offset <= to; offset++) {
         const row = bandRow + offset
-        const player = cell(grid, row, col + colOffsets.player)
+        const raw = cell(grid, row, col + colOffsets.player)
+        if (!raw) continue
+        /* Stripped here so `player` is the clean name everywhere downstream. */
+        const { player, tags } = readTaggedPlayer(raw)
         if (!player) continue
 
         // The slot test runs on RAW cells, before any coercion (section 5.3).
@@ -265,6 +277,7 @@ export function parseAuctionGrid(rows: string[][]): ParsedTab {
           row,
           slot,
           priceSuspect: price.kind === 'unparseable',
+          tags,
         })
       }
     }

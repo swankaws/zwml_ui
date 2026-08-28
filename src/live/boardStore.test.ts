@@ -1289,6 +1289,31 @@ describe('in-draft moments', () => {
     expect(h.store.getSnapshot().moment?.sale.manager).toBe('Corky')
   })
 
+  it('strips recorder tags at the parse and fires the tag moment', async () => {
+    /*
+     * END TO END. The point of this test -- and the whole reason the strip lives at the parse boundary --
+     * is that no downstream site ever sees the raw `(h)`. So we verify BOTH ends: the sale log holds
+     * `Josh Allen`, and the moment fires with the tag entry.
+     */
+    const h = harness()
+    h.answer(GID, { text: raw2026 })
+    h.store.start()
+    await h.settle()
+
+    /* Kevin's first empty BENCH row -- a definitely-empty slot, so this test cannot fight a keeper. */
+    const emptyRow = bandRows[0]! + rowOffsets.bench[0]
+    const g = grid()
+    pick(g, emptyRow, KEVIN, 'Josh Allen (h)', '$40')
+    h.answer(GID, { text: toCsv(g) })
+    await h.advance(INTERVAL)
+
+    const snap = h.store.getSnapshot()
+    expect(snap.sales[0]?.player).toBe('Josh Allen')
+    expect(snap.sales[0]?.tags).toEqual(['h'])
+    expect(snap.moment?.kind).toBe('playerTag')
+    expect(snap.moment?.tag?.headline).toBe('Homer Pick!')
+  })
+
   it('cannot be fired by a wrong-tab body, which never reaches the diff at all', async () => {
     const h = harness()
     h.answer(GID, { text: raw2026 })

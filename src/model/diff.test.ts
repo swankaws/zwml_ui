@@ -74,7 +74,7 @@ describe('diffSlots', () => {
   it('emits a sale when a player appears where nothing was', () => {
     const diff = diffSlots({}, oneSale(), 1)
     expect(diff.sales).toEqual([
-      { slot: '0:5', seq: 1, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'RB' },
+      { slot: '0:5', seq: 1, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'RB', tags: [] },
     ])
   })
 
@@ -87,7 +87,7 @@ describe('diffSlots', () => {
     const diff = diffSlots(oneSale(), oneSale({ price: 47 }), 2)
     expect(diff.sales).toEqual([])
     expect(diff.corrections).toEqual([
-      { slot: '0:5', seq: 0, player: 'Bijan Robinson', price: 47, manager: 'Kevin', position: 'RB' },
+      { slot: '0:5', seq: 0, player: 'Bijan Robinson', price: 47, manager: 'Kevin', position: 'RB', tags: [] },
     ])
   })
 
@@ -107,7 +107,7 @@ describe('diffSlots', () => {
 
     expect(diff.sales).toEqual([])
     expect(diff.corrections).toEqual([
-      { slot: '0:5', seq: 0, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'K' },
+      { slot: '0:5', seq: 0, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'K', tags: [] },
     ])
   })
 

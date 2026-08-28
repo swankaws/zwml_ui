@@ -35,6 +35,7 @@
 
 import { league } from '../config/league'
 import { creditable, type SaleEvent, type SlotMap } from './diff'
+import { firstTagOf, type PlayerTag } from './playerTags'
 
 export type MomentKind =
   | 'firstKicker'
@@ -42,6 +43,7 @@ export type MomentKind =
   | 'rosterFull'
   | 'firstBroke'
   | 'namedPlayer'
+  | 'playerTag'
   | 'bigSpender'
 
 export interface Moment {
@@ -56,6 +58,13 @@ export interface Moment {
    * is exactly the kind of drift that puts "TWO KICKERS" over a roster holding three.
    */
   count?: number
+  /**
+   * The tag entry that fired this. `playerTag` only.
+   *
+   * Carried so the overlay reads its copy and clip straight off the moment rather than looking the tag up a
+   * second time -- one lookup here, then everywhere downstream is data.
+   */
+  tag?: PlayerTag
 }
 
 /**
@@ -77,6 +86,7 @@ export const MOMENT_HOLD_MS: Record<MomentKind, number> = {
   /* Once a night, like the kicker, and it lands mid-flow rather than in a pause. */
   firstBroke: 5_000,
   namedPlayer: 6_000,
+  playerTag: 5_500,
   bigSpender: 3_500,
   rosterFull: 15_000,
 }
@@ -189,6 +199,9 @@ function idOf(kind: MomentKind, sale: SaleEvent): string {
     /* Per SLOT, so a retraction and re-entry of the same player says nothing a second time. */
     case 'namedPlayer':
       return `namedPlayer:${sale.slot}`
+    /* Per slot AND per tag: a pick tagged both `(h)` and `(d)` earns exactly one of each, not twice for one. */
+    case 'playerTag':
+      return `playerTag:${sale.slot}:${sale.tags?.[0] ?? ''}`
   }
 }
 
@@ -369,6 +382,10 @@ export function detectMoments(input: MomentInput): Moment | null {
     if (namedPlayerFor(sale.player) !== null && !fired.has(idOf('namedPlayer', sale))) {
       candidates.push({ kind: 'namedPlayer', sale })
     }
+    const tag = firstTagOf(sale.tags ?? [])
+    if (tag !== null && !fired.has(`playerTag:${sale.slot}:${tag.tag}`)) {
+      candidates.push({ kind: 'playerTag', sale, tag })
+    }
   }
   for (const sale of spends) {
     if (!fired.has(idOf('bigSpender', sale))) candidates.push({ kind: 'bigSpender', sale })
@@ -479,6 +496,8 @@ export function pinnedMomentKind(search: string): MomentKind | null {
       return 'firstBroke'
     case 'named':
       return 'namedPlayer'
+    case 'tag':
+      return 'playerTag'
     default:
       return null
   }

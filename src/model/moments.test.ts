@@ -212,6 +212,51 @@ describe('extraKicker', () => {
   })
 })
 
+describe('playerTag', () => {
+  const tagged = (over: Partial<SaleEvent> = {}) =>
+    sale({
+      player: 'Josh Allen',
+      position: 'QB',
+      manager: 'Kevin',
+      price: 40,
+      slot: '1:2',
+      tags: ['h'],
+      ...over,
+    })
+
+  it('fires when a tag rides on the sale', () => {
+    const moment = detect({ sales: [tagged()] })
+    expect(moment?.kind).toBe('playerTag')
+    expect(moment?.tag?.tag).toBe('h')
+    expect(moment?.tag?.headline).toBe('Homer Pick!')
+  })
+
+  it('does not fire without a tag', () => {
+    expect(detect({ sales: [tagged({ tags: [] })] })).toBeNull()
+  })
+
+  it('fires once per slot AND per tag, so a retraction and re-entry says nothing again', () => {
+    const fired = new Set<string>()
+    expect(detect({ sales: [tagged()], fired })?.kind).toBe('playerTag')
+    expect(detect({ sales: [tagged({ seq: 9 })], fired })).toBeNull()
+  })
+
+  it('yields to a finished roster, since DONE is the moment the room stops for', () => {
+    const slots: SlotMap = Object.fromEntries(
+      Array.from({ length: league.auctionSlots }, (_, i) => [
+        `1:${i + 2}`,
+        slot({ manager: 'Kevin', position: 'RB' }),
+      ]),
+    )
+    slots['7:2'] = slot({ manager: 'Corky' })
+    expect(detect({ sales: [tagged()], slots })?.kind).toBe('rosterFull')
+  })
+
+  it('outranks a big spend, because the recorder deliberately marked it', () => {
+    expect(detect({ sales: [tagged({ price: 70 })] })?.kind).toBe('playerTag')
+  })
+})
+
 describe('namedPlayer', () => {
   const sold = (player: string, over: Partial<SaleEvent> = {}) =>
     sale({ player, position: 'TE', manager: 'Kevin', price: 40, slot: '1:7', ...over })

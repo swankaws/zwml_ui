@@ -24,6 +24,7 @@
 
 import { useEffect, useState } from 'react'
 import { MOMENT_HOLD_MS, NAMED_PLAYERS, namedPlayerFor, type Moment, type MomentKind } from '../model/moments'
+import { PLAYER_TAGS } from '../model/playerTags'
 import { money } from './columns'
 
 /**
@@ -36,10 +37,15 @@ import { money } from './columns'
 const DONE_GIFS = ['done_1.gif', 'done_2.gif', 'done_3.gif', 'done_4.gif', 'done_5.gif'] as const
 const MONEY_GIFS = ['money.gif', 'money_2.gif', 'money_3.gif'] as const
 const BROKE_GIFS = ['broke_1.gif'] as const
+/*
+ * Every clip the tag TABLE knows about, so the preload picks them up for free -- the overlay does not need
+ * to hard-code any of them. `PLAYER_TAGS` lives in `playerTags.ts`.
+ */
+const TAG_GIFS = PLAYER_TAGS.flatMap((entry) => entry.clips)
 /* Taken from the table, so a new named player needs no edit here. */
 const NAMED_GIFS = NAMED_PLAYERS.map((entry) => entry.clip)
 const PUNT_GIFS = ['punting.gif'] as const
-const ALL_GIFS = [...PUNT_GIFS, ...MONEY_GIFS, ...BROKE_GIFS, ...NAMED_GIFS, ...DONE_GIFS]
+const ALL_GIFS = [...PUNT_GIFS, ...MONEY_GIFS, ...BROKE_GIFS, ...NAMED_GIFS, ...TAG_GIFS, ...DONE_GIFS]
 
 /**
  * Which clip this moment gets. Deterministic on a name rather than `Math.random()`.
@@ -55,8 +61,8 @@ export function gifFrom(choices: readonly string[], seed: string): string {
   return choices[sum % choices.length] as string
 }
 
-function choicesFor(kind: MomentKind): readonly string[] {
-  switch (kind) {
+function choicesFor(moment: Moment): readonly string[] {
+  switch (moment.kind) {
     case 'firstKicker':
     case 'extraKicker':
       return PUNT_GIFS
@@ -66,6 +72,12 @@ function choicesFor(kind: MomentKind): readonly string[] {
       return BROKE_GIFS
     case 'namedPlayer':
       return NAMED_GIFS
+    /*
+     * Restricted to the fired tag's own clips, so a `(h)` sale draws from the homer clips and never from the
+     * dick_move ones. The `?clip=` override still applies through the shared code path below.
+     */
+    case 'playerTag':
+      return moment.tag?.clips ?? []
     case 'bigSpender':
       return MONEY_GIFS
   }
@@ -80,7 +92,7 @@ function gifFor(moment: Moment, clip: number | null): string {
     const entry = namedPlayerFor(moment.sale.player)
     if (entry !== null) return entry.clip
   }
-  const choices = choicesFor(moment.kind)
+  const choices = choicesFor(moment)
   /* A pinned preview may ask for one by number; wraps, because `?clip=9` should show something. */
   if (clip !== null) return choices[(clip - 1) % choices.length] as string
   /* Seeded on the manager for a finished roster, on the player otherwise -- see `gifFrom`. */
@@ -131,6 +143,14 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
         who: manager,
         price: money$,
       }
+    case 'playerTag':
+      return {
+        /* Small label ABOVE the joke, so the room knows which tag fired without having to read the gif. */
+        label: `TAG (${moment.tag?.tag ?? ''})`.toUpperCase(),
+        headline: moment.tag?.headline ?? 'TAGGED',
+        who: `${manager} — ${player}`,
+        price: money$,
+      }
     case 'bigSpender':
       return {
         // The label says WHY this one fired -- it is a record, not merely an expensive player.
@@ -151,6 +171,7 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
 
 /** A stand-in moment for `?moment=`, so the layout gate can measure a screen no fixture produces. */
 function demoMoment(kind: MomentKind): Moment {
+  const firstTag = PLAYER_TAGS[0]
   const sale = {
     slot: '1:9',
     seq: 1,
@@ -163,8 +184,9 @@ function demoMoment(kind: MomentKind): Moment {
     price: kind === 'firstKicker' ? 1 : 72,
     manager: 'Kevin',
     position: kind === 'firstKicker' ? ('K' as const) : ('WR' as const),
+    tags: kind === 'playerTag' && firstTag ? [firstTag.tag] : [],
   }
-  return { kind, sale }
+  return kind === 'playerTag' && firstTag ? { kind, sale, tag: firstTag } : { kind, sale }
 }
 
 export interface MomentOverlayProps {
