@@ -2515,3 +2515,51 @@ kbd {
     max-height: 30vh;
   }
 }
+
+/* ------------------------------------------------- team tooltip (7.2) */
+
+/*
+ * Which team belongs to which manager, on hover or tap. A convenience for whoever is running the draft.
+ *
+ * `title` does the desktop half natively and cannot break anything. This element is only for touch, where
+ * `title` does nothing at all -- and it is `position: fixed` because `.rows` is `overflow: hidden`, so a
+ * bubble positioned inside a row would be clipped off. Nothing in this stylesheet uses `transform`, which
+ * is what makes fixed genuinely viewport-relative rather than relative to some ancestor.
+ *
+ * Sized from the root type like the notices strip, not from the cell: it is chrome for one person standing
+ * at the machine, not something the room reads from 25 feet.
+ */
+.team-tip {
+  position: fixed;
+  z-index: 8;
+  max-width: 60vw;
+  padding: 0.3em 0.55em;
+  /*
+   * A px FLOOR, because this is the one element whose em base differs by 2.6x between the two displays it
+   * has to serve. 0.42em is 19.7px against the projector's 47px root and 7.5px against a phone's 17.94px
+   * -- and 7.5px is not a tooltip, it is a smudge. The floor is where a thumb-held phone becomes readable;
+   * the em keeps it proportionate on the wall.
+   */
+  font-size: max(0.42em, 13px);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+  background: var(--bg-head);
+  border: 1px solid var(--rule);
+  border-radius: 0.2em;
+  /* Purely additive: it must never be the reason a tap does not reach what is underneath. */
+  pointer-events: none;
+}
+
+/*
+ * A hint that the name is worth hovering. Deliberately faint -- an underline on every manager name would
+ * be twelve decorations on the most-read column of the board.
+ */
+.manager-name {
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.14em;
+}

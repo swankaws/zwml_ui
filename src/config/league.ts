@@ -189,6 +189,19 @@ export const league = {
   /** The `Settings` tab (9.2). Read from the live workbook's tab list, 2026-08-25. */
   settingsTabGid: '361377598' as string | null,
 
+  /**
+   * The `2026 TeamsToManagers` tab: team name per manager, for the hover tooltip on the board.
+   *
+   * `null` turns the whole feature off, fetch included, which is the state it ships in until somebody
+   * pastes the gid here -- `/export?format=csv` selects a tab by gid only, so there is no way to find it
+   * by name. gids are safe to commit (see the note at the top of this file).
+   *
+   * Read ONCE, not polled. Team names do not change during an auction, and the poll loop is the most
+   * load-bearing code in the project; a convenience for one person does not get to add failure surface to
+   * it. If the fetch or the parse fails there is simply no tooltip.
+   */
+  teamsTabGid: null as string | null,
+
   pollIntervalMs: 3000,
 
   /** 2026 enforces the $200 cap. 2025 legally allowed overspending. */

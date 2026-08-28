@@ -7,6 +7,7 @@
  * at-a-glance comparison that is the entire point.
  */
 
+import { useEffect, useState } from 'react'
 import { POSITION_COLUMNS, atPositionLimit, cellValue, pressureLevel, type Column } from './columns'
 import type { ManagerState } from '../model/derive'
 import { league } from '../config/league'
@@ -20,7 +21,16 @@ export interface BoardProps {
    * has to be a new element. Absent on the fixture path, where nothing changes.
    */
   revisions?: Readonly<Record<string, number>>
+  /**
+   * Manager -> team name, for the tooltip. Empty is the ordinary case and means no tooltip anywhere.
+   *
+   * A convenience for whoever is running the draft, who knows the teams and is learning the names.
+   */
+  teams?: Readonly<Record<string, string>>
 }
+
+/** How long a tapped tooltip stays up. Long enough to read a team name, short enough to forget about. */
+const TIP_MS = 4_000
 
 /** Which visual state a row is in. Meaning only -- never decoration. */
 function rowState(m: ManagerState, topMaxBid: number | null): string {
@@ -45,9 +55,24 @@ function distinguishingTopBid(managers: ManagerState[]): number | null {
   return tied > managers.length / 2 ? null : top
 }
 
-export function Board({ managers, columns, revisions = {} }: BoardProps) {
+export function Board({ managers, columns, revisions = {}, teams = {} }: BoardProps) {
   const template = columns.map((c) => `minmax(0, ${c.width}fr)`).join(' ')
   const topMaxBid = distinguishingTopBid(managers)
+
+  /*
+   * The tapped tooltip, for a phone -- `title` covers hover and does nothing on touch.
+   *
+   * `position: fixed` and coordinates taken from the tapped cell, because `.rows` is `overflow: hidden`
+   * and an absolutely-positioned bubble inside a row would be clipped away. Nothing in this stylesheet
+   * uses `transform`, so fixed really is viewport-relative here.
+   */
+  const [tip, setTip] = useState<{ team: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (tip === null) return
+    const timer = window.setTimeout(() => setTip(null), TIP_MS)
+    return () => window.clearTimeout(timer)
+  }, [tip])
 
   return (
     <div className="board">
@@ -143,6 +168,21 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
                       )
                     })}
                   </div>
+                ) : column.key === 'manager' && teams[m.name] !== undefined ? (
+                  /*
+                   * `title` is the whole feature on a desktop -- native, free, and it cannot break the
+                   * board. The tap handler exists only because `title` does nothing on touch.
+                   */
+                  <span
+                    className="manager-name"
+                    title={teams[m.name]}
+                    onPointerUp={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setTip({ team: teams[m.name] as string, x: rect.left, y: rect.bottom })
+                    }}
+                  >
+                    {cellValue(column.key, m)}
+                  </span>
                 ) : (
                   <span className={isNegative(column, m) ? 'negative' : undefined}>
                     {cellValue(column.key, m)}
@@ -153,6 +193,11 @@ export function Board({ managers, columns, revisions = {} }: BoardProps) {
           </div>
         ))}
       </div>
+      {tip !== null && (
+        <div className="team-tip" style={{ left: `${tip.x}px`, top: `${tip.y}px` }} role="presentation">
+          {tip.team}
+        </div>
+      )}
     </div>
   )
 }

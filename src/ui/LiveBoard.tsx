@@ -27,6 +27,8 @@ import { columnsPinnedByQuery, resolveSettings, settingsFromQuery } from '../con
 import { league } from '../config/league'
 import type { BoardSnapshot, BoardStore } from '../live/boardStore'
 import { pinnedMomentKind } from '../model/moments'
+import { useTeamNames } from './useTeamNames'
+import type { SheetSource } from '../data/sheetClient'
 
 export interface LiveBoardProps {
   store: BoardStore
@@ -37,10 +39,18 @@ export interface LiveBoardProps {
    * it; until then it is `null` unless `?cursor=` says otherwise -- see `nominations.ts`.
    */
   cursor?: number | null
+  /**
+   * The sheet source, for the one-shot team-names read. `null` skips it entirely.
+   *
+   * Passed in rather than reached for, so the fetch lives inside React and gets an unmount guard -- and so
+   * this component stays testable without a network.
+   */
+  source?: SheetSource | null
 }
 
-export function LiveBoard({ store, search, cursor = null }: LiveBoardProps) {
+export function LiveBoard({ store, search, cursor = null, source = null }: LiveBoardProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const teams = useTeamNames(source)
 
   return (
     <ErrorBoundary
@@ -56,7 +66,7 @@ export function LiveBoard({ store, search, cursor = null }: LiveBoardProps) {
       onBroken={store.noteRenderError}
       onRecovered={store.clearRenderError}
     >
-      <BoardSurface snapshot={snapshot} search={search} cursor={cursor} />
+      <BoardSurface snapshot={snapshot} search={search} cursor={cursor} teams={teams} />
     </ErrorBoundary>
   )
 }
@@ -65,13 +75,19 @@ interface SurfaceProps {
   snapshot: BoardSnapshot
   search: string
   cursor: number | null
+  /**
+   * Manager -> team name. Threaded rather than fetched here, because this component is the part allowed
+   * to THROW -- the boundary above catches it and remounts it. A fetch inside would re-run on every
+   * recovery, which is the same mistake the moments' fired-set avoided by living in the store.
+   */
+  teams: Readonly<Record<string, string>>
 }
 
 /**
  * A pure function of the snapshot: no subscription, no store, nothing to unmount. This
  * is the part allowed to throw, and the boundary above catches it.
  */
-function BoardSurface({ snapshot, search, cursor }: SurfaceProps) {
+function BoardSurface({ snapshot, search, cursor, teams }: SurfaceProps) {
   /*
    * The roster comes from the parsed sheet, not `league.managers`, so `?order=` accepts
    * whoever is actually playing. Validating against the committed list would reject a
@@ -135,6 +151,7 @@ function BoardSurface({ snapshot, search, cursor }: SurfaceProps) {
       feed={snapshot.feed}
       feedLabel={snapshot.feedLabel}
       notices={notices}
+      teams={teams}
       moment={snapshot.moment}
       /*
        * Fixture-only by construction, so a `?moment=` left in a bookmark cannot strand the projector on

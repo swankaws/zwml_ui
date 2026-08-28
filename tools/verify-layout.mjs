@@ -426,9 +426,34 @@ const CASES = [
   { size: '390x844', query: '?fixture=2026', press: 'r,r', label: 'phone after roster round trip', mobile: true },
   { size: '1920x1080', query: '?fixture=2026', press: 'r,r', label: '1080p after roster round trip' },
   { size: '1024x768', query: '?fixture=2026', press: 'r,r', label: '4:3 after roster round trip' },
+
+  /*
+   * The team tooltip (7.2), in both halves, because they fail differently.
+   *
+   * `title` is native and covers hover, so the desktop case only has to prove every manager cell carries
+   * one. The TAP is the half a keyboard can never reach, and without a case for it the mobile behaviour
+   * the maintainer actually asked for would ship with nothing exercising it at all.
+   */
+  { size: '1920x1080', query: '?fixture=2026&teams=1', label: 'team titles on the projector', teamTitles: 12 },
+  {
+    size: '390x844',
+    query: '?fixture=2026&teams=1',
+    tap: '.manager-name',
+    label: 'team tooltip tapped on a phone',
+    teamTitles: 12,
+    teamTip: true,
+  },
+  {
+    size: '1024x768',
+    query: '?fixture=2026&teams=1',
+    tap: '.manager-name',
+    label: 'team tooltip tapped at 4:3',
+    teamTitles: 12,
+    teamTip: true,
+  },
 ]
 
-function measure(size, query, press) {
+function measure(size, query, press, tap) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -440,6 +465,8 @@ function measure(size, query, press) {
         `${BASE}${query}`,
         /* Keys to press before measuring, so a case can reach a state a first render never shows. */
         ...(press ? ['--press', press] : []),
+        /* A selector to tap, for the one behaviour a keyboard cannot reach. */
+        ...(tap ? ['--tap', tap] : []),
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     )
@@ -461,10 +488,27 @@ function measure(size, query, press) {
 const failures = []
 
 for (const testCase of CASES) {
-  const m = await measure(testCase.size, testCase.query, testCase.press)
+  const m = await measure(testCase.size, testCase.query, testCase.press, testCase.tap)
   const problems = []
   const frozen = testCase.expect === 'frozen'
   const roster = testCase.rosterCols !== undefined
+
+  if (testCase.teamTitles !== undefined) {
+    if (m.teamTip === null) {
+      problems.push('no manager cells rendered, so the team tooltip cannot be checked')
+    } else {
+      if (m.teamTip.titled !== testCase.teamTitles) {
+        problems.push(
+          `${m.teamTip.titled} of ${m.teamTip.total} manager cells carry a team title,` +
+            ` expected ${testCase.teamTitles}`,
+        )
+      }
+      if (testCase.teamTip && m.teamTip.tipText === null) {
+        problems.push('tapping a manager name showed no tooltip')
+      }
+      if (m.teamTip.tipClipped) problems.push('the team tooltip does not fit the screen')
+    }
+  }
 
   if (testCase.posLimits !== undefined) {
     if (m.positionLimits === null) {
@@ -666,7 +710,9 @@ for (const testCase of CASES) {
   const status = problems.length === 0 ? 'ok  ' : 'FAIL'
   console.log(
     `${status} ${testCase.size.padEnd(10)} ${testCase.label.padEnd(24)} ` +
-      (testCase.moment !== undefined || testCase.noMoment
+      (testCase.teamTitles !== undefined
+        ? `titles=${m.teamTip?.titled}/${m.teamTip?.total} tip=${m.teamTip?.tipText ?? 'none'}`
+        : testCase.moment !== undefined || testCase.noMoment
         ? m.moment === null
           ? 'moment=none'
           : `moment=${m.moment.kind} card=${m.moment.cardW}x${m.moment.cardH}` +

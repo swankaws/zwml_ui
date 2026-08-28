@@ -80,6 +80,8 @@ export interface AppProps {
   moment?: Moment | null
   /** `?moment=`, fixture-only. Pins the overlay open so the layout gate can measure it. */
   pinnedMoment?: MomentKind | null
+  /** Manager -> team name for the board's tooltip. Empty means no tooltip, which is the default. */
+  teams?: Readonly<Record<string, string>>
 }
 
 /**
@@ -164,6 +166,7 @@ export function App({
   notices = null,
   moment = null,
   pinnedMoment = null,
+  teams = {},
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
   const [tableRef, metrics] = useTableMetrics<HTMLDivElement>(scale)
@@ -325,6 +328,7 @@ export function App({
         <div className="table-area" ref={tableRef}>
           <Board
             managers={sortByMaxBid(state.managers)}
+            teams={teams}
             columns={columns}
             revisions={revisions}
           />

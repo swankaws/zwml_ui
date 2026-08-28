@@ -78,8 +78,13 @@ function renderLive(root: ReturnType<typeof createRoot>) {
     return
   }
 
+  /* One source object, shared by the poll loop and the one-shot team-names read. */
+
+  const source = createCsvSource({ spreadsheetId: location.id })
+
+
   const store = createBoardStore({
-    source: createCsvSource({ spreadsheetId: location.id }),
+    source,
     gid: tab.gid,
     year: tab.year,
     settingsGid: league.settingsTabGid,
@@ -189,7 +194,12 @@ function renderLive(root: ReturnType<typeof createRoot>) {
   // `health()` and nothing else, and nothing in the app reads this back.
   Object.assign(window as unknown as Record<string, unknown>, { zwml: { store, tab } })
 
-  root.render(<LiveBoard store={store} search={search} cursor={readCursor()} />)
+  /*
+   * The source is handed to `LiveBoard` as well as to the store, for the one-shot team-names read. The
+   * store keeps its own; sharing the object costs nothing and means the tooltip cannot be pointed at a
+   * different workbook than the board.
+   */
+  root.render(<LiveBoard store={store} search={search} cursor={readCursor()} source={source} />)
 }
 
 /**
@@ -218,6 +228,22 @@ function safeSessionStorage(): Storage | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Stand-in team names for `?teams=1`.
+ *
+ * Deliberately long-ish and varied in length: the bubble is `white-space: nowrap` with a `60vw` cap, so a
+ * short name would prove nothing about whether a real one fits on a phone.
+ */
+function demoTeams(names: readonly string[]): Record<string, string> {
+  const teams = [
+    'The Unemployed Line Judges',
+    'Gridiron Goons',
+    'Third Rail',
+    'Butker Did Nothing Wrong',
+  ]
+  return Object.fromEntries(names.map((name, index) => [name, teams[index % teams.length] as string]))
 }
 
 // ------------------------------------------------------------------------ fixture path
@@ -273,6 +299,12 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * unless a fixture is loaded: a `?moment=` in a bookmark would otherwise strand the projector.
        */
       pinnedMoment={pinnedMomentKind(search)}
+      /*
+       * `?teams=1` gives the fixture a stand-in team map, so the layout gate can measure the tooltip. The
+       * live path reads the real tab once; a static fixture has no tab to read, and the alternative was
+       * shipping the mobile half of this feature with nothing exercising it.
+       */
+      teams={params.get('teams') === null ? {} : demoTeams(fixture.state.managers.map((m) => m.name))}
       /* `?flash=N` also makes the rail's washes visible, which a static fixture otherwise cannot. */
       demoFlash={params.get('flash') !== null}
       revisions={Object.fromEntries(

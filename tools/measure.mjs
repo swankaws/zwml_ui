@@ -105,6 +105,14 @@ const press = arg('press', '')
   .split(',')
   .map((key) => key.trim())
   .filter(Boolean)
+/*
+ * A CSS selector to tap before measuring -- `--tap '.manager-name'`.
+ *
+ * Keys cover the operator's controls; this covers the one thing on this board a phone does that a keyboard
+ * cannot, which is tap a manager name to see their team. Without it the mobile half of that feature would
+ * ship with nothing exercising it.
+ */
+const tap = arg('tap', '')
 
 /** Runs in the page. Returns everything worth asserting about the layout. */
 const PROBE = `(() => {
@@ -462,6 +470,26 @@ const PROBE = `(() => {
      * own overflow:hidden made it invisible to every other probe here.
      */
     /*
+     * The team tooltip (7.2). NO BACKTICKS -- inside the PROBE template literal.
+     *
+     * Two halves, because they fail differently: titled is the desktop half and is native, while tip
+     * only exists after a tap and is the half a keyboard can never reach.
+     */
+    teamTip: (() => {
+      const named = [...document.querySelectorAll('.rows .row .cell-manager .manager-name')]
+      const tip = document.querySelector('.team-tip')
+      const rect = tip ? tip.getBoundingClientRect() : null
+      const view = { w: window.innerWidth, h: window.innerHeight }
+      return {
+        titled: named.filter((el) => (el.getAttribute('title') || '') !== '').length,
+        total: document.querySelectorAll('.rows .row .cell-manager').length,
+        tipText: tip ? tip.textContent.trim() : null,
+        tipClipped: rect
+          ? rect.left < -1 || rect.top < -1 || rect.right > view.w + 1 || rect.bottom > view.h + 1
+          : false,
+      }
+    })(),
+    /*
      * Position counts sitting at the league cap (QB 3, TE 3, K 2), which render red.
      *
      * Counted rather than colour-sampled: the assertion worth making is that the rule MATCHES something
@@ -702,6 +730,35 @@ for (const key of press) {
   await call('Input.dispatchKeyEvent', { type: 'keyDown', key, text: key })
   await call('Input.dispatchKeyEvent', { type: 'keyUp', key })
   await new Promise((r) => setTimeout(r, Math.max(settle, 600)))
+}
+
+if (tap !== '') {
+  /*
+   * Real pointer events at the element's centre, rather than `element.click()`, because the handler is on
+   * `pointerup` -- a synthetic click would pass while a thumb on glass did nothing.
+   */
+  const { result } = await call('Runtime.evaluate', {
+    returnByValue: true,
+    expression:
+      'JSON.stringify((() => { const el = document.querySelector(' +
+      JSON.stringify(tap) +
+      '); if (!el) return null; const r = el.getBoundingClientRect();' +
+      ' return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })())',
+  })
+  const at = JSON.parse(result.value ?? 'null')
+  if (at) {
+    for (const type of ['pointerDown', 'pointerUp']) {
+      await call('Input.dispatchMouseEvent', {
+        type: type === 'pointerDown' ? 'mousePressed' : 'mouseReleased',
+        x: at.x,
+        y: at.y,
+        button: 'left',
+        clickCount: 1,
+        pointerType: 'touch',
+      })
+    }
+    await new Promise((r) => setTimeout(r, 400))
+  }
 }
 
 const { result, exceptionDetails } = await call('Runtime.evaluate', {
