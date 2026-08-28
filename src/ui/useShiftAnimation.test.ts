@@ -7,7 +7,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { NOMINEE_EXIT_MS, SHIFT_MS, shouldAnimateShift } from './useShiftAnimation'
+import {
+  NOMINEE_EXIT_MS,
+  SHIFT_MS,
+  isLeavingNominee,
+  isVisibleNominee,
+  shouldAnimateShift,
+} from './useShiftAnimation'
 
 describe('shouldAnimateShift', () => {
   it('slides when the rotation advances', () => {
@@ -67,5 +73,36 @@ describe('useExiting timing', () => {
     const css = await readFile('src/ui/theme.css', 'utf8')
     const match = css.match(/--nominee-exit:\s*(\d+)ms/)
     expect(match?.[1]).toBe(String(NOMINEE_EXIT_MS))
+  })
+})
+
+describe('who appears in ON THE CLOCK', () => {
+  it('always shows a manager who can still nominate', () => {
+    expect(isVisibleNominee(false, false)).toBe(true)
+  })
+
+  it('shows a finished manager only while they are leaving', () => {
+    expect(isVisibleNominee(true, true)).toBe(true)
+    expect(isVisibleNominee(true, false)).toBe(false)
+  })
+
+  it('animates a finished manager out', () => {
+    expect(isLeavingNominee(true, true)).toBe(true)
+  })
+
+  it('does NOT animate out a manager whose pick was undone mid-exit', () => {
+    /*
+     * The reported bug, and the reason `isLeavingNominee` looks at CURRENT fullness rather than at the
+     * exiting set alone. A retraction un-fills a roster, and a manager can still be inside the 620ms hold
+     * when it happens -- animating them out then faded a name that had just become eligible again. The
+     * symptom was a manager invisible until the hold expired and gone at the moment it became their turn.
+     */
+    expect(isLeavingNominee(false, true)).toBe(false)
+    expect(isVisibleNominee(false, true)).toBe(true)
+  })
+
+  it('leaves an ordinary nominee alone in both respects', () => {
+    expect(isVisibleNominee(false, false)).toBe(true)
+    expect(isLeavingNominee(false, false)).toBe(false)
   })
 })

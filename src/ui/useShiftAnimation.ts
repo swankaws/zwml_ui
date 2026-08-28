@@ -97,26 +97,82 @@ export const NOMINEE_EXIT_MS = 620
  */
 export function useExiting(justFinished: ReadonlySet<string>, ms = NOMINEE_EXIT_MS): ReadonlySet<string> {
   const [exiting, setExiting] = useState<ReadonlySet<string>>(EMPTY)
+  /*
+   * Timers OUTSIDE the effect, one per name, cleared only on unmount.
+   *
+   * This is the fix for a real bug and the reason not to go back to the obvious version. The first attempt
+   * created the removal timer inside the effect and returned `clearTimeout` as its cleanup. `justFinished`
+   * is a one-shot -- true for exactly one commit -- so on the very next render the effect's key changed to
+   * empty, React ran the cleanup, and the cleanup CANCELLED THE REMOVAL. The name stayed in this set
+   * forever: rendered, holding its grid row open, and pinned at `opacity: 0` by the animation's `both` fill
+   * mode. Which read as a permanent gap in ON THE CLOCK, and as a manager who never came back after their
+   * pick was undone.
+   *
+   * A cleanup that cancels the work it was scheduled to protect is easy to write and hard to see.
+   */
+  const timers = useRef(new Map<string, number>())
 
-  /* A stable key, so an effect can depend on the CONTENTS of the set rather than its identity. */
+  /* A stable key, so the effect depends on the CONTENTS of the set rather than its identity. */
   const key = [...justFinished].sort().join('|')
 
   useEffect(() => {
     if (key === '') return
     const names = key.split('|')
     setExiting((held) => new Set([...held, ...names]))
-    const timer = window.setTimeout(() => {
-      setExiting((held) => {
-        const next = new Set(held)
-        for (const name of names) next.delete(name)
-        return next.size === 0 ? EMPTY : next
-      })
-    }, ms)
-    return () => window.clearTimeout(timer)
+
+    for (const name of names) {
+      // Restart the clock if this name is somehow already leaving, rather than stacking two timers.
+      const running = timers.current.get(name)
+      if (running !== undefined) window.clearTimeout(running)
+      timers.current.set(
+        name,
+        window.setTimeout(() => {
+          timers.current.delete(name)
+          setExiting((held) => {
+            if (!held.has(name)) return held
+            const next = new Set(held)
+            next.delete(name)
+            return next.size === 0 ? EMPTY : next
+          })
+        }, ms),
+      )
+    }
   }, [key, ms])
+
+  /* Timers are cancelled ONLY here. Anywhere else and they cancel the removal they exist to perform. */
+  useEffect(
+    () => () => {
+      for (const timer of timers.current.values()) window.clearTimeout(timer)
+      timers.current.clear()
+    },
+    [],
+  )
 
   return exiting
 }
 
 /** Shared empty set, so an unchanged result is referentially stable and cannot cause a re-render. */
 const EMPTY: ReadonlySet<string> = new Set()
+
+/**
+ * Should this entry still be drawn in ON THE CLOCK?
+ *
+ * A finished manager is shown only while they are leaving. Anyone not finished is always shown -- which is
+ * also what puts a manager straight back after their pick is UNDONE, without waiting out an exit for
+ * something that has been reversed.
+ */
+export function isVisibleNominee(full: boolean, leaving: boolean): boolean {
+  return !full || leaving
+}
+
+/**
+ * Should this entry be playing its exit animation?
+ *
+ * Guarded on CURRENT fullness, not on the exiting set alone, and that guard is the undo case: a manager can
+ * still be inside the 620ms hold when their pick is retracted, and animating them out then would fade a
+ * name that has just become eligible again -- invisible until the hold expired, and gone at the moment it
+ * became their turn. The stale entry in the set expires on its own timer, harmlessly.
+ */
+export function isLeavingNominee(full: boolean, leaving: boolean): boolean {
+  return full && leaving
+}

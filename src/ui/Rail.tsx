@@ -13,7 +13,12 @@ import { money } from './columns'
 import type { ManagerState } from '../model/derive'
 import type { SaleEvent } from '../model/diff'
 import { highestSeq, newSaleSeqs } from '../model/revisions'
-import { useExiting, useShiftAnimation } from './useShiftAnimation'
+import {
+  isLeavingNominee,
+  isVisibleNominee,
+  useExiting,
+  useShiftAnimation,
+} from './useShiftAnimation'
 
 export interface RailProps {
   managers: ManagerState[]
@@ -128,7 +133,7 @@ export function Rail({
    * fires every second.
    */
   const exiting = useExiting(justFinished)
-  const visible = entries.filter((entry) => !entry.full || exiting.has(entry.name))
+  const visible = entries.filter((entry) => isVisibleNominee(entry.full, exiting.has(entry.name)))
 
 
   return (
@@ -169,7 +174,7 @@ export function Rail({
                 key={`${entry.name}:${entry.onClock}`}
                 entry={entry}
                 flash={entry.onClock && clockMoved}
-                finished={exiting.has(entry.name)}
+                finished={isLeavingNominee(entry.full, exiting.has(entry.name))}
               />
             ))
           )}

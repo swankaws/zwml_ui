@@ -815,24 +815,35 @@ body {
  * `scale` does nothing to an inline element, hence `inline-block`. Applied only while animating, so the
  * element participates in the flex row or the grid exactly as before for its whole visible life.
  */
+/*
+ * `font-size` rather than `transform: scale`, because the box has to COLLAPSE and not merely shrink.
+ *
+ * A transform leaves the element's layout box exactly where it was, so the name got smaller inside a slot
+ * that stayed full size -- which read as a gap opening up in the list rather than the list closing up. Font
+ * size collapses both axes at once, which is what the two orientations need: a grid row on the projector
+ * and a flex item on a phone, with one property and no media query.
+ *
+ * It costs a layout on each frame, which is the right trade for one element over half a second.
+ */
 @keyframes nominee-finished {
   0% {
-    transform: scale(1);
+    font-size: 1em;
     opacity: 0.6;
   }
-  30% {
-    transform: scale(1.06);
+  25% {
+    font-size: 1.06em;
     opacity: 1;
   }
   100% {
-    transform: scale(0.2);
+    font-size: 0;
     opacity: 0;
   }
 }
 
 .nominee[data-finished] {
-  display: inline-block;
   animation: nominee-finished var(--nominee-exit) cubic-bezier(0.4, 0, 0.7, 0.2) both;
+  /* Nothing should hold the slot open once the type has gone. */
+  overflow: hidden;
 }
 
 /*
