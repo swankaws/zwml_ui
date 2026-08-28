@@ -16,6 +16,7 @@
  * timers.
  */
 
+import { league } from '../config/league'
 import { parseCsv } from '../data/csv'
 import { parseAuctionGrid } from '../data/gridParser'
 import { deriveLeague, type LeagueState } from '../model/derive'
@@ -617,6 +618,14 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
        */
       lastSlots = slots
       baselineCounts = countsFromSlots(slots)
+      /*
+       * If somebody is ALREADY down to minimum bids when the board opens, the "first to $1" claim is not
+       * ours to make -- they got there before this tab was watching, or their keepers ate the budget. Spend
+       * the moment rather than award it later to whoever happens to be second.
+       *
+       * Same shape as the keeper rules above: the honest answer to "was this the first?" is sometimes no.
+       */
+      if (brokeManagers().length > 0) firedMoments.add('firstBroke')
       setPointerBasis()
       return
     }
@@ -671,12 +680,36 @@ export function createBoardStore(options: BoardStoreOptions): BoardStore {
     saleLog = nextLog
 
     if (diff.sales.length > 0) {
-      moment = detectMoments({ sales: diff.sales, log: logBefore, slots, fired: firedMoments })
+      moment = detectMoments({
+        sales: diff.sales,
+        log: logBefore,
+        slots,
+        fired: firedMoments,
+        /*
+         * From the DERIVED state, which `applyAuctionText` has already computed for this same body -- so
+         * these are the very numbers about to be rendered, not a second opinion about them.
+         */
+        maxBids: maxBidsByManager(),
+        })
     }
     // Reversed once here rather than in the render path, so the reference stays stable
     // across the age tick's re-publishes.
     salesView = [...nextLog].reverse()
     setPointerBasis()
+  }
+
+  /** MAX BID per manager from the current derived state. Empty before the first successful parse. */
+  function maxBidsByManager(): Record<string, number | null> {
+    const bids: Record<string, number | null> = {}
+    for (const manager of derived?.state.managers ?? []) bids[manager.name] = manager.maxBid
+    return bids
+  }
+
+  /** Managers already reduced to minimum bids. `maxBid` is floored at `minBid`, so `<=` covers overspent. */
+  function brokeManagers(): string[] {
+    return (derived?.state.managers ?? [])
+      .filter((manager) => manager.maxBid !== null && manager.maxBid <= league.minBid)
+      .map((manager) => manager.name)
   }
 
   function setPointerBasis() {

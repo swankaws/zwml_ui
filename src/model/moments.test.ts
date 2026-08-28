@@ -15,6 +15,8 @@ import {
   MOMENT_MAX_BATCH,
   detectMoments,
   firedFromLog,
+  NAMED_PLAYERS,
+  namedPlayerFor,
   pinnedClip,
   pinnedMomentKind,
 } from './moments'
@@ -41,12 +43,14 @@ const detect = (input: {
   log?: readonly SaleEvent[]
   slots?: SlotMap
   fired?: Set<string>
+  maxBids?: Readonly<Record<string, number | null>>
 }) =>
   detectMoments({
     sales: input.sales,
     log: input.log ?? [],
     slots: input.slots ?? {},
     fired: input.fired ?? new Set<string>(),
+    ...(input.maxBids === undefined ? {} : { maxBids: input.maxBids }),
   })
 
 describe('firstKicker', () => {
@@ -205,6 +209,146 @@ describe('extraKicker', () => {
   it('is not fired by a non-kicker sale to a manager who holds two kickers', () => {
     const slots = { ...held('Kevin', 2, 1), '1:3': slot({ position: 'RB', player: 'Bijan' }) }
     expect(detect({ sales: [sale({ slot: '1:3', position: 'RB' })], slots })).toBeNull()
+  })
+})
+
+describe('namedPlayer', () => {
+  const sold = (player: string, over: Partial<SaleEvent> = {}) =>
+    sale({ player, position: 'TE', manager: 'Kevin', price: 40, slot: '1:7', ...over })
+
+  it('fires for a player on the table', () => {
+    const moment = detect({ sales: [sold('Travis Kelce')] })
+    expect(moment?.kind).toBe('namedPlayer')
+    expect(moment?.sale.player).toBe('Travis Kelce')
+  })
+
+  it('matches how the name is actually typed, not one exact spelling', () => {
+    // The sheet is typed by hand. Case, double spaces and a first initial are all ordinary.
+    for (const spelling of ['travis kelce', 'TRAVIS  KELCE', 'T. Kelce', 't kelce']) {
+      expect(namedPlayerFor(spelling)?.headline).toContain('Taylor Swift')
+    }
+  })
+
+  it('does NOT match on surname alone', () => {
+    /*
+     * `Kelce` would also catch Jason, and congratulating the wrong brother is worse than staying quiet.
+     * The same reasoning the abbreviation ladder uses for `St. Brown` against `AJ Brown`.
+     */
+    expect(namedPlayerFor('Kelce')).toBeNull()
+    expect(namedPlayerFor('Jason Kelce')).toBeNull()
+    expect(namedPlayerFor('J. Kelce')).toBeNull()
+  })
+
+  it('ignores anybody not on the table, and an empty name', () => {
+    expect(namedPlayerFor('Justin Jefferson')).toBeNull()
+    expect(namedPlayerFor('')).toBeNull()
+    expect(namedPlayerFor('   ')).toBeNull()
+    expect(detect({ sales: [sold('Justin Jefferson')] })).toBeNull()
+  })
+
+  it('fires once per slot, so a retraction and re-entry says nothing twice', () => {
+    const fired = new Set<string>()
+    expect(detect({ sales: [sold('Travis Kelce')], fired })?.kind).toBe('namedPlayer')
+    expect(fired.has('namedPlayer:1:7')).toBe(true)
+    expect(detect({ sales: [sold('Travis Kelce', { seq: 9 })], fired })).toBeNull()
+  })
+
+  it('outranks a big spend, because the joke is better than the number', () => {
+    expect(detect({ sales: [sold('Travis Kelce', { price: 80 })] })?.kind).toBe('namedPlayer')
+  })
+
+  it('yields to a finished roster', () => {
+    // Kelce completing somebody is still primarily them being DONE.
+    const slots: SlotMap = Object.fromEntries(
+      Array.from({ length: league.auctionSlots }, (_, i) => [
+        `1:${i + 2}`,
+        slot({ manager: 'Kevin', position: 'RB' }),
+      ]),
+    )
+    slots['7:2'] = slot({ manager: 'Corky', position: 'RB' })
+    expect(detect({ sales: [sold('Travis Kelce')], slots })?.kind).toBe('rosterFull')
+  })
+
+  it('keeps every table entry pointing at a clip and a headline', () => {
+    // A new named player is a line of data; this is what stops a half-filled line shipping.
+    for (const entry of NAMED_PLAYERS) {
+      expect(entry.player.trim()).not.toBe('')
+      expect(entry.headline.trim()).not.toBe('')
+      expect(entry.clip).toMatch(/\.(gif|webp|png)$/)
+    }
+  })
+})
+
+describe('firstBroke', () => {
+  /*
+   * The first manager reduced to minimum bids -- MAX BID at the floor, so they cannot outbid anybody on
+   * anything. The board already calls this state `broke` in `rowState`.
+   */
+  const bought = (manager: string, over: Partial<SaleEvent> = {}) =>
+    sale({ manager, position: 'RB', player: 'Javonte Williams', price: 30, slot: '1:4', ...over })
+
+  it('fires when a buyer is left on minimum bids', () => {
+    const moment = detect({ sales: [bought('Kevin')], maxBids: { Kevin: league.minBid } })
+    expect(moment?.kind).toBe('firstBroke')
+    expect(moment?.sale.manager).toBe('Kevin')
+  })
+
+  it('fires for an OVERSPENT manager too, because the floor is the same number', () => {
+    /*
+     * `maxBid` is `Math.max(minBid, remaining - (needs - 1) * minBid)`, so somebody $6 in the red reports
+     * the same $1 as somebody exactly at the floor. `<=` rather than `===` is what covers both, and both
+     * mean the same thing to a bidder: they cannot outbid anyone.
+     */
+    expect(detect({ sales: [bought('Kevin')], maxBids: { Kevin: 0 } })?.kind).toBe('firstBroke')
+  })
+
+  it('does not fire while a buyer can still outbid somebody', () => {
+    expect(detect({ sales: [bought('Kevin')], maxBids: { Kevin: league.minBid + 1 } })).toBeNull()
+    expect(detect({ sales: [bought('Kevin')], maxBids: { Kevin: 40 } })).toBeNull()
+  })
+
+  it('does not fire for a FULL roster, whose MAX BID is null rather than low', () => {
+    // `null` means no bid is possible at all -- that is DONE, not broke, and it has its own moment.
+    expect(detect({ sales: [bought('Kevin')], maxBids: { Kevin: null } })).toBeNull()
+  })
+
+  it('cannot fire without max bids, rather than guessing', () => {
+    expect(detect({ sales: [bought('Kevin')] })).toBeNull()
+    expect(detect({ sales: [bought('Kevin')], maxBids: {} })).toBeNull()
+  })
+
+  it('fires once for the night, not once per manager', () => {
+    // The joke is being FIRST to run out. The second manager to get there is just arithmetic.
+    const fired = new Set<string>()
+    expect(detect({ sales: [bought('Kevin')], maxBids: { Kevin: 1 }, fired })?.kind).toBe('firstBroke')
+    expect(fired.has('firstBroke')).toBe(true)
+    expect(detect({ sales: [bought('Corky', { seq: 2 })], maxBids: { Corky: 1 }, fired })).toBeNull()
+  })
+
+  it('yields to a finished roster when one sale does both', () => {
+    /*
+     * A last pick that also empties the wallet. DONE is the moment the room stops for, and both are
+     * consumed so the broke joke is not told separately one poll later.
+     */
+    const fired = new Set<string>()
+    const slots: SlotMap = Object.fromEntries(
+      Array.from({ length: league.auctionSlots }, (_, i) => [
+        `1:${i + 2}`,
+        slot({ manager: 'Kevin', position: 'RB' }),
+      ]),
+    )
+    slots['7:2'] = slot({ manager: 'Corky', position: 'RB' })
+    const moment = detect({ sales: [bought('Kevin')], slots, maxBids: { Kevin: 1 }, fired })
+    expect(moment?.kind).toBe('rosterFull')
+    expect([...fired].sort()).toEqual(['firstBroke', 'rosterFull:Kevin'])
+  })
+
+  it('outranks a big spend, since going broke is the more interesting half of it', () => {
+    const moment = detect({
+      sales: [bought('Kevin', { price: 70 })],
+      maxBids: { Kevin: 1 },
+    })
+    expect(moment?.kind).toBe('firstBroke')
   })
 })
 
@@ -510,9 +654,13 @@ describe('pinnedClip', () => {
 })
 
 describe('pinnedMomentKind', () => {
-  it('reads the two kinds when a fixture is loaded', () => {
+  it('reads every kind when a fixture is loaded', () => {
     expect(pinnedMomentKind('?fixture=2025&moment=kicker')).toBe('firstKicker')
+    expect(pinnedMomentKind('?fixture=2026&moment=extra')).toBe('extraKicker')
     expect(pinnedMomentKind('?fixture=2026&moment=spender')).toBe('bigSpender')
+    expect(pinnedMomentKind('?fixture=2026&moment=done')).toBe('rosterFull')
+    expect(pinnedMomentKind('?fixture=2026&moment=broke')).toBe('firstBroke')
+    expect(pinnedMomentKind('?fixture=2026&moment=named')).toBe('namedPlayer')
   })
 
   it('refuses without a fixture, so a bookmark cannot strand the projector', () => {

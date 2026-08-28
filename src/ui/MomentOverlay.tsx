@@ -22,8 +22,8 @@
  * editing the four gate cases that pin `helpRows === 10`.
  */
 
-import { useEffect, useRef, useState } from 'react'
-import { MOMENT_HOLD_MS, type Moment, type MomentKind } from '../model/moments'
+import { useEffect, useState } from 'react'
+import { MOMENT_HOLD_MS, NAMED_PLAYERS, namedPlayerFor, type Moment, type MomentKind } from '../model/moments'
 import { money } from './columns'
 
 /**
@@ -35,8 +35,11 @@ import { money } from './columns'
  */
 const DONE_GIFS = ['done_1.gif', 'done_2.gif', 'done_3.gif', 'done_4.gif', 'done_5.gif'] as const
 const MONEY_GIFS = ['money.gif', 'money_2.gif', 'money_3.gif'] as const
+const BROKE_GIFS = ['broke_1.gif'] as const
+/* Taken from the table, so a new named player needs no edit here. */
+const NAMED_GIFS = NAMED_PLAYERS.map((entry) => entry.clip)
 const PUNT_GIFS = ['punting.gif'] as const
-const ALL_GIFS = [...PUNT_GIFS, ...MONEY_GIFS, ...DONE_GIFS]
+const ALL_GIFS = [...PUNT_GIFS, ...MONEY_GIFS, ...BROKE_GIFS, ...NAMED_GIFS, ...DONE_GIFS]
 
 /**
  * Which clip this moment gets. Deterministic on a name rather than `Math.random()`.
@@ -59,12 +62,24 @@ function choicesFor(kind: MomentKind): readonly string[] {
       return PUNT_GIFS
     case 'rosterFull':
       return DONE_GIFS
+    case 'firstBroke':
+      return BROKE_GIFS
+    case 'namedPlayer':
+      return NAMED_GIFS
     case 'bigSpender':
       return MONEY_GIFS
   }
 }
 
 function gifFor(moment: Moment, clip: number | null): string {
+  /*
+   * A named player's clip is not a choice -- it belongs to that player, so it comes straight off the table
+   * rather than through the name-seeded picker. A pinned `?clip=` preview still overrides, below.
+   */
+  if (moment.kind === 'namedPlayer' && clip === null) {
+    const entry = namedPlayerFor(moment.sale.player)
+    if (entry !== null) return entry.clip
+  }
   const choices = choicesFor(moment.kind)
   /* A pinned preview may ask for one by number; wraps, because `?clip=9` should show something. */
   if (clip !== null) return choices[(clip - 1) % choices.length] as string
@@ -101,6 +116,21 @@ function lines(moment: Moment): { label: string; headline: string; who: string; 
         who: `${manager} — ${player}`,
         price: money$,
       }
+    case 'firstBroke':
+      return {
+        label: 'FIRST DOWN TO $1 BIDS',
+        headline: 'TAPPED OUT',
+        who: `${manager} — ${player}`,
+        price: money$,
+      }
+    case 'namedPlayer':
+      return {
+        label: player.toUpperCase(),
+        /* The headline is the table's, so the joke and the clip cannot drift apart. */
+        headline: namedPlayerFor(player)?.headline ?? player,
+        who: manager,
+        price: money$,
+      }
     case 'bigSpender':
       return {
         // The label says WHY this one fired -- it is a record, not merely an expensive player.
@@ -124,7 +154,12 @@ function demoMoment(kind: MomentKind): Moment {
   const sale = {
     slot: '1:9',
     seq: 1,
-    player: kind === 'firstKicker' ? 'Harrison Butker' : 'Justin Jefferson',
+    player:
+      kind === 'firstKicker' || kind === 'extraKicker'
+        ? 'Harrison Butker'
+        : kind === 'namedPlayer'
+        ? (NAMED_PLAYERS[0]?.player ?? 'Travis Kelce')
+        : 'Justin Jefferson',
     price: kind === 'firstKicker' ? 1 : 72,
     manager: 'Kevin',
     position: kind === 'firstKicker' ? ('K' as const) : ('WR' as const),
@@ -149,20 +184,31 @@ export interface MomentOverlayProps {
   clip?: number | null
 }
 
+/**
+ * Moments this page has already shown, by object identity. MODULE SCOPE, not a ref, and not by accident.
+ *
+ * `App` renders inside `ErrorBoundary`, which grants three recoveries, and a recovery REMOUNTS it -- so a
+ * ref resets to null and the overlay replays whatever moment is still sitting in the snapshot. That is not
+ * theoretical: a 4.5-hour endurance run against the deployed board caught a `bigSpender` lingering in the
+ * snapshot for FORTY-SEVEN MINUTES, which is correct (the supersede rule only fires on a poll that produces
+ * sales, and there were none) but would have meant a render crash replaying a 47-minute-old celebration.
+ *
+ * A `WeakSet`, so holding these costs nothing over a four-hour session -- the entries disappear with the
+ * moment objects themselves. There is one board per page, which is the honest scope for "already shown".
+ */
+const alreadyShown = new WeakSet<Moment>()
+
 export function MomentOverlay({ moment, pinned = null, enabled = true, clip = null }: MomentOverlayProps) {
   const [shown, setShown] = useState<Moment | null>(null)
-  /** The last moment we opened for, so the same one is not reopened after it is dismissed. */
-  const opened = useRef<Moment | null>(null)
 
   useEffect(() => {
     if (moment === null) {
       // Superseded by a sale that earned nothing, or cleared by `X`.
-      opened.current = null
       setShown(null)
       return
     }
-    if (moment !== opened.current) {
-      opened.current = moment
+    if (!alreadyShown.has(moment)) {
+      alreadyShown.add(moment)
       setShown(moment)
     }
   }, [moment])

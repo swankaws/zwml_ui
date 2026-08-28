@@ -36,7 +36,13 @@
 import { league } from '../config/league'
 import { creditable, type SaleEvent, type SlotMap } from './diff'
 
-export type MomentKind = 'firstKicker' | 'extraKicker' | 'bigSpender' | 'rosterFull'
+export type MomentKind =
+  | 'firstKicker'
+  | 'extraKicker'
+  | 'rosterFull'
+  | 'firstBroke'
+  | 'namedPlayer'
+  | 'bigSpender'
 
 export interface Moment {
   kind: MomentKind
@@ -68,8 +74,61 @@ export const MOMENT_HOLD_MS: Record<MomentKind, number> = {
   firstKicker: 5_000,
   /* Longer than the first kicker: it is the better joke, and it is much rarer. */
   extraKicker: 8_000,
+  /* Once a night, like the kicker, and it lands mid-flow rather than in a pause. */
+  firstBroke: 5_000,
+  namedPlayer: 6_000,
   bigSpender: 3_500,
   rosterFull: 15_000,
+}
+
+/**
+ * Players who get their own moment when they sell.
+ *
+ * A TABLE rather than a branch, so the next one is a line of data instead of a new `MomentKind`, a new
+ * switch arm in two files and a new gate case. `clip` lives here beside the copy because the two only ever
+ * change together -- splitting them across the model and the UI is how a headline ends up over the wrong
+ * picture.
+ */
+export interface NamedPlayer {
+  /** Matched loosely -- see `namedPlayerFor`. */
+  player: string
+  headline: string
+  clip: string
+}
+
+export const NAMED_PLAYERS: readonly NamedPlayer[] = [
+  { player: 'Travis Kelce', headline: 'Congratulations Mr. Taylor Swift!', clip: 'taylor_swift_1.gif' },
+]
+
+/** Lower-cased, punctuation dropped, whitespace collapsed. `T. Kelce` and `travis  kelce` both normalise. */
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[.,'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * The named-player entry this sale matches, or `null`.
+ *
+ * Accepts the full name and the first-initial form, because the sheet is typed by hand and `T Kelce` is a
+ * perfectly ordinary way to type it. It does NOT match on surname alone: `Kelce` would also catch Jason,
+ * and congratulating the wrong brother is worse than staying quiet.
+ */
+export function namedPlayerFor(player: string): NamedPlayer | null {
+  const sold = normalizeName(player)
+  if (sold === '') return null
+  for (const entry of NAMED_PLAYERS) {
+    const full = normalizeName(entry.player)
+    if (sold === full) return entry
+    const parts = full.split(' ')
+    if (parts.length >= 2) {
+      const initialForm = [parts[0]?.charAt(0), ...parts.slice(1)].join(' ')
+      if (sold === initialForm) return entry
+    }
+  }
+  return null
 }
 
 /**
@@ -124,6 +183,12 @@ function idOf(kind: MomentKind, sale: SaleEvent): string {
       return `bigSpender:${sale.slot}`
     case 'rosterFull':
       return `rosterFull:${sale.manager}`
+    /* Once for the night, not once per manager: the joke is being FIRST to run out. */
+    case 'firstBroke':
+      return 'firstBroke'
+    /* Per SLOT, so a retraction and re-entry of the same player says nothing a second time. */
+    case 'namedPlayer':
+      return `namedPlayer:${sale.slot}`
   }
 }
 
@@ -170,6 +235,14 @@ export interface MomentInput {
   /** The sheet's current slots, for the unaccounted-kicker guard. */
   slots: SlotMap
   /**
+   * MAX BID per manager, as `derive.ts` computes it. Absent means the broke moment cannot fire.
+   *
+   * Passed in rather than worked out here, because the formula is
+   * `max(minBid, remaining - (needs - 1) * minBid)` over a budget that includes bonus money -- and a second
+   * copy of that in this file would drift from the number actually on the wall.
+   */
+  maxBids?: Readonly<Record<string, number | null>>
+  /**
    * What has already fired. MUTATED BY REFERENCE, the discipline `applyDiff` and `bumpRevisions` are
    * held to -- the caller owns the set so it can survive a re-render, an ErrorBoundary recovery and `X`.
    */
@@ -183,7 +256,7 @@ export interface MomentInput {
  * consumed, so a $70 kicker does not also fire a spend on the next poll.
  */
 export function detectMoments(input: MomentInput): Moment | null {
-  const { sales, log, slots, fired } = input
+  const { sales, log, slots, fired, maxBids } = input
   if (sales.length === 0) return null
 
   const kicker = sales.find((sale) => sale.position === 'K') ?? null
@@ -202,6 +275,18 @@ export function detectMoments(input: MomentInput): Moment | null {
   const doubles = sales
     .filter((sale) => sale.position === 'K' && (kickersHeld.get(sale.manager) ?? 0) >= 2)
     .map((sale) => ({ sale, count: kickersHeld.get(sale.manager) ?? 2 }))
+
+  /*
+   * Reduced to minimum bids: MAX BID has hit the floor, so this manager cannot outbid anybody on anything.
+   * The board already calls this state `broke` (`rowState`), and the floor is why `<=` rather than `===` --
+   * `maxBid` is `Math.max(minBid, ...)`, so an OVERSPENT manager sits at the same number.
+   *
+   * Only the buyer's MAX BID can move on a sale, so the buyer is the only candidate worth testing.
+   */
+  const brokeNow = sales.filter((sale) => {
+    const bid = maxBids?.[sale.manager]
+    return bid !== undefined && bid !== null && bid <= league.minBid
+  })
 
   /*
    * The highest price on the board BEFORE this poll, which is what a "new highest sale" has to beat.
@@ -274,6 +359,15 @@ export function detectMoments(input: MomentInput): Moment | null {
   for (const sale of finishers) {
     if (!everyoneFull && !fired.has(idOf('rosterFull', sale))) {
       candidates.push({ kind: 'rosterFull', sale })
+    }
+  }
+  if (!fired.has('firstBroke')) {
+    const broke = brokeNow[0]
+    if (broke !== undefined) candidates.push({ kind: 'firstBroke', sale: broke })
+  }
+  for (const sale of sales) {
+    if (namedPlayerFor(sale.player) !== null && !fired.has(idOf('namedPlayer', sale))) {
+      candidates.push({ kind: 'namedPlayer', sale })
     }
   }
   for (const sale of spends) {
@@ -381,6 +475,10 @@ export function pinnedMomentKind(search: string): MomentKind | null {
       return 'bigSpender'
     case 'done':
       return 'rosterFull'
+    case 'broke':
+      return 'firstBroke'
+    case 'named':
+      return 'namedPlayer'
     default:
       return null
   }
