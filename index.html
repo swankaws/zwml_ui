@@ -6,17 +6,103 @@
     <meta name="color-scheme" content="dark" />
     <title>ZWML Auction</title>
     <script>
-      // Stale-bundle self-heal. GitHub Pages serves index.html with a fixed
-      // max-age=600, so a browser can hold an old index that references hashed
-      // assets which no longer exist -- a white screen. Reload once to recover.
-      // See docs/DESIGN.md section 10. Guarded so it can never loop.
-      window.addEventListener('vite:preloadError', (e) => {
-        e.preventDefault()
-        if (!sessionStorage.getItem('zwml:reloadedOnce')) {
-          sessionStorage.setItem('zwml:reloadedOnce', '1')
+      /*
+       * Stale-bundle self-heal (docs/DESIGN.md section 10).
+       *
+       * GitHub Pages serves index.html with a fixed max-age=600, so a browser can hold an old index that
+       * references hashed assets which no longer exist. The result is a white screen on a projector, and
+       * the app's own watchdog cannot help with it: the watchdog is IN the bundle that failed to load.
+       *
+       * `vite:preloadError` alone was not enough, and that was a real gap. Vite emits it for a failed
+       * DYNAMIC import, and this build has none -- one entry bundle, no code splitting. So the exact
+       * failure the listener was written for could never reach it: if the entry 404s, no Vite runtime
+       * exists to emit anything. It is kept below because it costs nothing and becomes correct the day
+       * somebody adds a dynamic import.
+       *
+       * Three routes now, all funnelling into one guarded reload:
+       *   1. A capturing `error` listener. Resource failures fire on the ELEMENT and do not bubble, so
+       *      capture on window is the only way to see a <script> or <link> that 404d.
+       *   2. A 12-second check that anything mounted at all -- which also covers a bundle that loads and
+       *      then throws before React commits.
+       *   3. `vite:preloadError`, for the future.
+       */
+      ;(function () {
+        var KEY = 'zwml:reloadAt'
+        /*
+         * At most one recovery per minute, bounded by TIME rather than by a once-only flag.
+         *
+         * A once-only flag in sessionStorage was tried and reloaded twice: Vite injects a `modulepreload`
+         * link for the entry as well as the script tag, so a missing bundle fails TWO elements and each
+         * one raced to record the attempt. A timestamp cannot be raced into allowing a third reload, and
+         * it self-heals -- a genuine failure next week still gets one attempt rather than being permanently
+         * locked out by a flag nobody clears.
+         *
+         * `localStorage`, so the bound survives the reload it is bounding. If storage is unreachable
+         * (private mode throws on ACCESS) we do NOT reload at all: with nowhere to record the attempt a
+         * loop is possible, and a reload loop on a projector is worse than the white screen it fixes.
+         */
+        function lastAttempt() {
+          try {
+            return Number(window.localStorage.getItem(KEY)) || 0
+          } catch (e) {
+            return NaN
+          }
+        }
+
+        function explain() {
+          var root = document.getElementById('root')
+          if (!root || root.firstChild) return
+          /* Inline styles, because the stylesheet may be the casualty. Anything beats a white wall. */
+          root.setAttribute(
+            'style',
+            'font:600 4vh/1.4 system-ui,sans-serif;color:#f4f7fa;background:#07090c;' +
+              'height:100vh;display:grid;place-content:center;text-align:center;padding:4vw',
+          )
+          root.textContent = 'ZWML could not load. Check the connection, then reload.'
+        }
+
+        var recovering = false
+        function recover() {
+          if (recovering) return
+          recovering = true
+          var last = lastAttempt()
+          if (isNaN(last) || Date.now() - last < 60000) return explain()
+          try {
+            window.localStorage.setItem(KEY, String(Date.now()))
+          } catch (e) {
+            return explain()
+          }
           location.reload()
         }
-      })
+
+        window.addEventListener(
+          'error',
+          function (event) {
+            /* A resource failure targets the ELEMENT and does not bubble, so capture is the only way. */
+            var el = event.target
+            if (!el || el === window || !el.tagName) return
+            var tag = el.tagName.toUpperCase()
+            if (tag === 'SCRIPT' || tag === 'LINK') recover()
+          },
+          true,
+        )
+
+        window.addEventListener('vite:preloadError', function (event) {
+          event.preventDefault()
+          recover()
+        })
+
+        /*
+         * Last resort. React mounts something synchronously on every path -- board, setup card or standby --
+         * so an empty root this long after load means the bundle never ran, or ran and threw before
+         * committing. Twelve seconds is deliberately generous: a slow connection must be allowed to finish
+         * rather than be restarted underneath itself.
+         */
+        window.setTimeout(function () {
+          var root = document.getElementById('root')
+          if (root && !root.firstChild) recover()
+        }, 12000)
+      })()
     </script>
   </head>
   <body>

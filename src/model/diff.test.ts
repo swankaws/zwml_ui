@@ -42,7 +42,13 @@ describe('snapshotSlots', () => {
     const diff = diffSlots(before, after, 1)
     expect(diff.sales).toEqual([])
     expect(diff.retracted).toEqual([])
-    // The buyer's display name is corrected in place, which is what the ticker should show.
+    /*
+     * NO correction, and the comment here used to claim the opposite ("the buyer's display name is
+     * corrected in place") while asserting this -- a stale intent sitting next to the behaviour that
+     * contradicts it. The behaviour is deliberate: a rename is not new information about a sale, so the
+     * ticker keeps the name that was on the sheet when the player sold. `diffSlots` ignores `manager` for
+     * exactly this reason.
+     */
     expect(diff.corrections).toEqual([])
   })
 
@@ -83,6 +89,38 @@ describe('diffSlots', () => {
     expect(diff.corrections).toEqual([
       { slot: '0:5', seq: 0, player: 'Bijan Robinson', price: 47, manager: 'Kevin', position: 'RB' },
     ])
+  })
+
+  it('treats a position typed after the price as a correction', () => {
+    /*
+     * The order somebody actually types a BENCH pick in. Only starter rows carry a pre-filled `Pos` label
+     * -- the template puts QB/RB/RB/WR/WR/TE/K there whether the slot is filled or not -- while bench
+     * labels are blank, because a bench slot may hold any position. So a bench pick's position comes from
+     * a cell that gets typed, and typing the price first is perfectly normal.
+     *
+     * This used to emit nothing: the sale kept `position: null` for the rest of the night, so LAST
+     * PURCHASED and the history showed it uncoloured, and anything reading `sale.position` never saw it.
+     */
+    const before = oneSale({ position: null })
+    const after = oneSale({ position: 'K' })
+    const diff = diffSlots(before, after, 2)
+
+    expect(diff.sales).toEqual([])
+    expect(diff.corrections).toEqual([
+      { slot: '0:5', seq: 0, player: 'Bijan Robinson', price: 61, manager: 'Kevin', position: 'K' },
+    ])
+  })
+
+  it('carries a corrected position into the log, keeping the original sequence', () => {
+    // End to end, because a correction that never reaches `applyDiff` is no better than none.
+    const sold = diffSlots({}, oneSale({ position: null }), 7)
+    const log = applyDiff([], sold)
+    expect(log[0]).toMatchObject({ seq: 7, position: null })
+
+    const fixed = diffSlots(oneSale({ position: null }), oneSale({ position: 'K' }), 8)
+    const after = applyDiff(log, fixed)
+    expect(after).toHaveLength(1)
+    expect(after[0]).toMatchObject({ seq: 7, position: 'K' })
   })
 
   it('treats a player replaced in the same slot as a correction', () => {

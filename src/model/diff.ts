@@ -177,7 +177,26 @@ export function diffSlots(previous: SlotMap, next: SlotMap, nextSeq: number): Di
       if (creditable(before)) retracted.push(slot)
       continue
     }
-    if (before.player !== state.player || before.price !== state.price) {
+    /*
+     * POSITION counts as a correction too, and leaving it out was a real defect.
+     *
+     * Only STARTER rows have their `Pos` label validated against the template -- bench labels are
+     * free-form, because a bench slot may hold any position. So a bench pick's position comes from a cell
+     * somebody types, and typing the price before the label is the ordinary order of doing it. The sale
+     * was then recorded with `position: null` and, because this test ignored position, stayed that way
+     * for the rest of the night: no colour on LAST PURCHASED or in the history, and -- since the moments
+     * read `sale.position` -- no `extraKicker` for a second kicker parked on the bench, which is exactly
+     * the case the two-kicker joke exists for.
+     *
+     * `manager` is still deliberately absent. A manager-name change is not new information about a sale;
+     * it is a rename, which this file ignores on purpose (slots are keyed geometrically so a rename is
+     * not fifteen phantom sales). Adding it here would make a rename rewrite the whole ticker instead.
+     */
+    if (
+      before.player !== state.player ||
+      before.price !== state.price ||
+      before.position !== state.position
+    ) {
       // seq 0 is a placeholder: the caller keeps the entry's original sequence, since
       // this is the same sale with better information, not a later one.
       corrections.push({ slot, seq: 0, ...display(state) })
