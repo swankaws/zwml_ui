@@ -15,6 +15,7 @@ import {
   MOMENT_MAX_BATCH,
   detectMoments,
   firedFromLog,
+  pinnedClip,
   pinnedMomentKind,
 } from './moments'
 import type { SaleEvent, SlotMap, SlotState } from './diff'
@@ -458,6 +459,23 @@ describe('firedFromLog', () => {
      * fired costs a joke nobody expected; missing one repeats a joke the room already had.
      */
     expect([...fired].sort()).toEqual(['bigSpender:7:3', 'extraKicker:1:9', 'firstKicker'])
+  })
+})
+
+describe('pinnedClip', () => {
+  it('reads a 1-based clip number', () => {
+    expect(pinnedClip('?fixture=2026&moment=spender&clip=2')).toBe(2)
+    expect(pinnedClip('?clip=1')).toBe(1)
+  })
+
+  it('is absent when not asked for', () => {
+    expect(pinnedClip('?fixture=2026&moment=spender')).toBeNull()
+    expect(pinnedClip('')).toBeNull()
+  })
+
+  it('ignores anything that is not a positive number', () => {
+    // A preview knob: a bad value falls back to the name-seeded pick rather than breaking the overlay.
+    for (const raw of ['0', '-1', 'two', '', 'NaN']) expect(pinnedClip(`?clip=${raw}`)).toBeNull()
   })
 })
 

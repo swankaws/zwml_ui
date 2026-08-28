@@ -42,3 +42,21 @@ describe('gifFrom', () => {
     expect(DONE).toContain(gifFrom(DONE, ''))
   })
 })
+
+describe('clip previews', () => {
+  it('gives every clip in a list a way to be previewed', () => {
+    /*
+     * The reason `?clip=N` exists. A real moment picks from the player's or manager's name, so the set is
+     * well covered across a night -- but a PINNED preview always names the same stand-in player and
+     * therefore always showed the same clip. There was no way to look at the others before the draft.
+     */
+    const seen = new Set(DONE.map((_, index) => DONE[(index + 1 - 1) % DONE.length]))
+    expect(seen.size).toBe(DONE.length)
+  })
+
+  it('wraps out-of-range clip numbers rather than showing nothing', () => {
+    const wrapped = (clip: number) => DONE[(clip - 1) % DONE.length]
+    expect(wrapped(DONE.length + 1)).toBe(DONE[0])
+    expect(wrapped(DONE.length)).toBe(DONE[DONE.length - 1])
+  })
+})

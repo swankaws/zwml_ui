@@ -52,16 +52,24 @@ export function gifFrom(choices: readonly string[], seed: string): string {
   return choices[sum % choices.length] as string
 }
 
-function gifFor(moment: Moment): string {
-  switch (moment.kind) {
+function choicesFor(kind: MomentKind): readonly string[] {
+  switch (kind) {
     case 'firstKicker':
     case 'extraKicker':
-      return gifFrom(PUNT_GIFS, moment.sale.player)
+      return PUNT_GIFS
     case 'rosterFull':
-      return gifFrom(DONE_GIFS, moment.sale.manager)
+      return DONE_GIFS
     case 'bigSpender':
-      return gifFrom(MONEY_GIFS, moment.sale.player)
+      return MONEY_GIFS
   }
+}
+
+function gifFor(moment: Moment, clip: number | null): string {
+  const choices = choicesFor(moment.kind)
+  /* A pinned preview may ask for one by number; wraps, because `?clip=9` should show something. */
+  if (clip !== null) return choices[(clip - 1) % choices.length] as string
+  /* Seeded on the manager for a finished roster, on the player otherwise -- see `gifFrom`. */
+  return gifFrom(choices, moment.kind === 'rosterFull' ? moment.sale.manager : moment.sale.player)
 }
 
 /**
@@ -134,9 +142,14 @@ export interface MomentOverlayProps {
   pinned?: MomentKind | null
   /** `eggs off`. */
   enabled?: boolean
+  /**
+   * `?clip=N`, 1-based, for a pinned preview only. Ignored for a real moment, whose clip is chosen from
+   * the player's or manager's name so it is both varied across a night and reproducible.
+   */
+  clip?: number | null
 }
 
-export function MomentOverlay({ moment, pinned = null, enabled = true }: MomentOverlayProps) {
+export function MomentOverlay({ moment, pinned = null, enabled = true, clip = null }: MomentOverlayProps) {
   const [shown, setShown] = useState<Moment | null>(null)
   /** The last moment we opened for, so the same one is not reopened after it is dismissed. */
   const opened = useRef<Moment | null>(null)
@@ -196,7 +209,7 @@ export function MomentOverlay({ moment, pinned = null, enabled = true }: MomentO
 
   if (!enabled || active === null) return null
 
-  const gif = gifFor(active)
+  const gif = gifFor(active, pinned !== null ? clip : null)
   const copy = lines(active)
 
   return (

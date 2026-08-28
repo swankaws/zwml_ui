@@ -352,6 +352,23 @@ export function firedFromLog(log: readonly SaleEvent[]): Set<string> {
  * evening. `?view=complete` is survivable because `Esc` closes it; this is not, so it is gated on a
  * fixture being loaded, which no live board ever does.
  */
+/**
+ * `?clip=N`, 1-based, to preview a specific clip for a pinned moment.
+ *
+ * The clip a moment gets is deterministic on the player's or manager's name, which is what makes it
+ * testable and unpredictable in the room -- but it also means the PINNED preview always shows the same one,
+ * because the stand-in sale always names the same stand-in player. On a real draft each record-breaker and
+ * each finishing manager gets their own; only the preview needed a way to cycle.
+ *
+ * Out-of-range values wrap rather than fail: this is a preview knob, and `?clip=9` should show something.
+ */
+export function pinnedClip(search: string): number | null {
+  const raw = new URLSearchParams(search.replace(/^\?/, '')).get('clip')
+  if (raw === null) return null
+  const value = Number.parseInt(raw, 10)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
 export function pinnedMomentKind(search: string): MomentKind | null {
   const params = new URLSearchParams(search.replace(/^\?/, ''))
   if (params.get('fixture') === null) return null

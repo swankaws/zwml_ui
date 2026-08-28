@@ -26,7 +26,7 @@ import { LiveBoard } from './ui/LiveBoard'
 import { Notices } from './ui/Notices'
 import { Setup } from './ui/Setup'
 import { loadFixture } from './dev/fixtureState'
-import { pinnedMomentKind } from './model/moments'
+import { pinnedClip, pinnedMomentKind } from './model/moments'
 import { createBoardStore, type BoardStore } from './live/boardStore'
 import { installWatchdog, sessionHistory } from './live/watchdog'
 import { browserSession, safeSessionStorage as safeSession, sessionKey } from './live/session'
@@ -299,6 +299,8 @@ function renderFixture(root: ReturnType<typeof createRoot>) {
        * unless a fixture is loaded: a `?moment=` in a bookmark would otherwise strand the projector.
        */
       pinnedMoment={pinnedMomentKind(search)}
+      /* `?clip=N` cycles the preview, since a pinned moment always names the same stand-in player. */
+      momentClip={pinnedClip(search)}
       /*
        * `?teams=1` gives the fixture a stand-in team map, so the layout gate can measure the tooltip. The
        * live path reads the real tab once; a static fixture has no tab to read, and the alternative was

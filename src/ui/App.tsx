@@ -80,6 +80,8 @@ export interface AppProps {
   moment?: Moment | null
   /** `?moment=`, fixture-only. Pins the overlay open so the layout gate can measure it. */
   pinnedMoment?: MomentKind | null
+  /** `?clip=N`, for previewing a specific clip against a pinned moment. */
+  momentClip?: number | null
   /** Manager -> team name for the board's tooltip. Empty means no tooltip, which is the default. */
   teams?: Readonly<Record<string, string>>
 }
@@ -166,6 +168,7 @@ export function App({
   notices = null,
   moment = null,
   pinnedMoment = null,
+  momentClip = null,
   teams = {},
 }: AppProps) {
   const { scale, nudged } = useDisplayScale(settings.scale)
@@ -362,7 +365,12 @@ export function App({
        * Beside `Help`, the app's other overlay, and OUTSIDE `.stage` on purpose: it covers the board
        * rather than living in it, so it must not be a grid item competing for the row budget.
        */}
-      <MomentOverlay moment={moment} pinned={pinnedMoment} enabled={settings.eggs} />
+      <MomentOverlay
+        moment={moment}
+        pinned={pinnedMoment}
+        clip={momentClip}
+        enabled={settings.eggs}
+      />
       <div className="footer">
         {notices}
         {/* Only after someone actually presses a key -- otherwise it is noise on the wall. */}
