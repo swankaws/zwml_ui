@@ -30,7 +30,7 @@ export interface PlayerTag {
 }
 
 export const PLAYER_TAGS: readonly PlayerTag[] = [
-  { tag: 'h', headline: 'HOMER', clips: ['homer_1.gif', 'homer_2.gif', 'homer_3.gif'] },
+  { tag: 'h', headline: 'HOMER', clips: ['homer_1.gif', 'homer_2.gif', 'homer_3.gif', 'homer_4.gif'] },
   { tag: 'd', headline: 'DICK MOVE', clips: ['dick_move_1.gif', 'dick_move_2.gif'] },
 ]
 

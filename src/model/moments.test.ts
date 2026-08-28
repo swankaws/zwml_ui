@@ -359,15 +359,20 @@ describe('hoarder', () => {
   const bought = (position: 'QB' | 'RB' | 'WR' | 'TE' | 'K', over: Partial<SaleEvent> = {}) =>
     sale({ manager: 'Kevin', position, player: 'Javonte Williams', price: 4, slot: '1:2', ...over })
 
-  it('fires at SEVEN, the first offending number', () => {
-    expect(HOARDER_OVER).toBe(6)
-    const moment = detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 7) })
+  it('fires at SIX, the first offending number', () => {
+    // Was seven, lowered on the maintainer's call: seven is rare enough that the joke mostly would not land.
+    expect(HOARDER_OVER).toBe(5)
+    const moment = detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 6) })
     expect(moment?.kind).toBe('hoarder')
-    expect(moment?.count).toBe(7)
+    expect(moment?.count).toBe(6)
   })
 
-  it('does not fire at six, which is merely a lot', () => {
-    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 6) })).toBeNull()
+  it('does not fire at five, which is merely a lot', () => {
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 5) })).toBeNull()
+  })
+
+  it('still fires above the threshold, and reports the real count', () => {
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 9) })?.count).toBe(9)
   })
 
   it('counts the position of the sale, not the biggest stack on the roster', () => {
@@ -386,22 +391,22 @@ describe('hoarder', () => {
   })
 
   it('counts keepers, because the joke is about the roster not the auction', () => {
-    // Six kept plus one bought is seven on the roster, however they got there.
-    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 7) })?.count).toBe(7)
+    // Five kept plus one bought is six on the roster, however they got there.
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 6) })?.count).toBe(6)
   })
 
   it('fires once per manager AND position, so eight does not repeat seven', () => {
     const fired = new Set<string>()
-    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 7), fired })?.kind).toBe('hoarder')
+    expect(detect({ sales: [bought('RB')], slots: stack('Kevin', 'RB', 6), fired })?.kind).toBe('hoarder')
     expect(fired.has('hoarder:Kevin:RB')).toBe(true)
-    expect(detect({ sales: [bought('RB', { seq: 2 })], slots: stack('Kevin', 'RB', 8), fired })).toBeNull()
+    expect(detect({ sales: [bought('RB', { seq: 2 })], slots: stack('Kevin', 'RB', 7), fired })).toBeNull()
   })
 
   it('accuses the same manager separately for a different position', () => {
     const fired = new Set(['hoarder:Kevin:RB'])
     const slots: SlotMap = {
       ...Object.fromEntries(
-        Array.from({ length: 7 }, (_, i) => [`1:${i + 2}`, slot({ manager: 'Kevin', position: 'WR' })]),
+        Array.from({ length: 6 }, (_, i) => [`1:${i + 2}`, slot({ manager: 'Kevin', position: 'WR' })]),
       ),
       '7:2': slot({ manager: 'Bystander', position: 'QB' }),
     }

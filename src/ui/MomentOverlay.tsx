@@ -22,7 +22,7 @@
  * editing the four gate cases that pin `helpRows === 10`.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   HOARDER_OVER,
   MOMENT_HOLD_MS,
@@ -67,17 +67,21 @@ const ALL_GIFS = [
 ]
 
 /**
- * Which clip this moment gets. Deterministic on a name rather than `Math.random()`.
+ * Which clip this moment gets. RANDOM, on the maintainer's call.
  *
- * Nobody in the room can predict it, the same name always gets the same clip, and it is testable -- three
- * properties a random pick would cost. Seeded on the MANAGER for a finished roster (each manager gets
- * their own, and finishes only once) and on the PLAYER for a record sale (each record-breaker gets their
- * own, and there are about six of those in an evening).
+ * This was deterministic, seeded on the manager's or player's name -- which was testable and unpredictable
+ * in the room, but also meant a given name always drew the same clip. With four homer clips the point is
+ * variety, and a seed that happens to collide gives none.
+ *
+ * Chosen ONCE per firing, not per render: the call site memoises on the moment's identity. Rolling during
+ * render would swap the gif underneath itself on any re-publish, and the board re-publishes every second on
+ * the age tick.
+ *
+ * The one property lost is that a finished manager no longer has "their" clip across nights. Unobservable
+ * inside a single draft, since a manager finishes once.
  */
-export function gifFrom(choices: readonly string[], seed: string): string {
-  let sum = 0
-  for (let index = 0; index < seed.length; index += 1) sum += seed.charCodeAt(index)
-  return choices[sum % choices.length] as string
+export function gifFrom(choices: readonly string[]): string {
+  return choices[Math.floor(Math.random() * choices.length)] as string
 }
 
 function choicesFor(moment: Moment): readonly string[] {
@@ -116,8 +120,7 @@ function gifFor(moment: Moment, clip: number | null): string {
   const choices = choicesFor(moment)
   /* A pinned preview may ask for one by number; wraps, because `?clip=9` should show something. */
   if (clip !== null) return choices[(clip - 1) % choices.length] as string
-  /* Seeded on the manager for a finished roster, on the player otherwise -- see `gifFrom`. */
-  return gifFrom(choices, moment.kind === 'rosterFull' ? moment.sale.manager : moment.sale.player)
+  return gifFrom(choices)
 }
 
 /**
@@ -292,7 +295,12 @@ export function MomentOverlay({ moment, pinned = null, enabled = true, clip = nu
     }
   }, [enabled])
 
-  const active = pinned !== null ? demoMoment(pinned) : shown
+  /*
+   * Memoised so a re-render cannot produce a NEW demo object -- which would re-roll the clip below and swap
+   * the gif mid-display. The board re-publishes every second on the age tick, so that is not hypothetical.
+   */
+  const demo = useMemo(() => (pinned === null ? null : demoMoment(pinned)), [pinned])
+  const active = demo ?? shown
 
   useEffect(() => {
     if (active === null || pinned !== null) return
@@ -312,9 +320,18 @@ export function MomentOverlay({ moment, pinned = null, enabled = true, clip = nu
     }
   }, [active, pinned])
 
-  if (!enabled || active === null) return null
+  /*
+   * One roll per moment. Keyed on the moment's IDENTITY -- a new object means a new firing -- plus the
+   * explicit `?clip=` override, which pins a specific clip for a preview.
+   */
+  const activeClip = useMemo(
+    () => (active === null ? null : gifFor(active, pinned !== null ? clip : null)),
+    [active, clip, pinned],
+  )
 
-  const gif = gifFor(active, pinned !== null ? clip : null)
+  if (!enabled || active === null || activeClip === null) return null
+
+  const gif = activeClip
   const copy = lines(active)
 
   return (

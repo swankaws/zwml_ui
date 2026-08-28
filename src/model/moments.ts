@@ -188,13 +188,16 @@ export const MAX_PLAUSIBLE_PRICE = league.budget
 export const MOMENT_MAX_BATCH = 2
 
 /**
- * Strictly more than this at one position and it is hoarding. Seven is the first offending number.
+ * Strictly more than this at one position and it is hoarding. Six is the first offending number.
+ *
+ * Was seven, lowered on the maintainer's call after seeing it: seven is rare enough that the joke would
+ * mostly not land.
  *
  * In practice this is an RB/WR accusation and cannot be anything else: `positionLimits` caps QB and TE at
  * three and K at two, so those cannot reach seven without the sheet being wrong. Which is the right shape --
  * stockpiling running backs is the actual behaviour worth mocking.
  */
-export const HOARDER_OVER = 6
+export const HOARDER_OVER = 5
 
 /**
  * Stable id for the fired set. One kicker-moment ever, one per slot for big spends, one per manager for
